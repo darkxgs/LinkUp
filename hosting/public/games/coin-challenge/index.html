@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>تحدي رمي قطعة نقدية</title>
+  <style>
+    :root {
+      --gold: #f5c542;
+      --gold-deep: #c9971a;
+      --glass-bg: rgba(15, 23, 42, 0.72);
+      --glass-line: rgba(255, 255, 255, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+      color: #fff;
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+    .coin-icon {
+      width: 14px;
+      height: 14px;
+      vertical-align: middle;
+      object-fit: contain;
+      display: inline-block;
+    }
+    .hud {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 6px max(44px, env(safe-area-inset-right, 8px)) 8px max(8px, env(safe-area-inset-left, 8px));
+    }
+    .hud-player {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-line);
+      backdrop-filter: blur(10px);
+      border-radius: 14px;
+      padding: 8px 10px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      transition: border-color .25s, box-shadow .25s;
+    }
+    .hud-player.is-active {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 2px var(--gold), 0 0 20px rgba(245, 197, 66, 0.45);
+    }
+    #hud-p1 { justify-self: start; }
+    #hud-p2 { justify-self: end; flex-direction: row-reverse; }
+    .hud-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      min-width: 0;
+    }
+    .hud-meta-right { align-items: flex-end; }
+    .hud-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: .85rem;
+      color: #fff;
+      overflow: hidden;
+      position: relative;
+      box-shadow: inset 0 -3px 8px rgba(0, 0, 0, 0.35);
+    }
+    .av-p1 { background: linear-gradient(160deg, #4d86ff, #1a44b8); }
+    .av-p2 { background: linear-gradient(160deg, #ff7a5c, #c52d12); }
+    .hud-avatar-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+      z-index: 2;
+      display: none;
+    }
+    .hud-avatar.has-photo .hud-avatar-img { display: block; }
+    .hud-avatar.has-photo .hud-avatar-fallback { display: none !important; }
+    .hud-name {
+      font-weight: 800;
+      font-size: .82rem;
+      max-width: 88px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .hud-score {
+      font-size: 1.35rem;
+      font-weight: 900;
+      color: var(--gold);
+      line-height: 1.1;
+    }
+    .hud-center {
+      justify-self: center;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .pot-display {
+      background: linear-gradient(180deg, var(--gold), var(--gold-deep));
+      color: #111;
+      font-weight: 900;
+      padding: 6px 14px;
+      border-radius: 12px;
+      font-size: .85rem;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+    .round-label {
+      font-size: .72rem;
+      opacity: .85;
+      letter-spacing: .5px;
+    }
+    .wrap {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 0 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .title {
+      font-size: 18px;
+      font-weight: 800;
+      text-align: center;
+      opacity: .9;
+    }
+    .card {
+      background: rgba(30, 41, 59, 0.9);
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .timer {
+      height: 8px;
+      background: #334155;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .timer > div {
+      height: 100%;
+      width: 100%;
+      background: #22c55e;
+      transition: width .1s linear;
+    }
+    .btns { display: flex; gap: 10px; }
+    button {
+      flex: 1;
+      border: 0;
+      border-radius: 12px;
+      padding: 14px 10px;
+      font-weight: 800;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    .heads { background: #7c3aed; color: #fff; }
+    .tails { background: #f59e0b; color: #111827; }
+    .hidden { display: none !important; }
+    .status { min-height: 22px; font-weight: 700; text-align: center; color: #cbd5e1; }
+    .coin {
+      font-size: 52px;
+      text-align: center;
+      margin: 4px 0;
+      line-height: 1;
+    }
+    body.challenge-embed .title { display: none; }
+    body.challenge-embed .hud-name { max-width: 76px; font-size: .75rem; }
+    body.challenge-embed .hud-avatar { width: 36px; height: 36px; }
+    body.challenge-embed .hud-score { font-size: 1.15rem; }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div class="hud-player" id="hud-p1">
+      <div class="hud-avatar av-p1" data-hud-avatar="P1">
+        <span class="hud-avatar-fallback">1</span>
+      </div>
+      <div class="hud-meta">
+        <span class="hud-name" id="p1n">لاعب 1</span>
+        <span class="hud-score" id="p1score">0</span>
+      </div>
+    </div>
+    <div class="hud-center">
+      <div class="pot-display">POT <span id="pot">0</span> <img class="coin-icon" src="/images/coin-gold.png?v=4" alt="كوين" /></div>
+      <div class="round-label" id="round">الجولة 1 من 3</div>
+    </div>
+    <div class="hud-player" id="hud-p2">
+      <div class="hud-meta hud-meta-right">
+        <span class="hud-name" id="p2n">لاعب 2</span>
+        <span class="hud-score" id="p2score">0</span>
+      </div>
+      <div class="hud-avatar av-p2" data-hud-avatar="P2">
+        <span class="hud-avatar-fallback">2</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="title">تحدي رمي قطعة نقدية</div>
+    <div class="card">
+      <div class="timer"><div id="timerFill"></div></div>
+      <div class="coin" id="coinFace">🪙</div>
+      <div class="status" id="status">جاري تهيئة التحدي...</div>
+      <div class="btns hidden" id="choices">
+        <button class="heads" onclick="choose('heads')">وجه</button>
+        <button class="tails" onclick="choose('tails')">كتابة</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../challenge-i18n.js?v=2"></script>
+  <script src="../challenge-demo-bridge.js"></script>
+  <script>
+    function applyLocale(locale) {
+      if (locale && window.ChallengeI18n) {
+        window.ChallengeI18n.setLang(locale);
+      }
+    }
+
+    function tr(key, vars) {
+      return window.ChallengeI18n ? window.ChallengeI18n.t(key, vars) : key;
+    }
+
+    function applyStaticLabels() {
+      const titleEl = document.querySelector('.title');
+      if (titleEl) titleEl.textContent = tr('coinTitle');
+      const headsBtn = document.querySelector('.heads');
+      const tailsBtn = document.querySelector('.tails');
+      if (headsBtn) headsBtn.textContent = tr('coinHeads');
+      if (tailsBtn) tailsBtn.textContent = tr('coinTails');
+    }
+    ChallengeDemoBridge.install('coin-challenge');
+    applyStaticLabels();
+    let challenge = null;
+    let myRole = '';
+    let timerId = null;
+    let timeLeft = 10;
+    let lock = false;
+
+    function gcfg() {
+      const g = (challenge && challenge.global) || {};
+      return {
+        rounds: Number(g.coinChallengeRounds) || 3,
+        turnSec: Number(g.coinChallengeTurnSeconds) || 10,
+      };
+    }
+
+    function winsNeeded() {
+      return Math.floor(gcfg().rounds / 2) + 1;
+    }
+
+    function postToApp(data) {
+      ChallengeDemoBridge.postToApp(data);
+    }
+
+    function ensureState() {
+      if (!challenge.gameState) {
+        challenge.gameState = {
+          round: 1,
+          p1Choice: null,
+          p2Choice: null,
+          roundResults: [],
+          flipResult: null,
+          turn: challenge.challengerId,
+        };
+      }
+    }
+
+    function score() {
+      const s = challenge.gameState.roundResults || [];
+      return {
+        p1: s.filter((x) => x === 'challenger').length,
+        p2: s.filter((x) => x === 'opponent').length,
+      };
+    }
+
+    function isMyPickTurn() {
+      const s = challenge.gameState;
+      if (s.round === 1) return myRole === 'challenger';
+      if (s.round === 2) return myRole === 'opponent';
+      return false;
+    }
+
+    function syncHudAvatars() {
+      if (!challenge) return;
+      const map = {
+        P1: challenge.challengerAvatar || '',
+        P2: challenge.challengedAvatar || '',
+      };
+      const names = {
+        P1: challenge.challengerName || tr('player1'),
+        P2: challenge.challengedName || tr('player2'),
+      };
+      ['P1', 'P2'].forEach((p) => {
+        const wrap = document.querySelector('[data-hud-avatar="' + p + '"]');
+        if (!wrap) return;
+        let img = wrap.querySelector('.hud-avatar-img');
+        if (!img) {
+          img = document.createElement('img');
+          img.className = 'hud-avatar-img';
+          img.alt = '';
+          wrap.insertBefore(img, wrap.firstChild);
+        }
+        const url = map[p];
+        const fb = wrap.querySelector('.hud-avatar-fallback');
+        if (url) {
+          img.src = url;
+          img.onerror = () => {
+            wrap.classList.remove('has-photo');
+            img.style.display = 'none';
+            if (fb) {
+              fb.style.display = 'grid';
+              fb.textContent = names[p][0];
+            }
+          };
+          wrap.classList.add('has-photo');
+          img.style.display = 'block';
+          if (fb) fb.style.display = 'none';
+        } else {
+          wrap.classList.remove('has-photo');
+          img.style.display = 'none';
+          if (fb) {
+            fb.style.display = 'grid';
+            fb.textContent = names[p][0];
+          }
+        }
+      });
+    }
+
+    function startTimer() {
+      stopTimer();
+      timeLeft = gcfg().turnSec;
+      timerId = setInterval(() => {
+        timeLeft = Math.max(0, timeLeft - 0.1);
+        renderTimer();
+        if (timeLeft <= 0) {
+          stopTimer();
+          onTimeout();
+        }
+      }, 100);
+    }
+
+    function stopTimer() {
+      if (timerId) clearInterval(timerId);
+      timerId = null;
+    }
+
+    function renderTimer() {
+      const max = gcfg().turnSec;
+      const w = Math.max(0, Math.min(100, (timeLeft / max) * 100));
+      document.getElementById('timerFill').style.width = w + '%';
+    }
+
+    function onTimeout() {
+      if (!challenge || lock || !isMyPickTurn()) return;
+      const loser = myRole;
+      const winner = loser === 'challenger' ? 'opponent' : 'challenger';
+      applyRoundWinner(winner, 'timeout');
+    }
+
+    function applyRoundWinner(winnerRole, reason) {
+      const s = challenge.gameState;
+      s.roundResults.push(winnerRole);
+      s.p1Choice = null;
+      s.p2Choice = null;
+      s.flipResult = null;
+      const sc = score();
+      const need = winsNeeded();
+      if (sc.p1 >= need || sc.p2 >= need || s.round >= gcfg().rounds) {
+        const winnerId = sc.p1 >= sc.p2 ? challenge.challengerId : challenge.challengedId;
+        postToApp({
+          type: 'GAME_OVER',
+          winnerId,
+          log: { score: sc.p1 + '-' + sc.p2, reason },
+        });
+        render();
+        return;
+      }
+      s.round += 1;
+      postToApp({
+        type: 'MAKE_MOVE',
+        gameState: s,
+        nextTurn: s.round === 2 ? challenge.challengedId : challenge.challengerId,
+      });
+      render();
+    }
+
+    function choose(side) {
+      if (!challenge || lock || !isMyPickTurn()) return;
+      lock = true;
+      stopTimer();
+      const s = challenge.gameState;
+      const other = side === 'heads' ? 'tails' : 'heads';
+      if (s.round === 1) {
+        s.p1Choice = side;
+        s.p2Choice = other;
+      } else if (s.round === 2) {
+        s.p2Choice = side;
+        s.p1Choice = other;
+      } else {
+        lock = false;
+        return;
+      }
+      s.flipResult = Math.random() > 0.5 ? 'heads' : 'tails';
+      const winnerRole = s.p1Choice === s.flipResult ? 'challenger' : 'opponent';
+      postToApp({ type: 'MAKE_MOVE', gameState: s, nextTurn: '' });
+      setTimeout(() => {
+        applyRoundWinner(winnerRole, 'round');
+        lock = false;
+      }, 700);
+      render();
+    }
+
+    function maybeRound3Auto() {
+      const s = challenge.gameState;
+      if (s.round !== 3 || lock) return;
+      if (myRole !== 'challenger') return;
+      if (s.p1Choice || s.p2Choice || s.flipResult) return;
+      lock = true;
+      const p1 = Math.random() > 0.5 ? 'heads' : 'tails';
+      s.p1Choice = p1;
+      s.p2Choice = p1 === 'heads' ? 'tails' : 'heads';
+      s.flipResult = Math.random() > 0.5 ? 'heads' : 'tails';
+      const winnerRole = s.p1Choice === s.flipResult ? 'challenger' : 'opponent';
+      postToApp({ type: 'MAKE_MOVE', gameState: s, nextTurn: '' });
+      setTimeout(() => {
+        applyRoundWinner(winnerRole, 'tiebreak');
+        lock = false;
+      }, 900);
+      render();
+    }
+
+    function render() {
+      if (!challenge) return;
+      ensureState();
+      const s = challenge.gameState;
+      const sc = score();
+      document.getElementById('p1n').textContent = challenge.challengerName || tr('player1');
+      document.getElementById('p2n').textContent = challenge.challengedName || tr('player2');
+      document.getElementById('p1score').textContent = String(sc.p1);
+      document.getElementById('p2score').textContent = String(sc.p2);
+      document.getElementById('pot').textContent = String(Number(challenge.bet || 0) * 2);
+      document.getElementById('round').textContent = tr('roundOf', {
+        round: s.round,
+        total: gcfg().rounds,
+      });
+      document.getElementById('coinFace').textContent = s.flipResult
+        ? (s.flipResult === 'heads' ? '👑' : '⚜️')
+        : '🪙';
+      syncHudAvatars();
+
+      const hudP1 = document.getElementById('hud-p1');
+      const hudP2 = document.getElementById('hud-p2');
+      const myTurn = isMyPickTurn() && !lock;
+      hudP1.classList.toggle('is-active', myRole === 'challenger' && myTurn);
+      hudP2.classList.toggle('is-active', myRole === 'opponent' && myTurn);
+
+      const btns = document.getElementById('choices');
+      const status = document.getElementById('status');
+
+      if (s.round === 3 && !s.flipResult) {
+        btns.classList.add('hidden');
+        status.textContent = tr('coinTiebreak');
+        stopTimer();
+        maybeRound3Auto();
+        return;
+      }
+
+      if (isMyPickTurn() && !lock) {
+        btns.classList.remove('hidden');
+        status.textContent = tr('coinPickTurn', { sec: gcfg().turnSec });
+        if (!timerId) startTimer();
+      } else {
+        btns.classList.add('hidden');
+        status.textContent = tr('coinWaiting');
+        stopTimer();
+      }
+    }
+
+    ChallengeDemoBridge.bindAppMessages((msg) => {
+      if (msg.type !== 'INIT_DATA' && msg.type !== 'STATE_UPDATE') return;
+      challenge = msg.challenge;
+      challenge.global = msg.global || challenge.global || {};
+      myRole = msg.myRole || msg.role || myRole;
+      if (msg.locale) {
+        applyLocale(msg.locale);
+        applyStaticLabels();
+      }
+      document.body.classList.add('challenge-embed');
+      lock = false;
+      render();
+    });
+
+    window.onload = () => {
+      postToApp({ type: 'INIT_GAME' });
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Linkup — Limbo</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="../casino-mobile.css?v=2" />
+</head>
+<body class="lu-games">
+  <!-- ====================== TOP BAR ====================== -->
+  <header class="topbar">
+    <div class="brand-logo">
+      <span class="brand-mark">◢</span> Linkup
+    </div>
+
+    <div class="balance-wrap">
+      <div class="balance-box">
+        <span id="balance" class="balance-amount">0.00000000</span>
+        <span class="coin coin-sm" aria-hidden="true">$</span>
+      </div>
+      <button id="resetBalance" class="reset-btn" data-demo-only data-i18n-title="reset_balance" title="Reset demo balance" aria-label="Reset demo balance">↻</button>
+      <span class="demo-tag" data-demo-only data-i18n="demo">DEMO</span>
+      <button id="langToggle" class="lang-toggle" aria-label="Switch language">العربية</button>
+      <a href="../hilo/index.html" class="lang-toggle" data-i18n="go_to_hilo" style="text-decoration: none; display: flex; align-items: center; justify-content: center;">Go to Hilo ◢</a>
+    </div>
+  </header>
+
+  <!-- ====================== GAME ====================== -->
+  <main class="game">
+    <!-- ---------- LEFT CONTROL PANEL ---------- -->
+    <section class="panel">
+      <div class="tabs">
+        <button class="tab active" data-mode="manual" data-i18n="manual">Manual</button>
+        <button class="tab" data-mode="auto" data-embed-hide data-i18n="auto">Auto</button>
+      </div>
+
+      <!-- Bet amount -->
+      <div class="field">
+        <div class="field-head">
+          <label for="betAmount" data-i18n="bet_amount">Bet Amount</label>
+          <span class="fiat" id="betFiat">$0.00</span>
+        </div>
+        <div class="input-group">
+          <input id="betAmount" class="input" type="number" min="0" step="0.00000001" value="0.00000000" />
+          <span class="coin coin-input" aria-hidden="true">$</span>
+          <div class="input-actions">
+            <button id="halfBet" class="mini-btn" type="button">½</button>
+            <span class="divider"></span>
+            <button id="doubleBet" class="mini-btn" type="button">2×</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bet button -->
+      <button id="betButton" class="bet-btn" data-i18n="bet">Bet</button>
+
+      <!-- Profit on win -->
+      <div class="field">
+        <div class="field-head">
+          <label for="profitOnWin" data-i18n="profit_on_win">Profit on Win</label>
+          <span class="fiat" id="profitFiat">$0.00</span>
+        </div>
+        <div class="input-group">
+          <input id="profitOnWin" class="input" type="text" value="0.00000000" readonly />
+          <span class="coin coin-input" aria-hidden="true">$</span>
+        </div>
+      </div>
+
+      <!-- ---------- AUTO CONTROLS ---------- -->
+      <div id="autoControls" class="auto hidden" data-embed-hide>
+        <div class="field">
+          <div class="field-head"><label for="numBets" data-i18n="number_of_bets">Number of Bets</label></div>
+          <div class="input-group">
+            <input id="numBets" class="input" type="number" min="0" step="1" value="0" />
+            <span class="coin coin-input infinity" aria-hidden="true">∞</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-head"><label data-i18n="on_win">On Win</label></div>
+          <div class="seg-with-input">
+            <div class="seg">
+              <button class="seg-btn active" data-on="win" data-act="reset" data-i18n="reset">Reset</button>
+              <button class="seg-btn" data-on="win" data-act="increase" data-i18n="increase_by">Increase by:</button>
+            </div>
+            <div class="input-group small">
+              <input id="onWinPct" class="input" type="number" min="0" step="1" value="0" disabled />
+              <span class="coin coin-input">%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-head"><label data-i18n="on_loss">On Loss</label></div>
+          <div class="seg-with-input">
+            <div class="seg">
+              <button class="seg-btn active" data-on="loss" data-act="reset" data-i18n="reset">Reset</button>
+              <button class="seg-btn" data-on="loss" data-act="increase" data-i18n="increase_by">Increase by:</button>
+            </div>
+            <div class="input-group small">
+              <input id="onLossPct" class="input" type="number" min="0" step="1" value="0" disabled />
+              <span class="coin coin-input">%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-head"><label for="stopProfit" data-i18n="stop_on_profit">Stop on Profit</label></div>
+          <div class="input-group">
+            <input id="stopProfit" class="input" type="number" min="0" step="0.00000001" value="0.00000000" />
+            <span class="coin coin-input">$</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="field-head"><label for="stopLoss" data-i18n="stop_on_loss">Stop on Loss</label></div>
+          <div class="input-group">
+            <input id="stopLoss" class="input" type="number" min="0" step="0.00000001" value="0.00000000" />
+            <span class="coin coin-input">$</span>
+          </div>
+        </div>
+
+        <button id="autoBetButton" class="bet-btn auto-start" data-i18n="start_autobet">Start Autobet</button>
+      </div>
+    </section>
+
+    <!-- ---------- GAME STAGE ---------- -->
+    <section class="stage">
+      <div class="past-bets" id="pastBets"></div>
+
+      <div class="content">
+        <span class="result" id="result" aria-live="polite">1.00<span class="x">×</span></span>
+      </div>
+
+      <div class="stage-footer">
+        <label class="ds-label">
+          <div id="targetError" class="input-error hidden">
+            <svg data-ds-icon="Caution" width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" class="inline-block shrink-0"><path fill="currentColor" d="M21.78 19.04 13.83 3.13c-.75-1.51-2.91-1.51-3.66 0l-7.95 15.9c-.68 1.36.31 2.96 1.83 2.96h15.9c1.52 0 2.51-1.6 1.83-2.96zM11 7c0-.55.45-1 1-1s1 .45 1 1v7c0 .55-.45 1-1 1s-1-.45-1-1zm1 12c-.83 0-1.5-.67-1.5-1.5S11.17 16 12 16s1.5.67 1.5 1.5S12.83 19 12 19"></path></svg>
+            <span type="body" tag="span" size="sm" class="ds-body-sm" data-ds-text="true" data-i18n="min_target_error">Minimum is "1.01"</span>
+          </div>
+          <div class="input-group">
+            <input id="target" class="input" type="number" min="1.01" max="1000000" step="0.01" value="2.00" data-testid="target-multiplier" />
+            <span class="after-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path fill="currentColor" d="M16.293 6.293a1 1 0 1 1 1.414 1.414L13.414 12l4.293 4.293.068.076a1 1 0 0 1-1.406 1.406l-.076-.068L12 13.414l-4.293 4.293a1 1 0 1 1-1.414-1.414L10.586 12 6.293 7.707l-.068-.076A1 1 0 0 1 7.63 6.225l.076.068L12 10.586z"/></svg>
+            </span>
+          </div>
+          <span class="label-content" data-i18n="target_multiplier">Target Multiplier</span>
+        </label>
+
+        <label class="ds-label">
+          <div id="winChanceError" class="input-error hidden">
+            <svg data-ds-icon="Caution" width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" class="inline-block shrink-0"><path fill="currentColor" d="M21.78 19.04 13.83 3.13c-.75-1.51-2.91-1.51-3.66 0l-7.95 15.9c-.68 1.36.31 2.96 1.83 2.96h15.9c1.52 0 2.51-1.6 1.83-2.96zM11 7c0-.55.45-1 1-1s1 .45 1 1v7c0 .55-.45 1-1 1s-1-.45-1-1zm1 12c-.83 0-1.5-.67-1.5-1.5S11.17 16 12 16s1.5.67 1.5 1.5S12.83 19 12 19"></path></svg>
+            <span type="body" tag="span" size="sm" class="ds-body-sm" data-ds-text="true" data-i18n="max_win_chance_error">Maximum is "98.01980198"</span>
+          </div>
+          <div class="input-group">
+            <input id="winChance" class="input" type="number" min="0.000099" max="98.01980198" step="0.00000001" value="49.50000000" data-testid="win-chance" />
+            <span class="after-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path fill="currentColor" d="M15.87 6.724a1 1 0 0 1 1.405 1.407l-.068.076-9 9a1 1 0 1 1-1.414-1.414l9-9zM16 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4m-8-8a2 2 0 1 0 0-4 2 2 0 0 0 0 4"/></svg>
+            </span>
+          </div>
+          <span class="label-content" data-i18n="win_chance">Win Chance</span>
+        </label>
+      </div>
+    </section>
+  </main>
+
+  <!-- ====================== BOTTOM BAR ====================== -->
+  <footer class="bar">
+    <div class="bar-left">
+      <button class="bar-icon" id="statsToggle" data-i18n-title="live_stats" title="Live stats">📈</button>
+      <button class="bar-icon" id="soundToggle" data-i18n-title="sound" title="Sound">🔊</button>
+    </div>
+    <div class="bar-brand">Linkup</div>
+    <div class="bar-right">
+      <button id="fairnessToggle" class="fairness"><span aria-hidden="true">🛡</span> <span data-i18n="fairness">Fairness</span></button>
+    </div>
+  </footer>
+
+  <!-- ====================== LIVE STATS PANEL ====================== -->
+  <aside id="liveStats" class="live-stats hidden">
+    <div class="ls-head">
+      <span><span aria-hidden="true">📈</span> <span data-i18n="live_stats">Live Stats</span></span>
+      <button id="statsClose" class="ls-close" aria-label="Close">✕</button>
+    </div>
+    <div class="ls-grid">
+      <div><span class="ls-label" data-i18n="profit">Profit</span><span id="lsProfit" class="ls-val">0.00000000</span></div>
+      <div><span class="ls-label" data-i18n="wins">Wins</span><span id="lsWins" class="ls-val">0</span></div>
+      <div><span class="ls-label" data-i18n="wagered">Wagered</span><span id="lsWagered" class="ls-val">0.00000000</span></div>
+      <div><span class="ls-label" data-i18n="losses">Losses</span><span id="lsLosses" class="ls-val red">0</span></div>
+    </div>
+  </aside>
+
+  <!-- ====================== FAIRNESS MODAL ====================== -->
+  <div id="fairnessModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="shield-check-icon"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 11 2 2 4-4"/></svg>
+          <span data-i18n="fairness">Fairness</span>
+        </div>
+        <button id="closeFairnessModal" class="modal-close" aria-label="Close modal">✕</button>
+      </div>
+
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-i18n="overview">Overview</button>
+      </div>
+
+      <div class="modal-body">
+        <h3 class="modal-body-title" data-i18n="fairness_modal_title">Solving the Trust Issue with Online Gambling</h3>
+        <p data-i18n="fairness_p1">The underlying concept of provable fairness is that players have the ability to prove and verify that their results are fair and unmanipulated. This is achieved through the use of a commitment scheme, along with cryptographic hashing.</p>
+        <p data-i18n="fairness_p2">The commitment scheme is used to ensure that the player has an influence on all results generated. Cryptographic hashing is used to ensure that the casino also remains honest to this commitment scheme. Both concepts combined creates a trust-less environment when gambling online.</p>
+        <p class="formula-label" data-i18n="fairness_p3">This is simplified in the following representation:</p>
+        <div class="formula-box">
+          <code>fair result = operators input (hashed) + players input</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- order matters: bridge -> engine -> data layer -> sound -> i18n -> UI -->
+  <script src="../games-casino-boot.js?v=2"></script>
+  <script>LinkUpCasinoBoot.boot('limbo');</script>
+  <script src="js/limbo.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/sound.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

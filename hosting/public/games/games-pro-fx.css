@@ -1,0 +1,196 @@
+/* LinkUp Games — مؤثرات بصرية احترافية مشتركة */
+@keyframes gpf-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-6px) rotate(-0.5deg); }
+  30% { transform: translateX(5px) rotate(0.5deg); }
+  45% { transform: translateX(-4px); }
+  60% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+}
+
+@keyframes gpf-shake-strong {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  20% { transform: translate(-8px, 2px) scale(1.02); }
+  40% { transform: translate(8px, -2px) scale(0.98); }
+  60% { transform: translate(-6px, 0) scale(1.01); }
+  80% { transform: translate(6px, 0) scale(0.99); }
+}
+
+@keyframes gpf-flash-win {
+  0% { opacity: 0; background: rgba(16, 185, 129, 0.55); }
+  30% { opacity: 1; }
+  100% { opacity: 0; background: rgba(16, 185, 129, 0); }
+}
+
+@keyframes gpf-flash-lose {
+  0% { opacity: 0; background: rgba(239, 68, 68, 0.5); }
+  35% { opacity: 1; }
+  100% { opacity: 0; background: rgba(239, 68, 68, 0); }
+}
+
+@keyframes gpf-pop-in {
+  0% { transform: scale(0.6); opacity: 0; }
+  70% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes gpf-pulse-glow {
+  0%, 100% { box-shadow: 0 0 12px rgba(251, 191, 36, 0.35); }
+  50% { box-shadow: 0 0 28px rgba(251, 191, 36, 0.75); }
+}
+
+@keyframes gpf-card-scatter {
+  0% { transform: translate(0, 0) rotateY(180deg) scale(1); opacity: 1; }
+  100% { transform: translate(var(--sx), var(--sy)) rotateY(180deg) scale(0.92); opacity: 1; }
+}
+
+@keyframes gpf-card-gather {
+  0% { transform: translate(var(--sx), var(--sy)) rotateY(180deg) scale(0.92); }
+  100% { transform: translate(0, 0) rotateY(0deg) scale(1); }
+}
+
+@keyframes gpf-toast-in {
+  0% { transform: translateY(20px) scale(0.9); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes gpf-countdown-pop {
+  0% { transform: scale(0.3); opacity: 0; }
+  50% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+.gpf-shake { animation: gpf-shake 0.45s ease-in-out; }
+.gpf-shake-strong { animation: gpf-shake-strong 0.55s ease-in-out; }
+
+.gpf-flash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.gpf-flash-overlay.win { animation: gpf-flash-win 0.55s ease-out forwards; }
+.gpf-flash-overlay.lose { animation: gpf-flash-lose 0.55s ease-out forwards; }
+
+#gpf-confetti-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  pointer-events: none;
+}
+
+.gpf-toast {
+  position: fixed;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: 12px 22px;
+  border-radius: 16px;
+  font-weight: 800;
+  font-size: 15px;
+  color: #fff;
+  backdrop-filter: blur(12px);
+  animation: gpf-toast-in 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+
+.gpf-toast.win {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.92), rgba(5, 150, 105, 0.88));
+  border: 1px solid rgba(110, 231, 183, 0.5);
+}
+
+.gpf-toast.lose {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.92), rgba(185, 28, 28, 0.88));
+  border: 1px solid rgba(252, 165, 165, 0.45);
+}
+
+.gpf-toast.info {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.92), rgba(79, 70, 229, 0.88));
+  border: 1px solid rgba(165, 180, 252, 0.45);
+}
+
+.gpf-countdown-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 9996;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.gpf-countdown-num {
+  font-size: 72px;
+  font-weight: 900;
+  color: #fbbf24;
+  text-shadow: 0 0 30px rgba(251, 191, 36, 0.8), 0 4px 20px rgba(0, 0, 0, 0.6);
+  animation: gpf-countdown-pop 0.85s ease-out forwards;
+}
+
+.card-item.scatter-anim {
+  animation: gpf-card-scatter 0.85s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+.card-item.gather-anim {
+  animation: gpf-card-gather 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+.gem-item.reveal-pop {
+  animation: gpf-pop-in 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.2);
+}
+
+.timer-fill.critical {
+  animation: gpf-pulse-glow 0.6s infinite alternate;
+}
+
+/* وضع الأداء — ألعاب WebView على الجوال */
+body.gpf-perf .nebula {
+  display: none !important;
+}
+
+body.gpf-perf .ifx-ambient-canvas {
+  display: none !important;
+}
+
+body.gpf-perf * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.gpf-perf .card-item {
+  contain: layout style;
+}
+
+body.gpf-perf .gpf-flash-overlay {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+.card-emoji {
+  font-size: 30px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+}
+
+.card-back-mark {
+  font-size: 22px;
+  font-weight: 900;
+  color: rgba(120, 53, 15, 0.85);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gpf-shake,
+  .gpf-shake-strong,
+  .card-item.scatter-anim,
+  .card-item.gather-anim,
+  .gem-item.reveal-pop,
+  .timer-fill.critical {
+    animation: none !important;
+  }
+}

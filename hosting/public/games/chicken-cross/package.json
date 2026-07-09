@@ -1,0 +1,14 @@
+{
+  "name": "chicken-road",
+  "version": "1.0.0",
+  "description": "Chicken Road HTML5 Casino Game",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.2.11"
+  }
+}

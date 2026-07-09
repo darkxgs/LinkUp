@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="lu-games">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>عجلة الحظ — LinkUp Games</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
+
+    :root {
+      --bg-color: #0c0717;
+      --card-bg: rgba(23, 15, 38, 0.75);
+      --border-color: rgba(168, 85, 247, 0.25);
+      --text-color: #ffffff;
+      --text-muted: #c084fc;
+      --gold-color: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      font-family: 'Cairo', sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+      padding: 16px;
+      position: relative;
+    }
+
+    /* نيبولا النيون للخلفية */
+    .nebula {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      z-index: 0;
+      opacity: 0.65;
+      animation: drift 10s infinite alternate ease-in-out;
+    }
+
+    .nebula-purple {
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.22) 0%, rgba(0, 0, 0, 0) 70%);
+      top: -30px;
+      right: -30px;
+    }
+
+    .nebula-gold {
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, rgba(245, 158, 11, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+      bottom: -40px;
+      left: -40px;
+      animation-delay: -3s;
+    }
+
+    @keyframes drift {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(25px, 20px) scale(1.05); }
+    }
+
+    #confetti-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 99;
+      pointer-events: none;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 370px;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 900;
+      background: linear-gradient(135deg, #c084fc 0%, #fbbf24 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 2px;
+    }
+
+    .subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      font-weight: 700;
+    }
+
+    /* كرت الرصيد */
+    .wallet-card {
+      width: 100%;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 18px;
+      padding: 12px 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(12px);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .balance-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .balance-coins {
+      color: var(--gold-color);
+      text-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
+    }
+
+    .cost-box {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+
+    /* شريط النتيجة */
+    .status-msg {
+      width: 100%;
+      text-align: center;
+      padding: 10px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s;
+    }
+
+    .status-msg.win {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #10b981;
+    }
+
+    .status-msg.lose {
+      background: rgba(75, 85, 99, 0.12);
+      border: 1px solid rgba(75, 85, 99, 0.3);
+      color: #9ca3af;
+    }
+
+    .status-msg.none {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+    }
+
+    /* منطقة العجلة الدائرية */
+    .wheel-container {
+      position: relative;
+      width: 250px;
+      height: 250px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* مؤشر الاستقرار العلوي */
+    .pointer {
+      position: absolute;
+      top: -6px;
+      width: 0;
+      height: 0;
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+      border-top: 22px solid #ef4444;
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
+      z-index: 10;
+      transform-origin: 50% 0%;
+      transition: transform 0.1s;
+    }
+
+    /* تأثير اهتزاز المؤشر عند مرور القطاع */
+    .pointer.tick-shake {
+      transform: rotate(-10deg);
+    }
+
+    .wheel-svg {
+      width: 100%;
+      height: 100%;
+      transform: rotate(0deg);
+      filter: drop-shadow(0 12px 28px rgba(0,0,0,0.4));
+      border-radius: 50%;
+    }
+
+    /* زر التدوير الأوسط */
+    .spin-btn {
+      position: absolute;
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #ffd700 0%, #ffa500 100%);
+      border: 4px solid #ffffff;
+      box-shadow: 0 6px 15px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.6);
+      color: #000000;
+      font-weight: 900;
+      font-size: 13px;
+      cursor: pointer;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.15s;
+    }
+
+    .spin-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* سجل الفوز */
+    .history-card {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.03);
+      border-radius: 12px;
+      padding: 10px;
+    }
+
+    .history-title {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .history-list {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .history-item {
+      background: rgba(255, 255, 255, 0.06);
+      color: white;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .history-item.first {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+
+    @keyframes modal-pop {
+      0% { transform: scale(0.9); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* Glowing borders for the wheel container on Win/Loss */
+    .win-glow {
+      box-shadow: 0 0 25px rgba(16, 185, 129, 0.7), inset 0 0 15px rgba(16, 185, 129, 0.35) !important;
+      border-color: #10b981 !important;
+      transition: all 0.3s ease;
+    }
+
+    .lose-glow {
+      box-shadow: 0 0 25px rgba(239, 68, 68, 0.7), inset 0 0 15px rgba(239, 68, 68, 0.35) !important;
+      border-color: #ef4444 !important;
+      transition: all 0.3s ease;
+    }
+
+    /* Card shake animation on Loss */
+    @keyframes card-shake {
+      0%, 100% { transform: translateX(0); }
+      15%, 45%, 75% { transform: translateX(-8px); }
+      30%, 60%, 90% { transform: translateX(8px); }
+    }
+
+    .card-shake-anim {
+      animation: card-shake 0.45s ease-in-out;
+    }
+  </style>
+  <link rel="stylesheet" href="../games-brand.css">
+</head>
+<body>
+
+  <div class="nebula nebula-purple"></div>
+  <div class="nebula nebula-gold"></div>
+
+  <canvas id="confetti-canvas"></canvas>
+
+  <div class="container">
+    <header>
+      <h1 id="lu-title">عجلة الحظ</h1>
+      <p class="subtitle" id="lu-subtitle">در عجلة الحظ واكسب هدايا LinkUp المميزة</p>
+    </header>
+
+    <!-- كرت الرصيد -->
+    <div class="wallet-card" style="flex-direction: column; gap: 8px; align-items: stretch;">
+      <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <span class="balance-title" id="lu-balance-label">الرصيد:</span>
+        <span class="balance-val" id="balance-txt">1000 كوين</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; width: 100%;">
+        <span class="balance-title" id="lu-bet-label">الرهان:</span>
+        <input type="number" id="bet-amt" class="bet-input" value="30" min="10" style="
+          width: 80px;
+          padding: 4px;
+          border-radius: 6px;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(0, 0, 0, 0.2);
+          color: white;
+          text-align: center;
+          font-weight: 700;
+          font-size: 13px;
+        ">
+      </div>
+    </div>
+
+    <!-- رسائل النتيجة -->
+    <div class="status-msg none" id="status-txt">اضغط "حظ" لتدوير العجلة</div>
+
+    <!-- عجلة الحظ -->
+    <div class="wheel-container">
+      <div class="pointer" id="wheel-pointer"></div>
+      
+      <svg class="wheel-svg" id="wheel" viewBox="0 0 200 200">
+        <!-- سيتم توليد قطاعات العجلة ديناميكياً بواسطة جافا سكريبت -->
+      </svg>
+
+      <button class="spin-btn" id="btn-spin" onclick="spin()">حظ!</button>
+    </div>
+
+    <!-- سجل الجوائز -->
+    <div class="history-card">
+      <div class="history-title" id="lu-history-title">سجل جوائزك الأخيرة:</div>
+      <div class="history-list" id="history-container">
+        <span id="lu-history-empty" style="font-size:11px; color:rgba(255,255,255,0.3)">لا توجد جوائز بعد</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="../casino-i18n.js?v=1"></script>
+  <script>
+    function T(key, vars) {
+      return window.CasinoI18n ? window.CasinoI18n.t(key, vars) : key;
+    }
+    function showWarningModal(text) {
+      document.getElementById('warning-modal-text').innerText = text;
+      document.getElementById('warning-modal').style.display = 'flex';
+    }
+
+    function closeWarningModal() {
+      document.getElementById('warning-modal').style.display = 'none';
+    }
+
+    function triggerVibration(isWin) {
+      if (navigator.vibrate) {
+        if (isWin) {
+          navigator.vibrate([100, 50, 100]);
+        } else {
+          navigator.vibrate([200]);
+        }
+      }
+    }
+
+    const prizes = [
+      { name: '10 كوين', color: '#7C3AED', textColor: '#FFFFFF', type: 'coins', value: 10 },
+      { name: 'إطار فضي', color: '#14B8A6', textColor: '#FFFFFF', type: 'item', value: 0 },
+      { name: 'حظاً أوفر', color: '#4B5563', textColor: '#FFFFFF', type: 'empty', value: 0 },
+      { name: '50 كوين', color: '#EC4899', textColor: '#FFFFFF', type: 'coins', value: 50 },
+      { name: 'هدية قلب', color: '#3B82F6', textColor: '#FFFFFF', type: 'item', value: 0 },
+      { name: '100 كوين', color: '#F59E0B', textColor: '#000000', type: 'coins', value: 100 },
+      { name: 'عضوية VIP', color: '#EF4444', textColor: '#FFFFFF', type: 'item', value: 0 },
+      { name: '500 كوين', color: '#10B981', textColor: '#FFFFFF', type: 'coins', value: 500 },
+    ];
+
+    let balance = 1000;
+    let isSpinning = false;
+    let rotation = 0;
+    let history = [];
+    let spinCount = 0;
+    let config = null;
+    let minBet = 10;
+    let maxBet = 100000;
+
+    // React Native WebView Bridge
+    function initGameBridge() {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'INIT_GAME' }));
+      } else {
+        setTimeout(initGameBridge, 100);
+      }
+    }
+    window.addEventListener('load', initGameBridge);
+
+    function onBridgeMessage(event) {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'INIT_DATA') {
+          if (data.locale || data.lang) {
+            window.CasinoI18n.setLang(data.locale || data.lang);
+            window.CasinoI18n.applyWheelI18n();
+          }
+          balance = data.balance;
+          updateBalanceUI();
+          if (data.config) {
+            config = data.config;
+            minBet = config.minBet;
+            maxBet = config.maxBet;
+            document.getElementById('bet-amt').min = minBet;
+            document.getElementById('bet-amt').max = maxBet;
+          }
+        } else if (data.type === 'UPDATE_BALANCE') {
+          balance = data.balance;
+          updateBalanceUI();
+        } else if (data.type === 'BET_CONFIRMED') {
+          const betAmt = Math.max(10, parseInt(document.getElementById('bet-amt').value) || 0);
+          startWheelSpin(betAmt);
+        } else if (data.type === 'RESULT_RECORDED') {
+          console.log('Result recorded successfully');
+        } else if (data.type === 'ERROR') {
+          showWarningModal(T('errorPrefix') + data.message);
+          document.getElementById('btn-spin').disabled = false;
+        }
+      } catch (e) {
+        console.warn('Error parsing message from RN:', e);
+      }
+    }
+    window.addEventListener('message', onBridgeMessage);
+    document.addEventListener('message', onBridgeMessage);
+
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    function playSound(type) {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+
+        if (type === 'tick') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(550, now);
+          osc.frequency.exponentialRampToValueAtTime(280, now + 0.02);
+          gain.gain.setValueAtTime(0.06, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+          osc.start(now);
+          osc.stop(now + 0.02);
+        } else if (type === 'win') {
+          const freqs = [523.25, 659.25, 783.99, 1046.50];
+          freqs.forEach((f, idx) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(f, now + idx * 0.08);
+            gain.gain.setValueAtTime(0.12, now + idx * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.005, now + idx * 0.08 + 0.2);
+            osc.start(now + idx * 0.08);
+            osc.stop(now + idx * 0.08 + 0.2);
+          });
+        } else if (type === 'lose') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(220, now);
+          osc.frequency.setValueAtTime(130, now + 0.12);
+          gain.gain.setValueAtTime(0.15, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+          osc.start(now);
+          osc.stop(now + 0.2);
+        }
+      } catch (e) {}
+    }
+
+    // ==================== رسم العجلة ديناميكياً ====================
+    function drawWheel() {
+      const wheel = document.getElementById('wheel');
+      const count = prizes.length;
+      const angle = 360 / count;
+      let html = '';
+
+      prizes.forEach((prize, idx) => {
+        const startAngle = idx * angle;
+        const endAngle = (idx + 1) * angle;
+
+        const radStart = (startAngle * Math.PI) / 180;
+        const radEnd = (endAngle * Math.PI) / 180;
+
+        const x1 = 100 + 100 * Math.cos(radStart);
+        const y1 = 100 + 100 * Math.sin(radStart);
+        const x2 = 100 + 100 * Math.cos(radEnd);
+        const y2 = 100 + 100 * Math.sin(radEnd);
+
+        const d = `M 100 100 L ${x1} ${y1} A 100 100 0 0 1 ${x2} ${y2} Z`;
+
+        const textAngle = startAngle + angle / 2;
+        const textRad = (textAngle * Math.PI) / 180;
+        const tx = 100 + 56 * Math.cos(textRad);
+        const ty = 100 + 56 * Math.sin(textRad);
+
+        html += `
+          <g>
+            <path d="${d}" fill="${prize.color}" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" />
+            <text x="${tx}" y="${ty}" fill="${prize.textColor}" font-size="7.5" font-weight="900" text-anchor="middle" alignment-baseline="middle" transform="rotate(${textAngle + 180}, ${tx}, ${ty})">
+              ${prize.name}
+            </text>
+          </g>
+        `;
+      });
+      wheel.innerHTML = html;
+    }
+    drawWheel();
+
+    // ==================== نظام الجزيئات ====================
+    const canvas = document.getElementById('confetti-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+    let isConfettiActive = false;
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function triggerConfetti() {
+      particles = [];
+      const colors = ['#a855f7', '#ec4899', '#f59e0b', '#10b981', '#3b82f6'];
+      for (let i = 0; i < 80; i++) {
+        particles.push({
+          x: canvas.width / 2,
+          y: canvas.height + 20,
+          vx: (Math.random() - 0.5) * 15,
+          vy: -Math.random() * 16 - 10,
+          size: Math.random() * 6 + 4,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          rotation: Math.random() * 360,
+          rotationSpeed: (Math.random() - 0.5) * 8
+        });
+      }
+      isConfettiActive = true;
+      animateConfetti();
+    }
+
+    function animateConfetti() {
+      if (!isConfettiActive) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.45;
+        p.rotation += p.rotationSpeed;
+
+        if (p.y < canvas.height + 20) alive = true;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation * Math.PI / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+        ctx.restore();
+      });
+
+      if (alive) requestAnimationFrame(animateConfetti);
+      else isConfettiActive = false;
+    }
+
+    // ==================== التدوير والرمي ====================
+    function spin() {
+      if (isSpinning) return;
+      initAudio();
+
+      const betAmt = Math.max(10, parseInt(document.getElementById('bet-amt').value) || 0);
+
+      if (betAmt < minBet || betAmt > maxBet) {
+        showWarningModal(T('wheelBetRange', { min: minBet, max: maxBet }));
+        return;
+      }
+
+      if (balance < betAmt) {
+        showWarningModal(T('wheelInsufficient'));
+        return;
+      }
+
+      if (window.ReactNativeWebView) {
+        document.getElementById('btn-spin').disabled = true;
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'PLACE_BET',
+          stake: betAmt
+        }));
+      } else {
+        startWheelSpin(betAmt);
+      }
+    }
+
+    function startWheelSpin(betAmt) {
+      isSpinning = true;
+      if (!window.ReactNativeWebView) {
+        balance -= betAmt;
+        updateBalanceUI();
+      }
+
+      document.getElementById('status-txt').className = 'status-msg none';
+      document.getElementById('status-txt').innerText = T('wheelSpinning');
+
+      const wheelContainer = document.querySelector('.wheel-container');
+      if (wheelContainer) {
+        wheelContainer.classList.remove('win-glow', 'lose-glow');
+      }
+
+      const prizeCount = prizes.length;
+
+      // Decide result based on RTP
+      const rtpVal = (config && config.rtp) ? config.rtp : 94;
+      const isWin = (Math.random() * 100) < rtpVal;
+
+      let targetIndex = 0;
+      if (isWin) {
+        const winPrizes = prizes.map((p, idx) => ({ ...p, idx })).filter(p => p.type !== 'empty');
+        const chosen = winPrizes[Math.floor(Math.random() * winPrizes.length)];
+        targetIndex = chosen.idx;
+      } else {
+        const losePrizes = prizes.map((p, idx) => ({ ...p, idx })).filter(p => p.type === 'empty');
+        if (losePrizes.length > 0) {
+          targetIndex = losePrizes[Math.floor(Math.random() * losePrizes.length)].idx;
+        } else {
+          targetIndex = 2; // fallback to 'حظاً أوفر'
+        }
+      }
+
+      spinCount++;
+      const prizeDeg = 360 / prizeCount;
+
+      const targetDegree = 360 - (targetIndex * prizeDeg) - (prizeDeg / 2);
+      const totalRotation = rotation + 1800 + targetDegree - (rotation % 360);
+
+      const wheel = document.getElementById('wheel');
+      const pointer = document.getElementById('wheel-pointer');
+      
+      wheel.style.transform = `rotate(${totalRotation}deg)`;
+      wheel.style.transition = 'transform 4s cubic-bezier(0.1, 0.8, 0.1, 1)';
+
+      let currentAngle = rotation;
+      const start = Date.now();
+      const duration = 4000;
+
+      function updateTicks() {
+        const elapsed = Date.now() - start;
+        if (elapsed < duration) {
+          const progress = elapsed / duration;
+          const easeProgress = 1 - Math.pow(1 - progress, 3);
+          const angle = rotation + (totalRotation - rotation) * easeProgress;
+
+          const lastSector = Math.floor(currentAngle / prizeDeg);
+          const currentSector = Math.floor(angle / prizeDeg);
+
+          if (currentSector !== lastSector) {
+            playSound('tick');
+            pointer.classList.add('tick-shake');
+            setTimeout(() => pointer.classList.remove('tick-shake'), 60);
+          }
+
+          currentAngle = angle;
+          requestAnimationFrame(updateTicks);
+        }
+      }
+      requestAnimationFrame(updateTicks);
+
+      setTimeout(() => {
+        isSpinning = false;
+        rotation = totalRotation;
+        document.getElementById('btn-spin').disabled = false;
+        const prize = prizes[targetIndex];
+
+        const status = document.getElementById('status-txt');
+        const wheelContainer = document.querySelector('.wheel-container');
+        const containerEl = document.querySelector('.container');
+
+        let winAmt = 0;
+        if (prize.type === 'coins') {
+          const mult = (config && config.multipliers[targetIndex]) || (prize.value / 30);
+          winAmt = Math.round(betAmt * mult);
+        }
+
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'GAME_RESULT',
+            stake: betAmt,
+            winAmount: winAmt,
+            isWin: prize.type !== 'empty',
+            result: { prizeName: prize.name }
+          }));
+        }
+
+        if (prize.type === 'empty') {
+          playSound('lose');
+          triggerVibration(false);
+          status.className = 'status-msg lose';
+          status.innerText = T('wheelBetterLuck');
+          if (wheelContainer) wheelContainer.classList.add('lose-glow');
+          if (containerEl) {
+            containerEl.classList.add('card-shake-anim');
+            setTimeout(() => {
+              containerEl.classList.remove('card-shake-anim');
+            }, 450);
+          }
+        } else {
+          playSound('win');
+          triggerVibration(true);
+          triggerConfetti();
+          status.className = 'status-msg win';
+          status.innerText = T('wheelCongrats', { prize: prize.name });
+          if (wheelContainer) wheelContainer.classList.add('win-glow');
+          
+          if (!window.ReactNativeWebView && prize.type === 'coins') {
+            balance += winAmt;
+            updateBalanceUI();
+          }
+        }
+
+        history.unshift(prize.name);
+        history = history.slice(0, 10);
+        updateHistoryUI();
+      }, duration);
+    }
+
+    function updateBalanceUI() {
+      var el = document.getElementById('balance-txt');
+      el.dataset.rawBalance = balance;
+      el.innerText = balance + ' ' + (window.CasinoI18n ? window.CasinoI18n.currencyName() : 'كوين');
+    }
+
+    window.addEventListener('load', function () {
+      if (window.CasinoI18n) window.CasinoI18n.applyWheelI18n();
+    });
+
+    function updateHistoryUI() {
+      const container = document.getElementById('history-container');
+      container.innerHTML = history.map((val, idx) => `
+        <span class="history-item ${idx === 0 ? 'first' : ''}">${val}</span>
+      `).join('');
+    }
+  </script>
+</body>
+</html>

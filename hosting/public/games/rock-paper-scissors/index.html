@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rock Paper Scissors - Casino Edition</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../casino-mobile.css?v=1">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body class="lu-games">
+    <!-- Abstract background elements for premium feel -->
+    <div class="bg-shape shape1"></div>
+    <div class="bg-shape shape2"></div>
+
+    <div id="game-container">
+        <!-- Screens will be injected/toggled here by render.js -->
+        
+        <!-- Wager Screen -->
+        <div id="screen-wager" class="screen active">
+            <h1 class="glow-text">Place Your Bets</h1>
+            <div class="balances">
+                <div class="player-wager">
+                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=You" alt="You" class="avatar">
+                    <h2>You</h2>
+                    <div class="balance" id="p1-balance">$1000</div>
+                    <div class="ready-btn" id="p1-ready">Ready</div>
+                </div>
+                <div class="vs">VS</div>
+                <div class="player-wager">
+                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Opponent" alt="Opponent" class="avatar hidden" id="p2-avatar">
+                    <div class="avatar-placeholder" id="p2-avatar-placeholder">?</div>
+                    <h2 id="p2-name">Finding...</h2>
+                    <div class="balance" id="p2-balance">$1000</div>
+                    <div class="ready-status" id="p2-ready-status">Waiting...</div>
+                </div>
+            </div>
+            <div class="bet-controls">
+                <h3>Bet Amount</h3>
+                <div class="bet-input-row">
+                    <button class="action-btn" id="btn-clear-bet">CLEAR</button>
+                    <input type="number" id="custom-bet-input" value="50" min="1" step="1" />
+                    <button class="action-btn" id="btn-max-bet">MAX</button>
+                </div>
+                <div class="chips">
+                    <button class="chip" data-bet="50">+50</button>
+                    <button class="chip" data-bet="100">+100</button>
+                    <button class="chip" data-bet="250">+250</button>
+                    <button class="chip" data-bet="500">+500</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pick Screen -->
+        <div id="screen-pick" class="screen">
+            <div class="header-info">
+                <div class="player-info">
+                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=You" class="avatar-small">
+                    <div>
+                        <h2 id="current-player-name">You</h2>
+                        <span class="small-balance" id="current-player-balance">$1000</span>
+                    </div>
+                </div>
+                <div class="pot-info glass-panel">
+                    POT: <span id="current-pot" class="gold-text">100</span>
+                </div>
+                <div class="player-info right">
+                    <div>
+                        <h2 id="p2-pick-name">Opponent</h2>
+                        <span class="small-balance" id="p2-pick-balance">$1000</span>
+                    </div>
+                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Opponent" class="avatar-small" id="p2-pick-avatar">
+                </div>
+            </div>
+            <div class="round-score-centered">
+                <span class="dot" id="score-p1-1"></span>
+                <span class="dot" id="score-p1-2"></span>
+                <span class="divider">BEST OF 3</span>
+                <span class="dot" id="score-p2-1"></span>
+                <span class="dot" id="score-p2-2"></span>
+            </div>
+            
+            <h1 class="prompt-text">Make Your Choice</h1>
+            <div class="choices">
+                <button class="choice-btn" data-choice="rock">
+                    <span class="icon">✊</span>
+                    <span class="label">Rock</span>
+                </button>
+                <button class="choice-btn" data-choice="paper">
+                    <span class="icon">🖐️</span>
+                    <span class="label">Paper</span>
+                </button>
+                <button class="choice-btn" data-choice="scissors">
+                    <span class="icon">✌️</span>
+                    <span class="label">Scissors</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Waiting Screen -->
+        <div id="screen-waiting" class="screen">
+            <h1>Waiting for Opponent...</h1>
+            <div class="spinner"></div>
+        </div>
+
+        <!-- Reveal Screen -->
+        <div id="screen-reveal" class="screen">
+            <h1 id="reveal-countdown" class="glow-text">3</h1>
+            <div class="reveal-hands">
+                <div class="hand-container left">
+                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=You" class="avatar-medium">
+                    <h2 id="reveal-p1-name">You</h2>
+                    <div class="hand-icon left shake" id="reveal-p1-hand">✊</div>
+                </div>
+                <div class="hand-container right">
+                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Opponent" class="avatar-medium" id="reveal-p2-avatar">
+                    <h2 id="reveal-p2-name">Opponent</h2>
+                    <div class="hand-icon right shake" id="reveal-p2-hand">✊</div>
+                </div>
+            </div>
+            <h2 id="reveal-result-text" class="hidden glow-text">You Win the Round!</h2>
+            <button id="btn-next-round" class="primary-btn hidden">Next Round</button>
+        </div>
+
+        <!-- Match End Screen -->
+        <div id="screen-match-end" class="screen">
+            <h1 id="match-winner-text" class="glow-text">You Win!</h1>
+            <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=You" class="avatar-large" id="match-winner-avatar">
+            <h2 id="match-winnings-text" class="winnings">+100 Coins</h2>
+            <div class="end-actions">
+                <button id="btn-rematch" class="primary-btn">Rematch</button>
+                <button id="btn-main-menu" class="secondary-btn">Main Menu</button>
+            </div>
+        </div>
+        
+    </div>
+
+    <!-- Scripts -->
+    <script src="../games-casino-boot.js?v=2"></script>
+    <script>LinkUpCasinoBoot.boot('rock-paper-scissors');</script>
+    <script src="js/audio.js"></script>
+    <script src="js/wallet.js"></script>
+    <script src="js/rules.js"></script>
+    <script src="js/state.js"></script>
+    <script src="js/transport.js"></script>
+    <script src="js/render.js"></script>
+    <script src="js/input.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

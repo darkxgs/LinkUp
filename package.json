@@ -1,0 +1,13 @@
+{
+  "name": "linkup-functions",
+  "private": true,
+  "scripts": {
+    "deploy": "firebase deploy --only functions,firestore:rules,firestore:indexes,database",
+    "deploy:all": "firebase deploy",
+    "deploy:hosting": "firebase deploy --only hosting",
+    "deploy:firestore": "firebase deploy --only firestore:rules,firestore:indexes",
+    "deploy:functions": "firebase deploy --only functions",
+    "smoke:casino": "node scripts/casino-webview-smoke.mjs",
+    "smoke:room-games": "node room-games-server/scripts/smoke-test.mjs"
+  }
+}

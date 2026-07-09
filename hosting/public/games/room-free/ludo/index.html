@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="description" content="Play Ludo Game online with friends in real-time multiplayer mode">
+    <meta name="theme-color" content="#1b1b3a">
+    <title>لودو — LinkUp</title>
+    <link rel="stylesheet" href="./ludo/style.css">
+    <link rel="stylesheet" href="../shared/linkup-mobile.css">
+    <link rel="icon" type="image/png" href="./assets/dice.png">
+    <script src="../shared/linkup-room-boot.js"></script>
+</head>
+<body>
+    <div class="particle-field" aria-hidden="true"></div>
+    <div class="app-shell">
+        <div id="lobby-overlay" class="overlay visible">
+            <div class="modal">
+                <div class="modal-step" data-step="welcome">
+                    <h2>Welcome to Ludo Game</h2>
+                    <label for="player-name-input">Choose a name</label>
+                    <input type="text" id="player-name-input" placeholder="Player name" maxlength="16">
+                    <div class="actions">
+                        <button id="create-room-btn" class="img-btn">
+                            <span class="icon-sheen">
+                                <img src="./assets/create-room.png" alt="Add item">
+                            </span>
+                        </button>
+                        <button id="go-to-join-btn" class="img-btn">
+                            <span class="icon-sheen">
+                                <img src="./assets/join-room.png" alt="Add item">
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="modal-step hidden" data-step="join">
+                    <h2>Join a room</h2>
+                    <p>Enter the 6 character room code shared by your friend.</p>
+                    <input type="text" id="room-code-input" placeholder="Room code" maxlength="6">
+                    <div class="actions">
+                        <button id="join-room-btn" class="img-btn">
+                            <span class="icon-sheen">
+                                <img src="./assets/join.png" alt="Add item">
+                            </span>
+                        </button>
+                        <button class="img-btn" data-step-back>
+                            <span class="icon-sheen">
+                                <img src="./assets/back.png" alt="Add item">
+                            </span>
+                        </button>
+                    </div>
+                    <p class="error" id="join-error"></p>
+                </div>
+
+                <div class="modal-step hidden" data-step="waiting">
+                    <h2>Room ready</h2>
+                    <p class="room-code-display">Share this code with your friend: <strong id="room-code-label" style="color: #ffd83e;"></strong></p>
+                    <div class="player-list"></div>
+                    <p class="hint">Waiting for both players to join…</p>
+                    <button data-step-back class="img-btn">
+                        <span class="icon-sheen">
+                            <img src="./assets/leave-room.png" alt="Add item">
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="ludo-container">
+            <aside class="sidebar">
+                <h2>Room</h2>
+                <p>Code: <span id="room-code-output" style="color: #147d86;">-</span></p>
+                <p style="line-height: 1.8;">You are: <br/> &nbsp; <span id="local-player-label" style="color: #147d86;">-</span></p>
+
+                <h3>Players</h3>
+                <ul id="players-list"></ul>
+
+                <div class="system-message" id="system-message"></div>
+            </aside>
+
+            <div class="game-area">
+                <div class="ludo">
+                    <div class="player-pieces">
+                        <div class="player-piece" player-id="P1" piece="0"></div>
+                        <div class="player-piece" player-id="P1" piece="1"></div>
+                        <div class="player-piece" player-id="P1" piece="2"></div>
+                        <div class="player-piece" player-id="P1" piece="3"></div>
+
+                        <div class="player-piece" player-id="P2" piece="0"></div>
+                        <div class="player-piece" player-id="P2" piece="1"></div>
+                        <div class="player-piece" player-id="P2" piece="2"></div>
+                        <div class="player-piece" player-id="P2" piece="3"></div>
+                    </div>
+
+                    <div class="player-bases">
+                        <div class="player-base" player-id="P1"></div>
+                        <div class="player-base" player-id="P2"></div>
+                    </div>
+                </div>
+                <div class="game-controls">
+                    <div class="dice-display">
+                        <div class="dice-cube" id="ludo-dice">
+                            <div class="dice-face front"></div>
+                            <div class="dice-face back"></div>
+                            <div class="dice-face top"></div>
+                            <div class="dice-face bottom"></div>
+                            <div class="dice-face right"></div>
+                            <div class="dice-face left"></div>
+                        </div>
+                    </div>
+                    <button id="dice-btn" class="btn img-btn primary-img-btn">
+                        <span class="icon-sheen">
+                            <img src="./assets/roll.png" alt="Add item">
+                        </span>
+                    </button>
+                    <div class="dice-value">-</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bottom-bar">
+            <h2 class="active-player">Active Player: <span></span></h2>
+            <button id="undo-btn" class="img-btn primary-img-btn">
+                <span class="icon-sheen">
+                    <img src="./assets/undo.png" alt="Add item">
+                </span>
+            </button>
+            <button id="reset-btn" class="img-btn primary-img-btn">
+                <span class="icon-sheen">
+                    <img src="./assets/reset.png" alt="Add item">
+                </span>
+            </button>
+        </div>
+    </div>
+
+    <button id="leaderboard-btn" class="img-btn primary-img-btn fab-leaderboard">
+        <span class="icon-sheen">
+            <img src="./assets/leaderboard.png" alt="Leaderboard">
+        </span>
+    </button>
+
+    <div id="leaderboard-overlay" class="leaderboard-overlay hidden">
+        <div class="leaderboard-modal" role="dialog" aria-modal="true" aria-labelledby="leaderboard-title">
+            <header class="leaderboard-header">
+                <h2 id="leaderboard-title">Leaderboard</h2>
+                <button id="leaderboard-close-btn" class="btn btn-muted btn-small" type="button">Close</button>
+            </header>
+            <ul id="leaderboard-list"></ul>
+        </div>
+    </div>
+
+    <script src="./main.js" type="module"></script>
+</body>
+</html>

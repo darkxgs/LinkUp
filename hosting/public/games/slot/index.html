@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="lu-games">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ماكينة السلوت لاكي 777 — LinkUp Games</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Outfit:wght@600;800&display=swap');
+
+    :root {
+      --bg-color: #0c0717;
+      --card-bg: rgba(23, 15, 38, 0.75);
+      --border-color: rgba(168, 85, 247, 0.25);
+      --text-primary: #ffffff;
+      --text-muted: #a78bfa;
+      --brand-gradient: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      font-family: 'Cairo', sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-primary);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+      padding: 16px;
+      position: relative;
+    }
+
+    .nebula {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(85px);
+      z-index: 0;
+      opacity: 0.5;
+    }
+
+    .nebula-purple {
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, rgba(236, 72, 153, 0.2) 0%, rgba(0, 0, 0, 0) 70%);
+      top: -30px;
+      right: -30px;
+    }
+
+    .nebula-indigo {
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+      bottom: -30px;
+      left: -30px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 360px;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 14px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 900;
+      background: linear-gradient(135deg, #ec4899 0%, #c084fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(15px);
+      text-align: center;
+    }
+
+    .balance-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-bottom: 16px;
+    }
+
+    .balance-title {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .balance-val {
+      font-size: 16px;
+      font-weight: 800;
+      color: #f59e0b;
+    }
+
+    .cabinet {
+      width: 100%;
+      height: 200px;
+      position: relative;
+      background-image: url(../../images/slot_cabinet.png);
+      background-size: 100% 100%;
+      background-position: center;
+      background-repeat: no-repeat;
+      filter: drop-shadow(0 10px 20px rgba(0,0,0,0.5));
+      margin-bottom: 20px;
+    }
+
+    /* ذراع السحب الجانبي */
+    .lever {
+      position: absolute;
+      right: -8px;
+      top: 25%;
+      width: 12px;
+      height: 70px;
+      cursor: pointer;
+      transform-origin: center bottom;
+      transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .lever-knob {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #ef4444 0%, #7f1d1d 100%);
+      border: 1.5px solid rgba(255,255,255,0.4);
+      box-shadow: 0 4px 6px rgba(0,0,0,0.4), inset 0 -1.5px 3px rgba(0,0,0,0.4);
+      margin-bottom: -2px;
+    }
+
+    .lever-shaft {
+      width: 5px;
+      flex: 1;
+      background: linear-gradient(to right, #f3f4f6, #9ca3af, #374151);
+      border: 1px solid rgba(0,0,0,0.4);
+      border-radius: 3px;
+    }
+
+    .lever.pulled {
+      transform: rotateX(55deg) scaleY(0.8);
+    }
+
+    /* الشاشة الزجاجية */
+    .screen {
+      position: absolute;
+      top: 31%;
+      left: 17.5%;
+      width: 65%;
+      height: 37%;
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      padding: 4px 6px;
+      background: rgba(5, 5, 10, 0.9);
+      border: 1.5px solid rgba(236, 72, 153, 0.3);
+      box-shadow: inset 0 0 15px rgba(0,0,0,0.95), 0 0 6px rgba(236, 72, 153, 0.15);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .reel {
+      flex: 1;
+      height: 100%;
+      background: linear-gradient(to bottom, #111827 0%, #1f2937 25%, #374151 50%, #1f2937 75%, #111827 100%);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      box-shadow: inset 0 4px 8px rgba(0,0,0,0.85), 0 1.5px 3px rgba(0,0,0,0.5);
+      transition: transform 0.05s ease-in-out;
+    }
+
+    .reel.spinning {
+      filter: blur(2.5px);
+    }
+
+    .reel span {
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.85));
+    }
+
+    .action-btn {
+      width: 100%;
+      background: var(--brand-gradient);
+      border: none;
+      color: white;
+      padding: 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(236, 72, 153, 0.3);
+      transition: all 0.2s;
+    }
+
+    .action-btn:active {
+      transform: scale(0.97);
+    }
+
+    .status-msg {
+      min-height: 24px;
+      margin-top: 14px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status-success { color: #10b981; }
+
+    .payouts {
+      margin-top: 16px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 12px;
+      padding: 10px;
+    }
+
+    .payouts-title {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 700;
+      margin-bottom: 6px;
+      text-align: right;
+    }
+
+    .payouts-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+
+    .payout-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.03);
+      justify-content: center;
+    }
+
+    .payout-item span.mult {
+      font-weight: bold;
+      color: #f59e0b;
+    }
+
+    @keyframes modal-pop {
+      0% { transform: scale(0.9); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* Confetti Canvas styles */
+    #confetti-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 99;
+      pointer-events: none;
+    }
+
+    /* Glowing borders for the screen/cabinet on Win/Loss */
+    .win-glow {
+      box-shadow: 0 0 25px rgba(16, 185, 129, 0.7), inset 0 0 15px rgba(16, 185, 129, 0.35) !important;
+      border-color: #10b981 !important;
+      transition: all 0.3s ease;
+    }
+
+    .lose-glow {
+      box-shadow: 0 0 25px rgba(239, 68, 68, 0.7), inset 0 0 15px rgba(239, 68, 68, 0.35) !important;
+      border-color: #ef4444 !important;
+      transition: all 0.3s ease;
+    }
+
+    /* Card shake animation on Loss */
+    @keyframes card-shake {
+      0%, 100% { transform: translateX(0); }
+      15%, 45%, 75% { transform: translateX(-8px); }
+      30%, 60%, 90% { transform: translateX(8px); }
+    }
+
+    .card-shake-anim {
+      animation: card-shake 0.45s ease-in-out;
+    }
+  </style>
+  <link rel="stylesheet" href="../games-brand.css">
+</head>
+<body>
+  <canvas id="confetti-canvas"></canvas>
+
+  <!-- نافذة التحذير المخصصة (Custom UI Warning Modal) -->
+  <div id="warning-modal" style="
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(5px);
+  ">
+    <div style="
+      background: #170f26;
+      border: 1.5px solid rgba(239, 68, 68, 0.4);
+      border-radius: 20px;
+      padding: 24px;
+      width: 90%;
+      max-width: 320px;
+      text-align: center;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      animation: modal-pop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    ">
+      <div style="font-size: 40px; margin-bottom: 12px;">⚠️</div>
+      <h3 style="font-size: 16px; font-weight: 800; color: #ef4444; margin-bottom: 8px;">تنبيه هام</h3>
+      <p id="warning-modal-text" style="font-size: 13px; color: #a78bfa; margin-bottom: 20px; line-height: 1.6;"></p>
+      <button onclick="closeWarningModal()" style="
+        background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+        border: none;
+        color: white;
+        padding: 10px 24px;
+        border-radius: 10px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3);
+      ">موافق</button>
+    </div>
+  </div>
+
+  <div class="nebula nebula-purple"></div>
+  <div class="nebula nebula-indigo"></div>
+
+  <div class="container">
+    <header>
+      <h1>LinkUp Games</h1>
+      <p class="subtitle">ماكينة السلوت لاكي 777</p>
+    </header>
+
+    <div class="card">
+      <div class="balance-bar" style="flex-direction: column; gap: 8px; align-items: stretch;">
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <span class="balance-title">الرصيد:</span>
+          <span class="balance-val" id="balance-el">1000 كوين</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; width: 100%;">
+          <span class="balance-title">الرهان:</span>
+          <input type="number" id="bet-amt" class="bet-input" value="40" min="10" style="
+            width: 80px;
+            padding: 4px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.2);
+            color: white;
+            text-align: center;
+            font-weight: 700;
+            font-size: 13px;
+          ">
+        </div>
+      </div>
+
+      <div class="cabinet">
+        <div class="lever" id="lever-el" onclick="spinSlots()">
+          <div class="lever-knob"></div>
+          <div class="lever-shaft"></div>
+        </div>
+
+        <div class="screen">
+          <div class="reel" id="reel-0"><span>🍒</span></div>
+          <div class="reel" id="reel-1"><span>🍒</span></div>
+          <div class="reel" id="reel-2"><span>🍒</span></div>
+        </div>
+      </div>
+
+      <button class="action-btn" id="spin-btn" onclick="spinSlots()">🎰 تدوير البكرات</button>
+
+      <div class="status-msg" id="status-el">اسحب الذراع أو انقر للعب (التكلفة: 40)</div>
+
+      <div class="payouts">
+        <div class="payouts-title">مضاعفات الجوائز:</div>
+        <div class="payouts-grid">
+          <div class="payout-item"><span>🍒</span><span class="mult">×2</span></div>
+          <div class="payout-item"><span>🍋</span><span class="mult">×3</span></div>
+          <div class="payout-item"><span>⭐</span><span class="mult">×5</span></div>
+          <div class="payout-item"><span>🪙</span><span class="mult">×10</span></div>
+          <div class="payout-item"><span>💎</span><span class="mult">×25</span></div>
+          <div class="payout-item"><span>🔥</span><span class="mult">×50</span></div>
+          <div class="payout-item"><span>7️⃣</span><span class="mult">×100</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showWarningModal(text) {
+      document.getElementById('warning-modal-text').innerText = text;
+      document.getElementById('warning-modal').style.display = 'flex';
+    }
+
+    function closeWarningModal() {
+      document.getElementById('warning-modal').style.display = 'none';
+    }
+
+    // ==================== نظام جزيئات القصاصات (Confetti Canvas) ====================
+    const canvas = document.getElementById('confetti-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+    let isConfettiActive = false;
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function spawnConfetti() {
+      particles = [];
+      const colors = ['#f59e0b', '#ec4899', '#a855f7', '#10b981', '#3b82f6'];
+      for (let i = 0; i < 90; i++) {
+        particles.push({
+          x: canvas.width / 2,
+          y: canvas.height + 10,
+          vx: (Math.random() - 0.5) * 14,
+          vy: -Math.random() * 15 - 8,
+          size: Math.random() * 6 + 4,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          rotation: Math.random() * 360,
+          rotationSpeed: (Math.random() - 0.5) * 8
+        });
+      }
+      isConfettiActive = true;
+      animateConfetti();
+    }
+
+    function animateConfetti() {
+      if (!isConfettiActive) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.4;
+        p.rotation += p.rotationSpeed;
+        if (p.y < canvas.height + 20) alive = true;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation * Math.PI / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+        ctx.restore();
+      });
+      if (alive) requestAnimationFrame(animateConfetti);
+      else isConfettiActive = false;
+    }
+
+    function triggerVibration(isWin) {
+      if (navigator.vibrate) {
+        if (isWin) {
+          navigator.vibrate([100, 50, 100]);
+        } else {
+          navigator.vibrate([200]);
+        }
+      }
+    }
+
+    const symbols = [
+      { char: '🍒', multiplier: 2 },
+      { char: '🍋', multiplier: 3 },
+      { char: '⭐', multiplier: 5 },
+      { char: '🪙', multiplier: 10 },
+      { char: '💎', multiplier: 25 },
+      { char: '🔥', multiplier: 50 },
+      { char: '7️⃣', multiplier: 100 }
+    ];
+
+    let balance = 1000;
+    let isSpinning = false;
+    let config = null;
+    let minBet = 10;
+    let maxBet = 100000;
+
+    // React Native WebView Bridge
+    function initGameBridge() {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'INIT_GAME' }));
+      } else {
+        setTimeout(initGameBridge, 100);
+      }
+    }
+    window.addEventListener('load', initGameBridge);
+
+    function onBridgeMessage(event) {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'INIT_DATA') {
+          balance = data.balance;
+          document.getElementById('balance-el').innerText = `${balance} كوين`;
+          if (data.config) {
+            config = data.config;
+            minBet = config.minBet;
+            maxBet = config.maxBet;
+            document.getElementById('bet-amt').min = minBet;
+            document.getElementById('bet-amt').max = maxBet;
+            updatePayoutsUI();
+          }
+        } else if (data.type === 'UPDATE_BALANCE') {
+          balance = data.balance;
+          document.getElementById('balance-el').innerText = `${balance} كوين`;
+        } else if (data.type === 'BET_CONFIRMED') {
+          const betAmt = Math.max(10, parseInt(document.getElementById('bet-amt').value) || 0);
+          startSpinConfirmed(betAmt);
+        } else if (data.type === 'RESULT_RECORDED') {
+          console.log('Result recorded successfully');
+        } else if (data.type === 'ERROR') {
+          showWarningModal('خطأ: ' + data.message);
+          document.getElementById('spin-btn').disabled = false;
+        }
+      } catch (e) {
+        console.warn('Error parsing message from RN:', e);
+      }
+    }
+    window.addEventListener('message', onBridgeMessage);
+    document.addEventListener('message', onBridgeMessage);
+
+    function updatePayoutsUI() {
+      if (!config || !config.multipliers) return;
+      const m0 = config.multipliers[0] || 100;
+      const m1 = config.multipliers[1] || 50;
+      const m2 = config.multipliers[2] || 25;
+      const m3 = config.multipliers[3] || 10;
+      const m4 = config.multipliers[4] || 5;
+
+      symbols[6].multiplier = m0; // 7️⃣
+      symbols[5].multiplier = m1; // 🔥
+      symbols[4].multiplier = m2; // 💎
+      symbols[3].multiplier = m3; // 🪙
+      symbols[2].multiplier = m4; // ⭐
+
+      const items = document.querySelectorAll('.payout-item');
+      items.forEach(item => {
+        const text = item.innerHTML;
+        if (text.includes('7️⃣')) item.querySelector('.mult').innerText = `×${m0}`;
+        if (text.includes('🔥')) item.querySelector('.mult').innerText = `×${m1}`;
+        if (text.includes('💎')) item.querySelector('.mult').innerText = `×${m2}`;
+        if (text.includes('🪙')) item.querySelector('.mult').innerText = `×${m3}`;
+        if (text.includes('⭐')) item.querySelector('.mult').innerText = `×${m4}`;
+      });
+    }
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playReelTick() {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(300, now);
+        osc.frequency.exponentialRampToValueAtTime(100, now + 0.04);
+        gain.gain.setValueAtTime(0.1, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+        osc.start(now);
+        osc.stop(now + 0.04);
+      } catch {}
+    }
+
+    function playWinSound() {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+
+        const freqs = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+        freqs.forEach((f, idx) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(f, now + idx * 0.06);
+          gain.gain.setValueAtTime(0.12, now + idx * 0.06);
+          gain.gain.exponentialRampToValueAtTime(0.005, now + idx * 0.06 + 0.2);
+          osc.start(now + idx * 0.06);
+          osc.stop(now + idx * 0.06 + 0.2);
+        });
+      } catch {}
+    }
+
+    function playLoseSound() {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.setValueAtTime(120, now + 0.15);
+        gain.gain.setValueAtTime(0.1, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+        osc.start(now);
+        osc.stop(now + 0.2);
+      } catch {}
+    }
+
+    function spinSlots() {
+      if (isSpinning) return;
+      initAudio();
+
+      const betAmt = Math.max(10, parseInt(document.getElementById('bet-amt').value) || 0);
+
+      if (betAmt < minBet || betAmt > maxBet) {
+        showWarningModal(`الرهان يجب أن يكون بين ${minBet} و ${maxBet} كوين!`);
+        return;
+      }
+
+      if (balance < betAmt) {
+        showWarningModal('رصيدك غير كافٍ للرهان!');
+        return;
+      }
+
+      if (window.ReactNativeWebView) {
+        document.getElementById('spin-btn').disabled = true;
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'PLACE_BET',
+          stake: betAmt
+        }));
+      } else {
+        startSpinConfirmed(betAmt);
+      }
+    }
+
+    function startSpinConfirmed(betAmt) {
+      isSpinning = true;
+      if (!window.ReactNativeWebView) {
+        balance -= betAmt;
+        document.getElementById('balance-el').innerText = `${balance} كوين`;
+      }
+      document.getElementById('status-el').innerText = 'جاري تدوير بكرات الحظ... 🎰';
+
+      const screenEl = document.querySelector('.screen');
+      if (screenEl) {
+        screenEl.classList.remove('win-glow', 'lose-glow');
+      }
+
+      const spinBtn = document.getElementById('spin-btn');
+      spinBtn.disabled = true;
+
+      const lever = document.getElementById('lever-el');
+      lever.classList.add('pulled');
+      setTimeout(() => lever.classList.remove('pulled'), 400);
+
+      const reels = [
+        document.getElementById('reel-0'),
+        document.getElementById('reel-1'),
+        document.getElementById('reel-2')
+      ];
+
+      reels.forEach(r => r.classList.add('spinning'));
+
+      // Decide result based on RTP
+      const rtpVal = (config && config.rtp) ? config.rtp : 92;
+      const isWin = (Math.random() * 100) < rtpVal;
+
+      let finalSymbols = [];
+      if (isWin) {
+        const matchingSym = symbols[Math.floor(Math.random() * symbols.length)];
+        finalSymbols = [matchingSym, matchingSym, matchingSym];
+      } else {
+        while (true) {
+          finalSymbols = [
+            symbols[Math.floor(Math.random() * symbols.length)],
+            symbols[Math.floor(Math.random() * symbols.length)],
+            symbols[Math.floor(Math.random() * symbols.length)]
+          ];
+          if (!(finalSymbols[0].char === finalSymbols[1].char && finalSymbols[1].char === finalSymbols[2].char)) {
+            break;
+          }
+        }
+      }
+
+      let tickCount = 0;
+      const interval = setInterval(() => {
+        reels.forEach(r => {
+          const sym = symbols[Math.floor(Math.random() * symbols.length)];
+          r.querySelector('span').innerText = sym.char;
+        });
+        playReelTick();
+        tickCount++;
+
+        if (tickCount >= 18) {
+          clearInterval(interval);
+          reels.forEach(r => r.classList.remove('spinning'));
+
+          reels.forEach((r, idx) => {
+            r.querySelector('span').innerText = finalSymbols[idx].char;
+          });
+
+          isSpinning = false;
+          spinBtn.disabled = false;
+
+          const [a, b, c] = finalSymbols;
+          let winMultiplier = 0;
+          let win = 0;
+
+          if (a.char === b.char && b.char === c.char) {
+            winMultiplier = a.multiplier;
+          } else if (a.char === b.char || b.char === c.char || a.char === c.char) {
+            const common = a.char === b.char ? a : c;
+            winMultiplier = Math.round(common.multiplier * 0.4 * 10) / 10;
+          }
+
+          if (winMultiplier > 0) {
+            win = Math.round(betAmt * winMultiplier);
+          }
+
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'GAME_RESULT',
+              stake: betAmt,
+              winAmount: win,
+              isWin: win > 0,
+              result: { symbols: finalSymbols.map(s => s.char) }
+            }));
+          }
+
+          const statusEl = document.getElementById('status-el');
+          const cardEl = document.querySelector('.card');
+          if (win > 0) {
+            if (!window.ReactNativeWebView) {
+              balance += win;
+            }
+            statusEl.innerHTML = `<span class="status-success">🎉 تهانينا! فوز بجائزة قيمتها +${win} كوين!</span>`;
+            if (screenEl) screenEl.classList.add('win-glow');
+            playWinSound();
+            triggerVibration(true);
+            spawnConfetti();
+          } else {
+            statusEl.innerText = 'خسارة! حاول مجدداً!';
+            if (screenEl) screenEl.classList.add('lose-glow');
+            if (cardEl) {
+              cardEl.classList.add('card-shake-anim');
+              setTimeout(() => {
+                cardEl.classList.remove('card-shake-anim');
+              }, 450);
+            }
+            playLoseSound();
+            triggerVibration(false);
+          }
+
+          document.getElementById('balance-el').innerText = `${balance} كوين`;
+        }
+      }, 95);
+    }
+  </script>
+</body>
+</html>

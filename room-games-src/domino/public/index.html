@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="description" content="Jogo de Dominó Multiplayer online para 4 pessoas feito com typescript, node.js, socket.io, dice.css e scoket.io." />
+<meta name="keywords" content="Dominó,Felipe  Mateus, Felipe, Mateus,feliepfm32" />
+<meta property="og:locale" content="pt_BR" />
+<meta property="og:url" content="https://domino.felipemateus.com/" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Dominó Multiplayer" />
+<meta property="og:site_name" content="Felipe Mateus - Dominó" />
+<meta property="og:description" content="Jogo de Dominó Multiplayer online para 4 pessoas feito com typescript, node.js, socket.io, dice.css e scoket.io." />
+<meta property="og:image" content="https://domino.felipemateus.com/img/jogador_domino.png" />
+<meta property="og:image:width" content="1920" />
+<meta property="og:image:height" content="1080" />
+<meta property="og:image:alt" content="Imagem do Jogo em Acao" />
+<meta property="fb:app_id" content="390966160994721" />
+<meta name="twitter:title" content="Felipe Mateus">
+<meta name="twitter:description" content="Jogo de Dominó Multiplayer online para 4 pessoas feito com typescript, node.js, socket.io, dice.css e scoket.io.">
+<meta name="twitter:image" content="https://domino.felipemateus.com/img/jogador_domino.png">
+<meta name="twitter:site" content="https://domino.felipemateus.com/">
+<meta name="author" content="Felipe Mateus">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dominó Multiplayer Game</title>
+
+<link rel="stylesheet" href="css/dice-1.0.min.css"/>
+<link rel="stylesheet" href="css/ui.css"/>
+<link rel="stylesheet" href="css/modal.css" />
+<link rel="stylesheet" href="css/forkme.css" />
+
+<head>
+<body>
+	<div id="game">
+		<div id="tabuleiro">
+            <!-- Cartas no Tabuleiro -->
+		</div>
+		<div class="stat">
+			<h1>Estastiticas</h1>
+			<table>
+				<tr><td>Jogadores Online:</td><td id="gamers">0</td></tr>
+				<tr><td>Cartas no Tabuleiro:</td><td id="tab">0</td></tr>
+				<tr><td>Cartas em Mãos:</td><td id="cards_in_hand">0</td></tr>
+				<tr><td>Numero do Jogador:</td><td id="gamer_num">0</td></tr>
+				<tr><td>Status do Jogo:</td><td id="status">Aguardando jogadores...</td></tr>
+                <tr><td>Texto Explicativo:</td><td><a href="https://felipemateus.com/blog/2017/06/domino">Blog do Felipe Mateus</a></td></tr>
+			</table>
+			
+			<table class="jogadores">
+				<tr><td id="gamerName_0">Jogador1</td><td> <input type="radio" name="token" id="Tokenjogador_0" disabled /></td></tr>
+				<tr><td id="gamerName_1">Jogador2</td><td> <input type="radio" name="token" id="Tokenjogador_1" disabled /></td></tr>
+				<tr><td id="gamerName_2">Jogador3</td><td> <input type="radio" name="token" id="Tokenjogador_2" disabled /></td></tr>
+				<tr><td id="gamerName_3">Jogador4</td><td> <input type="radio" name="token" id="Tokenjogador_3" disabled /></td></tr>
+			</table>
+		</div>
+	</div>
+	<div>
+		<div id="hand">
+            <!--- Minhas Cartas -->
+			<div id="wait"></div>
+		</div>
+		<div id="pass" onclick="game.PassarVez()">
+			<span>Passar Vez</span>
+		</div>
+		<div class="rights">
+			<div>
+				<a rel="license" href="http://creativecommons.org/licenses/by-nc/4.0/"><img alt="Licença Creative Commons" style="border-width:0" src="https://i.creativecommons.org/l/by-nc/4.0/88x31.png" /></a><br />Este obra está licenciado com uma Licença <a rel="license" href="http://creativecommons.org/licenses/by-nc/4.0/">Creative Commons Atribuição-NãoComercial 4.0 Internacional</a>.
+			</div>
+		</div>
+    </div>
+    <div id="mobile_message" class="hide">
+        <h1>⚠️Resolução Incompatível!</h1>
+    </div>
+    <span id="forkongithub"><a href="https://github.com/eufelipemateus/domino-game">Fork me on GitHub</a></span>
+</body>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/systemjs/6.9.0/system.min.js" integrity="sha512-wMACYsBj3dopATm2rDkcUeZuIzgOYcTQSfHXB+U7DrX5mmNuObPYNiQDOtctXNmw1md396stvkzSjU4hgljU8Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/systemjs/6.9.0/extras/named-exports.min.js" integrity="sha512-mf4/y3IroNfkl20Brygdc+tb4a38MrEmU+VTSyMaqlsZhfVHCdHniA//HEgETGlJptSSCPv72Dy6kXB+OHiGAQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script type="systemjs-importmap">
+    {
+      "imports": {
+        "modalName": "./js/outputs/ModalName.js",
+        "alert": "./js/outputs/Alert.js",
+        "game": "./js/outputs/Game.js",
+        "app": "./js/outputs/App.js"
+      }
+
+    }
+</script>
+<script type="systemjs-module" src="import:modalName"></script>
+<script type="systemjs-module" src="import:alert"></script>
+<script type="systemjs-module" src="import:game"></script>
+<script type="systemjs-module" src="import:app"></script>
+</html>

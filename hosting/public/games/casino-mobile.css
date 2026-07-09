@@ -1,0 +1,115 @@
+/**
+ * Responsive + embed styles for HTML luck/casino games
+ */
+html.linkup-embed.lu-games,
+html.linkup-embed .lu-games {
+  --lu-coin-img: url('/images/coin-gold.png?v=4');
+}
+
+html.linkup-embed #lu-intel-demo-banner,
+html.linkup-embed #lu-casino-demo-banner,
+html.linkup-embed .demo-tag,
+html.linkup-embed .reset-btn,
+html.linkup-embed #resetBtn,
+html.linkup-embed #resetBalance,
+html.linkup-embed #recharge-btn,
+html.linkup-embed #modal-recharge-btn,
+html.linkup-embed [data-demo-only],
+html.linkup-embed [data-embed-hide] {
+  display: none !important;
+}
+
+html.linkup-embed .fiat,
+html.linkup-embed [data-fiat-hint],
+html.linkup-embed.lu-games .fiat,
+html.linkup-embed .usd-conversion,
+html.linkup-embed [data-usd-hint] {
+  display: none !important;
+}
+
+html.linkup-embed svg[data-ds-icon],
+html.linkup-embed .badge-profit-row svg {
+  display: none !important;
+}
+
+html.linkup-embed .balance-box > .coin-sm.lu-coin-slot,
+html.linkup-embed .balance-wrap > .coin-sm.lu-coin-slot {
+  display: none !important;
+}
+
+html.linkup-embed .lu-coin-slot.coin,
+html.linkup-embed .lu-coin-slot.coin-sm,
+html.linkup-embed .lu-coin-slot.coin-input {
+  background: transparent !important;
+  color: transparent !important;
+  border-radius: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+}
+
+html.linkup-embed .lu-coin-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+html.linkup-embed .lu-coin-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+html.linkup-embed .lu-coin-label {
+  font-size: 0.85em;
+  opacity: 0.9;
+}
+
+.lu-coin-icon {
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: middle;
+  object-fit: contain;
+  display: inline-block;
+}
+
+.lu-balance-label.embedded {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+@media (max-width: 480px) {
+  .lu-games .container,
+  .lu-games .game-shell {
+    max-width: 100% !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  .lu-games h1 {
+    font-size: 1.35rem !important;
+  }
+
+  .lu-games .bet-panel,
+  .lu-games .panel {
+    width: 100% !important;
+  }
+
+  .lu-games .game {
+    flex-direction: column !important;
+  }
+
+  .lu-games .wager-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .lu-games #ducks-grid {
+    grid-template-columns: repeat(5, 1fr) !important;
+    gap: 6px !important;
+  }
+}
+
+@media (max-height: 700px) {
+  .lu-games .nebula {
+    opacity: 0.25 !important;
+  }
+}

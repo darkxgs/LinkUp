@@ -1,0 +1,609 @@
+/* =============================================================================
+ * style.css — flat-but-rich 2D stadium scene + casino chrome.
+ * Palette, stadium depth, realistic net, keeper sprite, ball FX, glass HUD.
+ * ========================================================================== */
+
+:root {
+  /* palette */
+  --bg-0: #041d13;
+  --bg-1: #0a3322;
+  --pitch-dark: #1e6f34;
+  --pitch-light: #2f8f42;
+  --gold: #f5c542;
+  --gold-deep: #d9a521;
+  --ink: #06120b;
+  --white: #f8f8f8;
+  --save: #ff5d5d;
+  --goal: #46e06a;
+  --net: rgba(255, 255, 255, 0.16);
+
+  /* glass surfaces */
+  --glass-bg: rgba(255, 255, 255, 0.07);
+  --glass-line: rgba(255, 255, 255, 0.14);
+  --glass-blur: blur(12px);
+
+  --shadow-lg: 0 14px 36px rgba(0, 0, 0, .5);
+  --shadow-md: 0 8px 20px rgba(0, 0, 0, .4);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0; padding: 0;
+  height: 100vh; height: 100dvh; /* dvh handles mobile browser chrome */
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: var(--white);
+  background:
+    radial-gradient(120% 80% at 50% -10%, #0c3a26 0%, var(--bg-0) 60%, #02100a 100%);
+  overflow: hidden;
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation; /* kill 300ms tap delay + double-tap zoom */
+}
+
+#app { height: 100%; width: 100%; }
+
+.screen {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  /* respect iPhone/iPad notch + home-indicator safe areas */
+  padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+           max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+}
+.hidden { display: none !important; }
+
+/* ---------------- Buttons ---------------- */
+.primary-btn {
+  background: linear-gradient(180deg, var(--gold), var(--gold-deep));
+  color: var(--ink); border: none; border-radius: 14px;
+  font-size: 1.1rem; font-weight: 800; letter-spacing: .5px;
+  padding: 14px 30px; cursor: pointer;
+  box-shadow: 0 6px 0 #9c7615, 0 10px 22px rgba(0,0,0,.45);
+  transition: transform .08s, box-shadow .08s, opacity .2s, filter .15s;
+}
+.primary-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.primary-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #9c7615; }
+.primary-btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: 0 6px 0 #5a4710; }
+
+.secondary-btn {
+  background: var(--glass-bg); color: var(--white);
+  border: 1px solid var(--glass-line); border-radius: 14px;
+  font-size: 1rem; font-weight: 700; padding: 12px 26px; cursor: pointer;
+  backdrop-filter: var(--glass-blur);
+}
+.secondary-btn:hover { background: rgba(255,255,255,.12); }
+.secondary-btn:active { transform: translateY(2px); }
+
+/* ===========================================================================
+ * WAGER SCREEN
+ * ======================================================================== */
+.title-bar { text-align: center; margin-bottom: 18px; }
+.logo { font-size: 2.8rem; margin: 0; font-weight: 900; letter-spacing: 1px;
+  text-shadow: 0 4px 18px rgba(0,0,0,.5); }
+.logo span { color: var(--gold); }
+.tagline { margin: 4px 0 0; opacity: .7; letter-spacing: 3px; font-size: .8rem; }
+
+.wager-grid {
+  display: flex; gap: 18px; align-items: stretch; justify-content: center;
+  flex-wrap: wrap; margin-bottom: 22px; width: 100%; max-width: 900px;
+}
+
+.player-card {
+  background: var(--glass-bg); border: 1px solid var(--glass-line);
+  backdrop-filter: var(--glass-blur);
+  border-radius: 18px; padding: 18px 20px; width: 230px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  box-shadow: var(--shadow-md);
+}
+.avatar {
+  width: 64px; height: 64px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 900; font-size: 1.3rem;
+  color: var(--ink); box-shadow: 0 6px 16px rgba(0,0,0,.4);
+}
+.avatar-p1 { background: linear-gradient(135deg, #5ad1ff, #2f8bdf); }
+.avatar-p2 { background: linear-gradient(135deg, #ff8f6b, #e85d3a); }
+
+.name-input {
+  background: rgba(0,0,0,.25); border: 1px solid var(--glass-line); color: var(--white);
+  text-align: center; border-radius: 10px; padding: 8px; font-size: 1rem;
+  width: 100%; font-weight: 700;
+}
+.balance-line { font-size: .85rem; opacity: .85; }
+.balance-line .balance { color: var(--gold); font-weight: 800; }
+
+.ready-toggle {
+  background: rgba(0,0,0,.25); color: var(--white); border: 2px solid var(--glass-line);
+  border-radius: 12px; padding: 10px 18px; font-weight: 700; cursor: pointer;
+  width: 100%; transition: all .15s;
+}
+.ready-toggle.ready {
+  background: var(--goal); color: var(--ink); border-color: var(--goal);
+  box-shadow: 0 0 18px rgba(70,224,106,.5);
+}
+
+.wager-center {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  justify-content: center;
+}
+.vs { font-size: 1.6rem; font-weight: 900; color: var(--gold); opacity: .85; }
+.bet-block {
+  background: var(--glass-bg); border: 1px solid var(--glass-line);
+  backdrop-filter: var(--glass-blur);
+  border-radius: 16px; padding: 16px; text-align: center; min-width: 220px;
+  box-shadow: var(--shadow-md);
+}
+.bet-block label { display: block; font-size: .75rem; letter-spacing: 1px; opacity: .7; margin-bottom: 8px; }
+.chips { display: flex; gap: 8px; justify-content: center; margin-bottom: 10px; }
+.chip {
+  width: 48px; height: 48px; border-radius: 50%; cursor: pointer;
+  border: 2px dashed rgba(255,255,255,.4); background: rgba(0,0,0,.25);
+  color: var(--white); font-weight: 800; font-size: .9rem; transition: all .12s;
+}
+.chip:hover { transform: translateY(-2px); }
+.chip.active { background: var(--gold); color: var(--ink); border-style: solid; border-color: var(--gold); box-shadow: 0 0 14px rgba(245,197,66,.6); }
+#bet-input {
+  width: 130px; text-align: center; font-size: 1.2rem; font-weight: 800;
+  background: rgba(0,0,0,.25); border: 1px solid var(--glass-line); color: var(--gold);
+  border-radius: 10px; padding: 8px;
+}
+.pot-preview { margin-top: 10px; font-weight: 700; }
+.pot-preview span { color: var(--gold); }
+.error-text { color: var(--save); height: 1.2em; margin-top: 12px; font-weight: 600; }
+
+/* ===========================================================================
+ * MATCH SCREEN
+ * ======================================================================== */
+#screen-match { justify-content: flex-start; padding: 10px 12px; }
+
+/* ---- Glassmorphism HUD ---- */
+.hud {
+  width: 100%; max-width: 920px; display: flex; justify-content: space-between;
+  align-items: stretch; gap: 12px; margin-bottom: 6px; z-index: 10;
+}
+.hud-player {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  background: var(--glass-bg); border: 1px solid var(--glass-line);
+  backdrop-filter: var(--glass-blur);
+  border-radius: 16px; padding: 10px 14px; max-width: 230px;
+  box-shadow: var(--shadow-md);
+  transition: box-shadow .25s, border-color .25s, transform .25s;
+}
+.hud-player.is-shooter {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px var(--gold), 0 0 26px rgba(245,197,66,.5);
+  transform: translateY(-2px);
+}
+.hud-name { font-weight: 800; font-size: .95rem; }
+.hud-score { font-size: 1.7rem; font-weight: 900; color: var(--gold); line-height: 1.1; }
+.hud-balance { font-size: .75rem; opacity: .85; }
+
+.hud-center {
+  text-align: center; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px;
+}
+.pot-display {
+  background: linear-gradient(180deg, var(--gold), var(--gold-deep));
+  color: var(--ink); font-weight: 900; padding: 8px 20px; border-radius: 12px;
+  font-size: 1rem; letter-spacing: 1px; box-shadow: 0 6px 16px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.4);
+}
+.round-label { font-size: .72rem; letter-spacing: 2px; opacity: .8; }
+.round-label.sd { color: var(--save); font-weight: 900; opacity: 1; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+/* ===========================================================================
+ * STADIUM + PITCH
+ * ======================================================================== */
+.stage {
+  width: 100%; flex: 1; display: flex; align-items: stretch; justify-content: center;
+  min-height: 0;
+}
+.stadium {
+  position: relative;
+  /* Fill all the space the HUD/prompt leave — no empty background margins.
+     The goal keeps its own fixed aspect-ratio (below), so the scene never
+     distorts even though the stadium itself is free-form. */
+  width: 100%; height: 100%; max-width: 1100px; margin: 0 auto;
+  border-radius: 16px; overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  /* deep stadium bowl behind everything */
+  background:
+    radial-gradient(120% 90% at 50% 0%, #143a55 0%, #0b2236 38%, #07151f 100%);
+}
+
+/* tiered stands */
+.stands {
+  position: absolute; left: 0; right: 0; top: 0; height: 42%;
+  background:
+    repeating-linear-gradient(180deg, rgba(255,255,255,.05) 0 6px, transparent 6px 13px),
+    linear-gradient(180deg, #1b2c3a 0%, #16242f 100%);
+  filter: blur(1px);
+}
+/* blurred crowd speckle + warm glow */
+.crowd {
+  position: absolute; left: 0; right: 0; top: 4%; height: 32%;
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,.5) 0 1px, transparent 1.4px),
+    radial-gradient(circle, rgba(245,197,66,.35) 0 1px, transparent 1.4px);
+  background-size: 11px 9px, 17px 14px;
+  background-position: 0 0, 6px 4px;
+  opacity: .5; filter: blur(.6px);
+  mask-image: linear-gradient(180deg, transparent, #000 30%, #000 75%, transparent);
+}
+/* floodlight pylons top corners */
+.floodlight { position: absolute; top: 1%; width: 70px; height: 26px; z-index: 2;
+  background: radial-gradient(circle at 50% 30%, rgba(255,255,255,.95) 0 4px, transparent 5px) repeat-x;
+  background-size: 17px 100%;
+  filter: drop-shadow(0 0 10px rgba(255,255,255,.8));
+}
+.floodlight-l { left: 8%; } .floodlight-r { right: 8%; }
+
+/* sweeping spotlight beams */
+.spotlights { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.beam {
+  position: absolute; top: -10%; width: 26%; height: 90%;
+  background: linear-gradient(180deg, rgba(255,255,255,.16), transparent 70%);
+  filter: blur(8px); transform-origin: top center; mix-blend-mode: screen;
+}
+.beam-1 { left: 6%;  transform: rotate(14deg);  animation: sweep1 7s ease-in-out infinite; }
+.beam-2 { left: 30%; transform: rotate(-8deg);  animation: sweep2 9s ease-in-out infinite; }
+.beam-3 { right: 30%; transform: rotate(8deg);  animation: sweep1 8s ease-in-out infinite reverse; }
+.beam-4 { right: 6%; transform: rotate(-14deg); animation: sweep2 6s ease-in-out infinite reverse; }
+@keyframes sweep1 { 50% { transform: rotate(20deg); opacity:.7; } }
+@keyframes sweep2 { 50% { transform: rotate(-16deg); opacity:.7; } }
+
+/* the playing field, tilted slightly for depth */
+.pitch {
+  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  width: 100%; height: 82%;
+  background:
+    linear-gradient(180deg, var(--pitch-dark) 0%, var(--pitch-light) 60%, #277a39 100%);
+  box-shadow: inset 0 18px 40px rgba(0,0,0,.45), inset 0 -8px 24px rgba(0,0,0,.4);
+}
+/* mowed stripes converging for perspective */
+.pitch::before {
+  content: ""; position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg,
+    rgba(255,255,255,.06) 0 8%, transparent 8% 16%);
+  transform: perspective(420px) rotateX(34deg); transform-origin: top center;
+  pointer-events: none;
+}
+
+/* ground markings */
+.six-yard {
+  position: absolute; left: 50%; top: 40%; transform: translateX(-50%);
+  width: 56%; height: 26%; border: 2px solid rgba(255,255,255,.5);
+  border-top: none; border-radius: 0 0 4px 4px; opacity: .55;
+}
+.penalty-arc {
+  position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%);
+  width: 30%; height: 18%; border: 2px solid rgba(255,255,255,.45);
+  border-radius: 50%; opacity: .5;
+}
+.penalty-spot {
+  position: absolute; bottom: 13%; left: 50%; transform: translateX(-50%);
+  width: 14px; height: 7px; background: var(--white); border-radius: 50%;
+  box-shadow: 0 0 10px rgba(255,255,255,.7); z-index: 3;
+}
+
+/* ---------------- Goal ---------------- */
+.goal {
+  position: absolute; top: 9%; left: 50%; transform: translateX(-50%);
+  /* Fixed wide aspect so a real goal shape holds on any screen; clamped so it
+     stays sensible from small phones to wide tablets. Extra vertical room
+     becomes grass below (the penalty run-up) and stands above. */
+  width: clamp(240px, 64%, 560px);
+  aspect-ratio: 2.5 / 1; height: auto;
+  z-index: 2;
+}
+/* back net panel */
+.net {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(var(--net) 1px, transparent 1px),
+    linear-gradient(90deg, var(--net) 1px, transparent 1px);
+  background-size: 7% 9%;
+}
+.net-back {
+  background-color: rgba(0,0,0,.32);
+  box-shadow: inset 0 0 50px rgba(0,0,0,.6);
+  border-radius: 4px 4px 0 0;
+}
+/* faint diagonal mesh overlay for a woven look */
+.net-back::after {
+  content: ""; position: absolute; inset: 0;
+  background-image:
+    repeating-linear-gradient(45deg, var(--net) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(-45deg, var(--net) 0 1px, transparent 1px 9px);
+  opacity: .5;
+}
+/* slanted roof of the net for depth */
+.net-roof {
+  top: -10%; height: 12%; bottom: auto;
+  background-color: rgba(0,0,0,.22);
+  transform: perspective(300px) rotateX(55deg); transform-origin: bottom center;
+  border-radius: 4px 4px 0 0;
+}
+
+.goal-frame { position: absolute; inset: 0; z-index: 4; }
+.crossbar {
+  position: absolute; top: -10px; left: -10px; right: -10px; height: 10px;
+  background: linear-gradient(180deg,#fff,#cfd3cd); border-radius: 5px;
+  box-shadow: 0 4px 10px rgba(0,0,0,.5);
+}
+.post {
+  position: absolute; top: -10px; bottom: 0; width: 10px;
+  background: linear-gradient(90deg,#fff,#c9cdc6); border-radius: 5px;
+  box-shadow: 0 0 10px rgba(0,0,0,.45);
+}
+.post-left { left: -10px; } .post-right { right: -10px; }
+
+/* ---------------- Goalkeeper sprite ----------------
+ * Uses the AI-generated PNG (js/assests/keeper.png). The .kp-* CSS parts below
+ * are kept as a fallback: delete the image rule + the `.kp-* { display:none }`
+ * line and the hand-built vector keeper returns automatically. */
+.keeper {
+  position: absolute; bottom: -10%; left: 50%; transform: translateX(-50%);
+  /* Sized by the goal HEIGHT (a keeper is about goal-tall, not goal-wide).
+     Height drives width via the 1608x2400 sprite aspect-ratio, so he stays
+     correctly proportioned and never wider/taller than the goal. */
+  height: 108%; width: auto; aspect-ratio: 1608 / 2400; z-index: 5;
+}
+.keeper-shadow {
+  position: absolute; bottom: 2%; left: 50%; transform: translateX(-50%);
+  width: 58%; height: 4%; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0,0,0,.55), transparent);
+  filter: blur(1px);
+}
+.keeper-figure {
+  position: absolute; inset: 0;
+  animation: kpIdle 2.4s ease-in-out infinite;
+  transform-origin: bottom center;
+  background-image: url("js/assets/keeper.png");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  filter: drop-shadow(0 6px 10px rgba(0,0,0,.45));
+}
+/* Hide the fallback vector parts while the image sprite is in use. */
+.keeper-figure .kp-head,
+.keeper-figure .kp-body,
+.keeper-figure .kp-arm,
+.keeper-figure .kp-leg { display: none; }
+.kp-head {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 24px; height: 24px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #ffdcb8, #e9b083);
+  box-shadow: inset -2px -2px 4px rgba(0,0,0,.2);
+  z-index: 3;
+}
+.kp-body {
+  position: absolute; top: 21px; left: 50%; transform: translateX(-50%);
+  width: 40px; height: 52px; border-radius: 16px 16px 10px 10px;
+  background: linear-gradient(160deg, #2bd389 0%, #12a566 60%, #0c7d4e 100%);
+  box-shadow: inset 0 -6px 10px rgba(0,0,0,.25), var(--shadow-md);
+  z-index: 2;
+}
+/* jersey number / stripe detail */
+.kp-body::before {
+  content: ""; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  width: 6px; height: 30px; background: rgba(255,255,255,.35); border-radius: 3px;
+}
+.kp-arm {
+  position: absolute; top: 24px; width: 12px; height: 40px; border-radius: 8px;
+  background: linear-gradient(180deg,#16b873,#0c7d4e); z-index: 1;
+  transition: transform .4s cubic-bezier(.2,.8,.3,1);
+}
+.kp-arm-l { left: 6px;  transform: rotate(18deg);  transform-origin: top center; }
+.kp-arm-r { right: 6px; transform: rotate(-18deg); transform-origin: top center; }
+/* gloves on the arm tips */
+.kp-arm::after {
+  content: ""; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+  width: 16px; height: 16px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff36b, #f0c800);
+  box-shadow: 0 0 8px rgba(245,197,66,.6);
+}
+.kp-leg {
+  position: absolute; bottom: 0; width: 13px; height: 24px; border-radius: 6px;
+  background: linear-gradient(180deg,#1a1d24,#0c0e12); z-index: 1;
+}
+.kp-leg-l { left: 16px; } .kp-leg-r { right: 16px; }
+
+@keyframes kpIdle {
+  0%, 100% { transform: translateY(0) scaleX(1); }
+  50%      { transform: translateY(-3px) scaleX(1.02); }
+}
+/* arms fly up/out while diving */
+.keeper.diving .kp-arm-l { transform: rotate(60deg); }
+.keeper.diving .kp-arm-r { transform: rotate(-60deg); }
+
+/* ---------------- Aiming grid ---------------- */
+.aim-grid {
+  position: absolute; inset: 0; z-index: 7;
+  display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr;
+  gap: 6px; padding: 4px;
+}
+.zone {
+  border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
+  background: rgba(255,255,255,.03); cursor: pointer;
+  transition: background .14s, transform .08s, box-shadow .14s, border-color .14s;
+}
+.zone:hover {
+  background: rgba(245,197,66,.18);
+  border-color: var(--gold);
+  box-shadow: inset 0 0 22px rgba(245,197,66,.35), 0 0 14px rgba(245,197,66,.3);
+}
+.zone:active { transform: scale(.93); }
+.aim-grid.shooter-mode .zone:hover {
+  background: rgba(70,224,106,.22); border-color: var(--goal);
+  box-shadow: inset 0 0 22px rgba(70,224,106,.4), 0 0 16px rgba(70,224,106,.35);
+}
+.aim-grid.keeper-mode .zone:hover {
+  background: rgba(255,93,93,.22); border-color: var(--save);
+  box-shadow: inset 0 0 22px rgba(255,93,93,.4), 0 0 16px rgba(255,93,93,.35);
+}
+
+/* ---------------- Ball ---------------- */
+.ground { position: absolute; bottom: 0; left: 0; right: 0; height: 40%; }
+.ball {
+  position: absolute; left: 50%; top: 84%; transform: translate(-50%, 0);
+  width: 46px; height: 46px; z-index: 6;
+  /* real soccer-ball graphic (AI sprite; swap back to ball.svg to A/B) */
+  background: url("js/assets/Ball.png") center / contain no-repeat;
+  filter: drop-shadow(0 6px 10px rgba(0,0,0,.55));
+}
+.ball-shadow {
+  position: absolute; left: 50%; top: calc(84% + 34px); transform: translateX(-50%);
+  width: 40px; height: 11px; border-radius: 50%; z-index: 4;
+  background: radial-gradient(closest-side, rgba(0,0,0,.5), transparent);
+  filter: blur(1px);
+}
+/* pulsing ring when it's the shooter's turn (ball is "live") */
+.ball-ring {
+  position: absolute; inset: -8px; border-radius: 50%;
+  border: 2px solid var(--gold); opacity: 0;
+}
+.ball.live .ball-ring { animation: ballPulse 1.4s ease-out infinite; }
+@keyframes ballPulse {
+  0%   { transform: scale(.7); opacity: .8; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+.ball.scored { animation: shake .35s; }
+.ball.saved  { animation: bounceOff .4s forwards; }
+@keyframes shake { 0%,100%{} 25%{transform:translate(-50%,-50%) scale(.7) rotate(-10deg)} 75%{transform:translate(-50%,-50%) scale(.7) rotate(10deg)} }
+@keyframes bounceOff { to { transform: translate(-120%,-25%) scale(.7) rotate(40deg); } }
+
+/* ---------------- FX layer (particles / explosion / shake) ---------------- */
+.fx-layer { position: absolute; inset: 0; z-index: 8; pointer-events: none; overflow: hidden; }
+.coin {
+  position: absolute; width: 14px; height: 14px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff3a8, var(--gold) 55%, var(--gold-deep));
+  box-shadow: 0 0 8px rgba(245,197,66,.7);
+  animation: coinFly .9s ease-out forwards;
+}
+@keyframes coinFly {
+  0%   { transform: translate(0,0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(.4) rotate(360deg); opacity: 0; }
+}
+.burst {
+  position: absolute; left: 50%; top: 50%; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--goal);
+  box-shadow: 0 0 30px 10px rgba(70,224,106,.7);
+  animation: burst .5s ease-out forwards;
+}
+@keyframes burst { from { transform: translate(-50%,-50%) scale(.2); opacity:.9; } to { transform: translate(-50%,-50%) scale(7); opacity:0; } }
+
+.shake { animation: screenShake .4s; }
+@keyframes screenShake {
+  0%,100%{ transform: translateX(-50%); }
+  20%{ transform: translateX(calc(-50% - 8px)) rotate(-.4deg); }
+  40%{ transform: translateX(calc(-50% + 8px)) rotate(.4deg); }
+  60%{ transform: translateX(calc(-50% - 5px)); }
+  80%{ transform: translateX(calc(-50% + 5px)); }
+}
+
+.vignette {
+  position: absolute; inset: 0; pointer-events: none; z-index: 9;
+  background: radial-gradient(120% 100% at 50% 38%, transparent 55%, rgba(0,0,0,.55) 100%);
+  box-shadow: inset 0 0 80px rgba(0,0,0,.5);
+}
+
+/* pick prompt */
+.pick-prompt {
+  min-height: 1.6em; font-weight: 800; font-size: 1.1rem;
+  text-align: center; margin: 10px 0 2px; letter-spacing: .5px;
+  text-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+
+/* ---------------- Overlays ---------------- */
+.overlay {
+  position: absolute; inset: 0; z-index: 30;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(4, 12, 7, .8); backdrop-filter: blur(5px);
+}
+.overlay-card {
+  background: var(--glass-bg); border: 1px solid var(--glass-line);
+  backdrop-filter: var(--glass-blur);
+  border-radius: 22px; padding: 32px 28px; text-align: center; max-width: 380px;
+  width: 90%; box-shadow: var(--shadow-lg);
+  animation: popIn .3s cubic-bezier(.2,1.2,.4,1);
+}
+@keyframes popIn { from { transform: scale(.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.handoff-icon { font-size: 3rem; }
+.overlay-card h2 { margin: 6px 0; font-weight: 800; }
+.handoff-name { font-size: 2rem; font-weight: 900; color: var(--gold); margin: 6px 0; }
+.handoff-sub { opacity: .7; font-size: .85rem; margin-bottom: 18px; }
+
+/* result toast */
+.result-toast {
+  position: absolute; top: 34%; left: 50%; transform: translate(-50%,-50%);
+  z-index: 20; font-size: 3.4rem; font-weight: 900; letter-spacing: 2px;
+  text-shadow: 0 4px 0 rgba(0,0,0,.45); pointer-events: none;
+  animation: toastPop .35s cubic-bezier(.2,1.4,.4,1);
+}
+.result-toast.goal { color: var(--goal); text-shadow: 0 0 30px rgba(70,224,106,.8), 0 4px 0 rgba(0,0,0,.4); }
+.result-toast.save { color: var(--save); text-shadow: 0 0 30px rgba(255,93,93,.8), 0 4px 0 rgba(0,0,0,.4); }
+@keyframes toastPop { from { transform: translate(-50%,-50%) scale(.3); opacity: 0; } to { transform: translate(-50%,-50%) scale(1); opacity: 1; } }
+
+/* match over */
+.over-emoji { font-size: 4rem; }
+.over-score { font-size: 2.2rem; font-weight: 900; color: var(--gold); margin: 8px 0 14px; }
+.over-payout { margin-bottom: 22px; }
+.payout-win { color: var(--goal); font-weight: 800; font-size: 1.1rem; }
+.payout-lose { color: var(--save); font-weight: 700; margin-top: 4px; }
+.over-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+
+/* ===========================================================================
+ * RESPONSIVE — phones & tablets, both orientations
+ * ======================================================================== */
+
+/* The stadium fills the stage in every orientation now (see .stadium), so no
+   per-orientation sizing is needed — the goal's own aspect-ratio holds shape. */
+
+/* Tablets (iPad-ish): roomy type, comfy touch targets. */
+@media (min-width: 700px) and (max-width: 1180px) {
+  .logo { font-size: 3.2rem; }
+  .primary-btn { padding: 16px 36px; font-size: 1.2rem; }
+  .zone { border-radius: 12px; }
+}
+
+/* Phones: tighten chrome, keep everything tappable. */
+@media (max-width: 700px) {
+  #screen-match { padding: 6px 8px; }
+  .logo { font-size: 2.1rem; }
+  .tagline { font-size: .7rem; letter-spacing: 2px; }
+
+  /* wager screen: stack the cards full-width above the bet block */
+  .wager-grid { gap: 10px; }
+  .player-card { width: calc(50% - 6px); padding: 12px 10px; }
+  .avatar { width: 52px; height: 52px; font-size: 1.1rem; }
+  .wager-center { order: 3; width: 100%; }
+  .bet-block { min-width: 100%; }
+
+  /* compact HUD */
+  .hud { gap: 8px; margin-bottom: 4px; }
+  .hud-player { padding: 7px 8px; border-radius: 12px; }
+  .hud-name { font-size: .78rem; }
+  .hud-score { font-size: 1.35rem; }
+  .hud-balance { font-size: .65rem; }
+  .pot-display { padding: 6px 12px; font-size: .85rem; }
+
+  .pick-prompt { font-size: .98rem; margin: 6px 0 0; }
+  .result-toast { font-size: 2.6rem; }
+  .ball { width: 38px; height: 38px; }
+  .ball-shadow { width: 34px; }
+
+  .overlay-card { padding: 26px 20px; }
+  .handoff-name { font-size: 1.7rem; }
+}
+
+/* Very small / short screens: shave vertical space further. */
+@media (max-height: 680px) {
+  .title-bar { margin-bottom: 10px; }
+  .stadium { border-radius: 12px; }
+}
+
+/* Coarse pointers (touch): bigger tap feedback, no hover-stuck states. */
+@media (pointer: coarse) {
+  .zone:active { background: rgba(245,197,66,.3); }
+  .primary-btn, .secondary-btn, .ready-toggle, .chip { min-height: 46px; }
+}

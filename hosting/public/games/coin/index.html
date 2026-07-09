@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="lu-games">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>لعبة رمي العملة 3D — LinkUp Games</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Outfit:wght@600;800&display=swap');
+
+    :root {
+      --bg-color: #0c0717;
+      --card-bg: rgba(23, 15, 38, 0.75);
+      --border-color: rgba(168, 85, 247, 0.25);
+      --text-primary: #ffffff;
+      --text-muted: #a78bfa;
+      --brand-gradient: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      font-family: 'Cairo', sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-primary);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+      padding: 16px;
+      position: relative;
+    }
+
+    .nebula {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(85px);
+      z-index: 0;
+      opacity: 0.5;
+    }
+
+    .nebula-purple {
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.2) 0%, rgba(0, 0, 0, 0) 70%);
+      top: -30px;
+      right: -30px;
+    }
+
+    .nebula-gold {
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, rgba(245, 158, 11, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+      bottom: -30px;
+      left: -30px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 360px;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 900;
+      background: linear-gradient(135deg, #c084fc 0%, #ec4899 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(15px);
+      text-align: center;
+    }
+
+    .balance-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-bottom: 16px;
+    }
+
+    .balance-title {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .balance-val {
+      font-size: 16px;
+      font-weight: 800;
+      color: #f59e0b;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .bet-selector {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .bet-btn {
+      flex: 1;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--text-primary);
+      padding: 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .bet-btn.active-heads {
+      background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+      border-color: #a855f7;
+      box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);
+    }
+
+    .bet-btn.active-tails {
+      background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+      border-color: #f59e0b;
+      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+    }
+
+    .coin-stage {
+      height: 160px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 16px;
+      margin-bottom: 16px;
+      perspective: 800px;
+      border: 1px solid rgba(255,255,255,0.02);
+      position: relative;
+      overflow: visible;
+    }
+
+    .coin-cube {
+      width: 90px;
+      height: 90px;
+      position: relative;
+      transform-style: preserve-3d;
+    }
+
+    .coin-shadow {
+      position: absolute;
+      bottom: 25px;
+      width: 75px;
+      height: 8px;
+      background: rgba(0, 0, 0, 0.6);
+      border-radius: 50%;
+      filter: blur(4px);
+      z-index: 0;
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    /* Keyframes for flipping the coin in 3D space with rise and fall */
+    @keyframes flip-heads {
+      0% {
+        transform: translateY(0) rotateY(0) rotateX(0);
+      }
+      15% {
+        transform: translateY(-55px) rotateY(180deg) rotateX(25deg);
+      }
+      30% {
+        transform: translateY(-90px) rotateY(360deg) rotateX(-25deg);
+      }
+      45% {
+        transform: translateY(-110px) rotateY(540deg) rotateX(15deg);
+      }
+      60% {
+        transform: translateY(-90px) rotateY(720deg) rotateX(-15deg);
+      }
+      75% {
+        transform: translateY(-55px) rotateY(900deg) rotateX(10deg);
+      }
+      90% {
+        transform: translateY(-15px) rotateY(1080deg) rotateX(-5deg);
+      }
+      100% {
+        transform: translateY(0) rotateY(1080deg) rotateX(0);
+      }
+    }
+
+    @keyframes flip-tails {
+      0% {
+        transform: translateY(0) rotateY(0) rotateX(0);
+      }
+      15% {
+        transform: translateY(-55px) rotateY(180deg) rotateX(25deg);
+      }
+      30% {
+        transform: translateY(-90px) rotateY(360deg) rotateX(-25deg);
+      }
+      45% {
+        transform: translateY(-110px) rotateY(540deg) rotateX(15deg);
+      }
+      60% {
+        transform: translateY(-90px) rotateY(720deg) rotateX(-15deg);
+      }
+      75% {
+        transform: translateY(-55px) rotateY(900deg) rotateX(10deg);
+      }
+      90% {
+        transform: translateY(-15px) rotateY(1080deg) rotateX(-5deg);
+      }
+      100% {
+        transform: translateY(0) rotateY(1260deg) rotateX(0);
+      }
+    }
+
+    /* Keyframes for the shadow size/opacity matching the coin flip */
+    @keyframes shadow-flip {
+      0% {
+        transform: scale(1);
+        opacity: 0.5;
+        filter: blur(4px);
+      }
+      45% {
+        transform: scale(0.35);
+        opacity: 0.15;
+        filter: blur(9px);
+      }
+      90% {
+        transform: scale(0.9);
+        opacity: 0.45;
+        filter: blur(5px);
+      }
+      100% {
+        transform: scale(1);
+        opacity: 0.5;
+        filter: blur(4px);
+      }
+    }
+
+    .coin-face {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background-size: cover;
+      backface-visibility: hidden;
+      box-shadow: 0 6px 15px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,0,0,0.3);
+      border: 1.5px solid rgba(255,255,255,0.35);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1;
+    }
+
+    .coin-face.heads {
+      background-image: url(../../images/gold_coin.png);
+    }
+
+    .coin-face.tails {
+      background-image: url(../../images/gold_coin.png);
+      filter: hue-rotate(140deg) brightness(1.2) contrast(1.1);
+      transform: rotateY(180deg);
+    }
+
+    .coin-face span {
+      font-size: 9px;
+      font-weight: 900;
+      color: #fff;
+      padding: 2px 6px;
+      border-radius: 8px;
+      margin-top: 50px;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+
+    .coin-face.heads span {
+      background: rgba(168, 85, 247, 0.8);
+    }
+
+    .coin-face.tails span {
+      background: rgba(245, 158, 11, 0.85);
+    }
+
+    .action-btn {
+      width: 100%;
+      background: var(--brand-gradient);
+      border: none;
+      color: white;
+      padding: 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(168, 85, 247, 0.3);
+      transition: all 0.2s;
+    }
+
+    .action-btn:active {
+      transform: scale(0.97);
+    }
+
+    .status-msg {
+      min-height: 24px;
+      margin-top: 14px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status-success { color: #10b981; }
+    .status-danger { color: #ef4444; }
+
+    .history-section {
+      margin-top: 16px;
+      text-align: right;
+    }
+
+    .history-title {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .history-list {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .hist-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .hist-heads {
+      background: rgba(168, 85, 247, 0.12);
+      color: #c084fc;
+    }
+
+    .hist-tails {
+      background: rgba(245, 158, 11, 0.12);
+      color: #fbbf24;
+    }
+    @keyframes modal-pop {
+      0% { transform: scale(0.9); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* Confetti Canvas styles */
+    #confetti-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 99;
+      pointer-events: none;
+    }
+
+    /* Glowing borders for the stage on Win/Loss */
+    .win-glow {
+      box-shadow: 0 0 25px rgba(16, 185, 129, 0.7), inset 0 0 15px rgba(16, 185, 129, 0.35) !important;
+      border-color: #10b981 !important;
+      transition: all 0.3s ease;
+    }
+
+    .lose-glow {
+      box-shadow: 0 0 25px rgba(239, 68, 68, 0.7), inset 0 0 15px rgba(239, 68, 68, 0.35) !important;
+      border-color: #ef4444 !important;
+      transition: all 0.3s ease;
+    }
+
+    /* Screen/Card vibration animation on Loss */
+    @keyframes card-shake {
+      0%, 100% { transform: translateX(0); }
+      15%, 45%, 75% { transform: translateX(-8px); }
+      30%, 60%, 90% { transform: translateX(8px); }
+    }
+
+    .card-shake-anim {
+      animation: card-shake 0.45s ease-in-out;
+    }
+  </style>
+  <link rel="stylesheet" href="../games-brand.css">
+</head>
+<body>
+  <canvas id="confetti-canvas"></canvas>
+
+  <div class="nebula nebula-purple"></div>
+  <div class="nebula nebula-gold"></div>
+
+  <!-- نافذة التحذير المخصصة (Custom UI Warning Modal) -->
+  <div id="warning-modal" style="
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(5px);
+  ">
+    <div style="
+      background: #170f26;
+      border: 1.5px solid rgba(239, 68, 68, 0.4);
+      border-radius: 20px;
+      padding: 24px;
+      width: 90%;
+      max-width: 320px;
+      text-align: center;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      animation: modal-pop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    ">
+      <div style="font-size: 40px; margin-bottom: 12px;">⚠️</div>
+      <h3 style="font-size: 16px; font-weight: 800; color: #ef4444; margin-bottom: 8px;">تنبيه هام</h3>
+      <p id="warning-modal-text" style="font-size: 13px; color: #a78bfa; margin-bottom: 20px; line-height: 1.6;"></p>
+      <button onclick="closeWarningModal()" style="
+        background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+        border: none;
+        color: white;
+        padding: 10px 24px;
+        border-radius: 10px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3);
+      ">موافق</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <header>
+      <h1>LinkUp Games</h1>
+      <p class="subtitle">تحدي رمي العملة 3D التفاعلي</p>
+    </header>
+
+    <div class="card">
+      <div class="balance-bar" style="flex-direction: column; gap: 8px; align-items: stretch;">
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <span class="balance-title">الرصيد:</span>
+          <span class="balance-val" id="balance-el">1000 كوين</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; width: 100%;">
+          <span class="balance-title">الرهان:</span>
+          <input type="number" id="bet-amt" class="bet-input" value="50" min="10" style="
+            width: 80px;
+            padding: 4px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.2);
+            color: white;
+            text-align: center;
+            font-weight: 700;
+            font-size: 13px;
+          ">
+        </div>
+      </div>
+
+      <div class="bet-selector">
+        <button class="bet-btn" id="bet-heads" onclick="selectSide('heads')">شعار (Heads)</button>
+        <button class="bet-btn" id="bet-tails" onclick="selectSide('tails')">كتابة (Tails)</button>
+      </div>
+
+      <div class="coin-stage">
+        <div class="coin-shadow" id="coin-shadow"></div>
+        <div class="coin-cube" id="coin-cube">
+          <div class="coin-face heads">
+            <span>شعار</span>
+          </div>
+          <div class="coin-face tails">
+            <span>كتابة</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="action-btn" id="flip-btn" onclick="flipCoin()">ارمي العملة 🪙</button>
+
+      <div class="status-msg" id="status-el">اختر شعار أو كتابة وابدأ المغامرة!</div>
+
+      <div class="history-section">
+        <div class="history-title">سجل الرميات الأخيرة:</div>
+        <div class="history-list" id="history-el"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showWarningModal(text) {
+      document.getElementById('warning-modal-text').innerText = text;
+      document.getElementById('warning-modal').style.display = 'flex';
+    }
+
+    function closeWarningModal() {
+      document.getElementById('warning-modal').style.display = 'none';
+    }
+
+    let balance = 1000;
+    let selectedSide = null;
+    let isFlipping = false;
+    let rotation = 0;
+    const history = [];
+    let config = null;
+    let minBet = 10;
+    let maxBet = 100000;
+
+    // React Native WebView Bridge
+    function initGameBridge() {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'INIT_GAME' }));
+      } else {
+        setTimeout(initGameBridge, 100);
+      }
+    }
+    window.addEventListener('load', initGameBridge);
+
+    function onBridgeMessage(event) {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'INIT_DATA') {
+          balance = data.balance;
+          updateUI();
+          if (data.config) {
+            config = data.config;
+            minBet = config.minBet;
+            maxBet = config.maxBet;
+            document.getElementById('bet-amt').min = minBet;
+            document.getElementById('bet-amt').max = maxBet;
+          }
+        } else if (data.type === 'UPDATE_BALANCE') {
+          balance = data.balance;
+          updateUI();
+        } else if (data.type === 'BET_CONFIRMED') {
+          const betAmt = Math.max(10, parseInt(document.getElementById('bet-amt').value) || 0);
+          startFlipPhysics(betAmt);
+        } else if (data.type === 'RESULT_RECORDED') {
+          console.log('Result recorded successfully');
+        } else if (data.type === 'ERROR') {
+          showWarningModal('خطأ: ' + data.message);
+          document.getElementById('flip-btn').disabled = false;
+        }
+      } catch (e) {
+        console.warn('Error parsing message from RN:', e);
+      }
+    }
+    window.addEventListener('message', onBridgeMessage);
+    document.addEventListener('message', onBridgeMessage);
+
+    // ==================== نظام جزيئات القصاصات (Confetti Canvas) ====================
+    const canvas = document.getElementById('confetti-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+    let isConfettiActive = false;
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function spawnConfetti() {
+      particles = [];
+      const colors = ['#f59e0b', '#ec4899', '#a855f7', '#10b981', '#3b82f6'];
+      for (let i = 0; i < 90; i++) {
+        particles.push({
+          x: canvas.width / 2,
+          y: canvas.height + 10,
+          vx: (Math.random() - 0.5) * 14,
+          vy: -Math.random() * 15 - 8,
+          size: Math.random() * 6 + 4,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          rotation: Math.random() * 360,
+          rotationSpeed: (Math.random() - 0.5) * 8
+        });
+      }
+      isConfettiActive = true;
+      animateConfetti();
+    }
+
+    function animateConfetti() {
+      if (!isConfettiActive) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.4;
+        p.rotation += p.rotationSpeed;
+        if (p.y < canvas.height + 20) alive = true;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation * Math.PI / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+        ctx.restore();
+      });
+      if (alive) requestAnimationFrame(animateConfetti);
+      else isConfettiActive = false;
+    }
+
+    // ==================== المؤثرات البصرية والسمعية للربح والخسارة ====================
+    function playResultSound(isWin) {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+
+        if (isWin) {
+          // Happy C major arpeggio sound (C5, E5, G5, C6)
+          const notes = [523, 659, 784, 1046];
+          notes.forEach((freq, idx) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+            gain.gain.setValueAtTime(0.12, now + idx * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.22);
+            osc.start(now + idx * 0.08);
+            osc.stop(now + idx * 0.08 + 0.22);
+          });
+        } else {
+          // Sad descending buzzer sound
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(140, now);
+          osc.frequency.linearRampToValueAtTime(70, now + 0.35);
+          gain.gain.setValueAtTime(0.15, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+          osc.start(now);
+          osc.stop(now + 0.35);
+        }
+      } catch {}
+    }
+
+    function triggerVibration(isWin) {
+      if (navigator.vibrate) {
+        if (isWin) {
+          navigator.vibrate([100, 50, 100]);
+        } else {
+          navigator.vibrate([200]);
+        }
+      }
+    }
+
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playFlipSound() {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+
+        const osc = audioCtx.createOscillator();
+        const osc2 = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.connect(gain);
+        osc2.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.exponentialRampToValueAtTime(885, now + 1.2);
+
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(883, now);
+        osc2.frequency.exponentialRampToValueAtTime(878, now + 1.2);
+
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+
+        osc.start(now);
+        osc.stop(now + 1.2);
+        osc2.start(now);
+        osc2.stop(now + 1.2);
+
+        setTimeout(() => {
+          const hitOsc = audioCtx.createOscillator();
+          const hitGain = audioCtx.createGain();
+          hitOsc.connect(hitGain);
+          hitGain.connect(audioCtx.destination);
+
+          hitOsc.type = 'triangle';
+          hitOsc.frequency.setValueAtTime(240, audioCtx.currentTime);
+          hitOsc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.08);
+
+          hitGain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+          hitGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+
+          hitOsc.start();
+          hitOsc.stop(audioCtx.currentTime + 0.08);
+        }, 1200);
+      } catch {}
+    }
+
+    function selectSide(side) {
+      if (isFlipping) return;
+      initAudio();
+      selectedSide = side;
+      document.getElementById('bet-heads').className = `bet-btn ${side === 'heads' ? 'active-heads' : ''}`;
+      document.getElementById('bet-tails').className = `bet-btn ${side === 'tails' ? 'active-tails' : ''}`;
+    }
+
+    function flipCoin() {
+      if (isFlipping) return;
+      initAudio();
+
+      if (!selectedSide) {
+        showWarningModal('يرجى اختيار توقعك أولاً (شعار أو كتابة)!');
+        return;
+      }
+
+      const betAmt = Math.max(10, parseInt(document.getElementById('bet-amt').value) || 0);
+
+      if (betAmt < minBet || betAmt > maxBet) {
+        showWarningModal(`الرهان يجب أن يكون بين ${minBet} و ${maxBet} كوين!`);
+        return;
+      }
+
+      if (balance < betAmt) {
+        showWarningModal('الرصيد التجريبي غير كافٍ!');
+        return;
+      }
+
+      if (window.ReactNativeWebView) {
+        document.getElementById('flip-btn').disabled = true;
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'PLACE_BET',
+          stake: betAmt
+        }));
+      } else {
+        startFlipPhysics(betAmt);
+      }
+    }
+
+    function startFlipPhysics(betAmt) {
+      isFlipping = true;
+      if (!window.ReactNativeWebView) {
+        balance -= betAmt;
+        updateUI();
+      }
+      playFlipSound();
+
+      const flipBtn = document.getElementById('flip-btn');
+      flipBtn.innerText = 'جاري الرمي...';
+      flipBtn.disabled = true;
+
+      // Clear glows from stage
+      const stage = document.querySelector('.coin-stage');
+      stage.classList.remove('win-glow', 'lose-glow');
+
+      // Decide result based on RTP
+      const rtpVal = (config && config.rtp) ? config.rtp : 96;
+      const isWin = (Math.random() * 100) < rtpVal;
+      const nextResult = isWin ? selectedSide : (selectedSide === 'heads' ? 'tails' : 'heads');
+
+      const cube = document.getElementById('coin-cube');
+      const shadow = document.getElementById('coin-shadow');
+
+      // Clear previous animation styling
+      cube.style.animation = 'none';
+      shadow.style.animation = 'none';
+
+      // Force browser reflow to reset CSS animation
+      void cube.offsetWidth;
+      void shadow.offsetWidth;
+
+      // Start the realistic 3D flipping animation
+      if (nextResult === 'heads') {
+        cube.style.animation = 'flip-heads 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards';
+      } else {
+        cube.style.animation = 'flip-tails 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards';
+      }
+      shadow.style.animation = 'shadow-flip 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards';
+
+      setTimeout(() => {
+        isFlipping = false;
+        flipBtn.innerText = 'ارمي العملة 🪙';
+        flipBtn.disabled = false;
+
+        const statusEl = document.getElementById('status-el');
+        const mult = (config && config.multipliers[0]) || 1.95;
+        const winAmt = Math.round(betAmt * mult);
+
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'GAME_RESULT',
+            stake: betAmt,
+            winAmount: isWin ? winAmt : 0,
+            isWin: isWin,
+            result: { resultSide: nextResult }
+          }));
+        }
+
+        // Apply visual/audio win & loss feedback
+        if (isWin) {
+          if (!window.ReactNativeWebView) {
+            balance += winAmt;
+          }
+          statusEl.innerHTML = `<span class="status-success">🎉 فوز! الوجه الظاهر هو ${nextResult === 'heads' ? 'الشعار' : 'الكتابة'}، كسبت +${winAmt} كوين!</span>`;
+          
+          stage.classList.add('win-glow');
+          playResultSound(true);
+          triggerVibration(true);
+          spawnConfetti();
+        } else {
+          statusEl.innerHTML = `<span class="status-danger">❌ خسارة! الوجه هو ${nextResult === 'heads' ? 'الشعار' : 'الكتابة'}. حاول مجدداً!</span>`;
+          
+          stage.classList.add('lose-glow');
+          const card = document.querySelector('.card');
+          card.classList.add('card-shake-anim');
+          playResultSound(false);
+          triggerVibration(false);
+          
+          setTimeout(() => {
+            card.classList.remove('card-shake-anim');
+          }, 450);
+        }
+
+        history.unshift(nextResult);
+        if (history.length > 8) history.pop();
+
+        updateUI();
+      }, 1200);
+    }
+
+    function updateUI() {
+      document.getElementById('balance-el').innerText = `${balance} كوين`;
+
+      const histEl = document.getElementById('history-el');
+      histEl.innerHTML = '';
+      history.forEach(side => {
+        const span = document.createElement('span');
+        span.className = `hist-badge ${side === 'heads' ? 'hist-heads' : 'hist-tails'}`;
+        span.innerText = side === 'heads' ? 'شعار' : 'كتابة';
+        histEl.appendChild(span);
+      });
+    }
+  </script>
+</body>
+</html>

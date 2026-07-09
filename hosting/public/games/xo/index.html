@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="lu-games">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <link rel="stylesheet" href="../games-pro-fx.css">
+  <link rel="stylesheet" href="../intelligence-fx.css">
+  <title>لعبة XO — LinkUp Games</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Outfit:wght@600;800&display=swap');
+
+    :root {
+      --bg-color: #0c0717;
+      --card-bg: rgba(23, 15, 38, 0.7);
+      --border-color: rgba(168, 85, 247, 0.25);
+      --text-primary: #ffffff;
+      --text-secondary: #c084fc;
+      --x-gradient: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+      --o-gradient: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+      --glow-x: rgba(168, 85, 247, 0.5);
+      --glow-o: rgba(245, 158, 11, 0.5);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      font-family: 'Cairo', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-primary);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+      padding: 20px;
+      position: relative;
+    }
+
+    /* خلفيات النيون المتحركة */
+    .nebula {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      z-index: 0;
+      opacity: 0.6;
+      animation: drift 12s infinite alternate ease-in-out;
+    }
+
+    .nebula-purple {
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.25) 0%, rgba(0, 0, 0, 0) 70%);
+      top: -50px;
+      right: -50px;
+    }
+
+    .nebula-gold {
+      width: 320px;
+      height: 320px;
+      background: radial-gradient(circle, rgba(245, 158, 11, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+      bottom: -60px;
+      left: -60px;
+      animation-delay: -4s;
+    }
+
+    @keyframes drift {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(20px, 30px) scale(1.1); }
+    }
+
+    .container {
+      width: 100%;
+      max-width: 360px;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* الهيدر وشعار اللعبة */
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .logo-container h1 {
+      font-size: 26px;
+      font-weight: 900;
+      background: linear-gradient(135deg, #c084fc 0%, #fbbf24 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: 0.5px;
+    }
+
+    .subtitle {
+      font-size: 11px;
+      color: var(--text-secondary);
+      letter-spacing: 1px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    /* لوحة التحكم بنمط اللعب */
+    .toggle-bar {
+      display: flex;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 30px;
+      padding: 4px;
+      margin-bottom: 16px;
+    }
+
+    .btn-toggle {
+      flex: 1;
+      border: none;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.6);
+      padding: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 26px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+
+    .btn-toggle.active {
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      color: var(--text-primary);
+      box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);
+    }
+
+    /* مستوى الصعوبة للكمبيوتر */
+    .difficulty-bar {
+      display: flex;
+      width: 100%;
+      gap: 6px;
+      margin-bottom: 16px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.03);
+      border-radius: 12px;
+      padding: 6px;
+      justify-content: space-between;
+      align-items: center;
+      transition: opacity 0.3s;
+    }
+
+    .diff-label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 700;
+      margin-right: 6px;
+    }
+
+    .diff-btn {
+      border: none;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.4);
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .diff-btn.active {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    /* لوحة تسجيل النقاط */
+    .scoreboard {
+      display: flex;
+      width: 100%;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 14px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+      backdrop-filter: blur(16px);
+    }
+
+    .score-item {
+      flex: 1;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .score-item:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 15%;
+      height: 70%;
+      width: 1px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .score-lbl {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.5);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .score-num {
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .score-item.x .score-num { color: #a855f7; text-shadow: 0 0 12px rgba(168, 85, 247, 0.3); }
+    .score-item.o .score-num { color: #f59e0b; text-shadow: 0 0 12px rgba(245, 158, 11, 0.3); }
+    .score-item.draws .score-num { color: #10b981; }
+
+    /* مؤشر الدور والتنبيهات */
+    .turn-bar {
+      margin-bottom: 16px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      justify-content: center;
+    }
+
+    .turn-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .turn-badge.x {
+      background: rgba(168, 85, 247, 0.15);
+      color: #a855f7;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+
+    .turn-badge.o {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    /* شبكة اللعب XO Board */
+    .board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      width: 100%;
+      aspect-ratio: 1;
+      background: rgba(255, 255, 255, 0.01);
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      padding: 14px;
+      margin-bottom: 20px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 2px 15px rgba(168, 85, 247, 0.05);
+      backdrop-filter: blur(12px);
+    }
+
+    .cell {
+      aspect-ratio: 1;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cell:active {
+      transform: scale(0.92);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    /* أشكال العلامات مع أنيميشن الدخول */
+    .symbol {
+      font-size: 44px;
+      font-weight: 900;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      animation: pop-in 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+
+    @keyframes pop-in {
+      0% { transform: scale(0) rotate(-45deg); opacity: 0; }
+      100% { transform: scale(1) rotate(0); opacity: 1; }
+    }
+
+    .symbol.x {
+      background: var(--x-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 10px var(--glow-x));
+    }
+
+    .symbol.o {
+      background: var(--o-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 10px var(--glow-o));
+      animation-name: pop-in-o;
+    }
+
+    @keyframes pop-in-o {
+      0% { transform: scale(0) rotate(45deg); opacity: 0; }
+      100% { transform: scale(1) rotate(0); opacity: 1; }
+    }
+
+    /* خلايا الفوز مع اهتزاز وإضاءة نيون */
+    .cell.winning {
+      background: rgba(16, 185, 129, 0.18) !important;
+      border: 2px solid #10b981 !important;
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+      animation: shake-win 0.3s ease-in-out infinite alternate;
+    }
+
+    @keyframes shake-win {
+      0% { transform: scale(1.02) rotate(-1deg); }
+      100% { transform: scale(1.02) rotate(1deg); }
+    }
+
+    /* زر التحديث وإعادة اللعب */
+    .reset-btn {
+      width: 100%;
+      background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+      border: none;
+      color: white;
+      padding: 14px;
+      border-radius: 14px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35);
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .reset-btn:active {
+      transform: scale(0.97);
+      box-shadow: 0 3px 10px rgba(124, 58, 237, 0.2);
+    }
+
+    .reset-btn svg {
+      transition: transform 0.4s ease;
+    }
+
+    .reset-btn:hover svg {
+      transform: rotate(-180deg);
+    }
+  </style>
+  <link rel="stylesheet" href="../games-brand.css">
+</head>
+<body>
+
+  <!-- نيبولا النيون للخلفية -->
+  <div class="nebula nebula-purple"></div>
+  <div class="nebula nebula-gold"></div>
+
+  <!-- الكانفاس لتأثير الاحتفال والقصاصات الملونة -->
+  <div class="container">
+    <header>
+      <div class="logo-container">
+        <h1>LinkUp Games</h1>
+      </div>
+      <p class="subtitle">XO الحماسية • سرعة وتحدي LinkUp</p>
+    </header>
+
+    <!-- تبديل نمط اللعب — يظهر فقط في المتصفح للتجربة -->
+    <div class="toggle-bar" data-demo-only>
+      <button class="btn-toggle active" id="btn-ai" onclick="changeMode('ai')">لاعب منفرد</button>
+      <button class="btn-toggle" id="btn-pvp" onclick="changeMode('pvp')">لاعب ضد لاعب</button>
+    </div>
+
+    <!-- التحكم في الصعوبة -->
+    <div class="difficulty-bar" id="difficulty-section" data-demo-only>
+      <span class="diff-label">مستوى التحدي:</span>
+      <button class="diff-btn" id="diff-easy" onclick="changeDifficulty('easy')">سهل</button>
+      <button class="diff-btn active" id="diff-medium" onclick="changeDifficulty('medium')">متوسط</button>
+      <button class="diff-btn" id="diff-hard" onclick="changeDifficulty('hard')">عبقري 🔥</button>
+    </div>
+
+    <!-- لوحة النقاط -->
+    <div class="scoreboard">
+      <div class="score-item x">
+        <span class="score-lbl">اللاعب (X)</span>
+        <span class="score-num" id="score-x">0</span>
+      </div>
+      <div class="score-item draws">
+        <span class="score-lbl">تعادل</span>
+        <span class="score-num" id="score-draws">0</span>
+      </div>
+      <div class="score-item o">
+        <span class="score-lbl" id="label-o">اللاعب الثاني (O)</span>
+        <span class="score-num" id="score-o">0</span>
+      </div>
+    </div>
+
+    <!-- بار الأدوار -->
+    <div class="turn-bar" id="turn-container">
+      دور اللاعب: <span class="turn-badge x" id="turn-display">X</span>
+    </div>
+
+    <!-- شبكة اللعبة -->
+    <div class="board" id="xo-board">
+      <div class="cell" onclick="handleTap(0)" data-index="0"></div>
+      <div class="cell" onclick="handleTap(1)" data-index="1"></div>
+      <div class="cell" onclick="handleTap(2)" data-index="2"></div>
+      <div class="cell" onclick="handleTap(3)" data-index="3"></div>
+      <div class="cell" onclick="handleTap(4)" data-index="4"></div>
+      <div class="cell" onclick="handleTap(5)" data-index="5"></div>
+      <div class="cell" onclick="handleTap(6)" data-index="6"></div>
+      <div class="cell" onclick="handleTap(7)" data-index="7"></div>
+      <div class="cell" onclick="handleTap(8)" data-index="8"></div>
+    </div>
+
+    <!-- زر إعادة التشغيل -->
+    <button class="reset-btn" onclick="resetGame()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+      إعادة تشغيل جولة جديدة
+    </button>
+  </div>
+
+  <script src="../games-config-utils.js?v=15"></script>
+  <script src="../games-intel-boot.js?v=7"></script>
+  <script src="../games-pro-fx.js?v=6"></script>
+  <script src="../intelligence-fx.js?v=6"></script>
+  <script>LinkUpGameBoot.bootApp();</script>
+  <script>
+    window.addEventListener('load', function () {
+      var U = LinkUpGameBoot.getUtils();
+      if (U && typeof U.isEmbedded === 'function' && U.isEmbedded()) {
+        gameMode = 'pvp';
+        document.querySelector('.subtitle').innerText = 'لعبة مهارة — العب مع صديق على نفس الجهاز';
+        document.getElementById('label-o').innerText = 'اللاعب (O)';
+      }
+    });
+    // ==================== نظام الصوت الفوري بالذكاء الاصطناعي الصوتي (Web Audio API) ====================
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playSound(type) {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        const now = audioCtx.currentTime;
+
+        if (type === 'tap') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(450, now);
+          osc.frequency.exponentialRampToValueAtTime(150, now + 0.08);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+          osc.start(now);
+          osc.stop(now + 0.08);
+        } else if (type === 'x') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(523.25, now); // C5
+          osc.frequency.setValueAtTime(659.25, now + 0.04); // E5
+          gain.gain.setValueAtTime(0.18, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+          osc.start(now);
+          osc.stop(now + 0.12);
+        } else if (type === 'o') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(392.00, now); // G4
+          osc.frequency.setValueAtTime(493.88, now + 0.04); // B4
+          gain.gain.setValueAtTime(0.18, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+          osc.start(now);
+          osc.stop(now + 0.12);
+        } else if (type === 'win') {
+          // نغمة فوز مبهجة تصاعدية
+          const freqs = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+          freqs.forEach((f, idx) => {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.connect(g);
+            g.connect(audioCtx.destination);
+            o.type = 'sine';
+            o.frequency.setValueAtTime(f, now + idx * 0.08);
+            g.gain.setValueAtTime(0.15, now + idx * 0.08);
+            g.gain.exponentialRampToValueAtTime(0.005, now + idx * 0.08 + 0.2);
+            o.start(now + idx * 0.08);
+            o.stop(now + idx * 0.08 + 0.2);
+          });
+        } else if (type === 'draw') {
+          // نغمة تعادل
+          const freqs = [349.23, 311.13, 261.63]; // F4, Eb4, C4
+          freqs.forEach((f, idx) => {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.connect(g);
+            g.connect(audioCtx.destination);
+            o.type = 'sine';
+            o.frequency.setValueAtTime(f, now + idx * 0.1);
+            g.gain.setValueAtTime(0.12, now + idx * 0.1);
+            g.gain.exponentialRampToValueAtTime(0.005, now + idx * 0.1 + 0.25);
+            o.start(now + idx * 0.1);
+            o.stop(now + idx * 0.1 + 0.25);
+          });
+        }
+      } catch (e) {
+        console.warn('Audio synthesis failed:', e);
+      }
+    }
+
+    function spawnConfetti() {
+      if (window.GameProFX && GameProFX.vfx) GameProFX.vfx.confetti(10);
+    }
+
+    // ==================== منطق وأكواد لعبة XO التفاعلية ====================
+    let board = Array(9).fill(null);
+    let isXNext = true;
+    let gameMode = 'ai'; // 'ai' or 'pvp'
+    let difficulty = 'medium'; // 'easy', 'medium', 'hard'
+    let scores = { x: 0, o: 0, draws: 0 };
+    let isGameRunning = true;
+
+    const winConditions = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], // الأفقي
+      [0, 3, 6], [1, 4, 7], [2, 5, 8], // العمودي
+      [0, 4, 8], [2, 4, 6]             // القطري
+    ];
+
+    const cells = document.querySelectorAll('.cell');
+    const turnDisplay = document.getElementById('turn-display');
+    const statusText = document.getElementById('turn-container');
+    const scoreXEl = document.getElementById('score-x');
+    const scoreOEl = document.getElementById('score-o');
+    const scoreDrawsEl = document.getElementById('score-draws');
+
+    function changeMode(mode) {
+      initAudio();
+      playSound('tap');
+      gameMode = mode;
+      document.getElementById('btn-ai').classList.toggle('active', mode === 'ai');
+      document.getElementById('btn-pvp').classList.toggle('active', mode === 'pvp');
+      document.getElementById('difficulty-section').style.opacity = mode === 'ai' ? '1' : '0';
+      document.getElementById('difficulty-section').style.pointerEvents = mode === 'ai' ? 'auto' : 'none';
+      document.getElementById('label-o').innerText = mode === 'ai' ? 'اللاعب الثاني (O)' : 'اللاعب (O)';
+      resetScores();
+    }
+
+    function changeDifficulty(diff) {
+      initAudio();
+      playSound('tap');
+      difficulty = diff;
+      document.getElementById('diff-easy').classList.toggle('active', diff === 'easy');
+      document.getElementById('diff-medium').classList.toggle('active', diff === 'medium');
+      document.getElementById('diff-hard').classList.toggle('active', diff === 'hard');
+      resetGame();
+    }
+
+    function handleTap(idx) {
+      initAudio();
+      if (!isGameRunning || board[idx] !== null) return;
+      if (gameMode === 'ai' && !isXNext) return;
+
+      makeMove(idx, 'X');
+
+      if (checkGameState()) return;
+
+      if (gameMode === 'ai') {
+        isXNext = false;
+        updateTurnUI();
+        setTimeout(playAiTurn, 550);
+      } else {
+        isXNext = !isXNext;
+        updateTurnUI();
+      }
+    }
+
+    function makeMove(idx, player) {
+      board[idx] = player;
+      const cell = cells[idx];
+      cell.innerHTML = `<span class="symbol ${player.toLowerCase()}">${player}</span>`;
+      IntelFX.xoPlace(cell, player);
+      playSound(player.toLowerCase());
+    }
+
+    function playAiTurn() {
+      if (!isGameRunning) return;
+      const aiMoveIdx = calcBestMove();
+      makeMove(aiMoveIdx, 'O');
+      isXNext = true;
+      if (checkGameState()) return;
+      updateTurnUI();
+    }
+
+    function calcBestMove() {
+      // 1. سهل: حركة عشوائية
+      if (difficulty === 'easy') {
+        return getRandomMove();
+      }
+
+      // 2. عبقري: Minimax مثالي
+      if (difficulty === 'hard') {
+        return getMinimaxMove();
+      }
+
+      // 3. متوسط: 50% مثالي، 50% عشوائي
+      return Math.random() > 0.45 ? getMinimaxMove() : getRandomMove();
+    }
+
+    function getRandomMove() {
+      const emptyCells = board.map((val, i) => val === null ? i : null).filter(v => v !== null);
+      return emptyCells[Math.floor(Math.random() * emptyCells.length)];
+    }
+
+    function getMinimaxMove() {
+      // محاولة الفوز أولاً في هذه الخطوة
+      for (let i = 0; i < 9; i++) {
+        if (board[i] === null) {
+          board[i] = 'O';
+          if (checkWinnerState('O')) { board[i] = null; return i; }
+          board[i] = null;
+        }
+      }
+      // منع الخصم X من الفوز
+      for (let i = 0; i < 9; i++) {
+        if (board[i] === null) {
+          board[i] = 'X';
+          if (checkWinnerState('X')) { board[i] = null; return i; }
+          board[i] = null;
+        }
+      }
+      // أخذ الوسط كأولوية قصوى
+      if (board[4] === null) return 4;
+      
+      // أخذ الزوايا
+      const corners = [0, 2, 6, 8].filter(idx => board[idx] === null);
+      if (corners.length > 0) return corners[Math.floor(Math.random() * corners.length)];
+
+      return getRandomMove();
+    }
+
+    function checkWinnerState(player) {
+      return winConditions.some(combo => combo.every(idx => board[idx] === player));
+    }
+
+    function checkGameState() {
+      for (let combo of winConditions) {
+        const [a, b, c] = combo;
+        if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+          isGameRunning = false;
+          combo.forEach(idx => cells[idx].classList.add('winning'));
+          IntelFX.xoWinLine(document.getElementById('xo-board'), combo);
+          const winner = board[a];
+          
+          statusText.innerHTML = `🎉 الفائز هو اللاعب <span style="color: ${winner === 'X' ? '#a855f7' : '#f59e0b'}; font-weight:900;">${winner}</span>!`;
+          
+          scores[winner.toLowerCase()]++;
+          updateScoresUI();
+          playSound('win');
+          spawnConfetti();
+          return true;
+        }
+      }
+
+      if (board.every(cell => cell !== null)) {
+        isGameRunning = false;
+        statusText.innerHTML = `<span style="color:#10b981; font-weight:800;">التعادل سيد الأحكام! 🤝</span>`;
+        scores.draws++;
+        updateScoresUI();
+        playSound('draw');
+        return true;
+      }
+      return false;
+    }
+
+    function updateTurnUI() {
+      const activePlayer = isXNext ? 'X' : 'O';
+      statusText.innerHTML = `دور اللاعب: <span class="turn-badge ${activePlayer.toLowerCase()}" id="turn-display">${activePlayer}</span>`;
+    }
+
+    function updateScoresUI() {
+      scoreXEl.innerText = scores.x;
+      scoreOEl.innerText = scores.o;
+      scoreDrawsEl.innerText = scores.draws;
+    }
+
+    function resetGame() {
+      initAudio();
+      playSound('tap');
+      board = Array(9).fill(null);
+      isXNext = true;
+      isGameRunning = true;
+      
+      cells.forEach(cell => {
+        cell.innerHTML = '';
+        cell.className = 'cell';
+      });
+      updateTurnUI();
+    }
+
+    function resetScores() {
+      scores = { x: 0, o: 0, draws: 0 };
+      updateScoresUI();
+      resetGame();
+    }
+
+    window.addEventListener('load', function () {
+      LinkUpGameBoot.bootPerfAll();
+      var U = LinkUpGameBoot.getUtils();
+      if (U && typeof U.initGameBridge === 'function') U.initGameBridge();
+    });
+  </script>
+</body>
+</html>

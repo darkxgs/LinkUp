@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ماسك شات — LinkUp</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="../shared/linkup-room-boot.js"></script>
+</head>
+<body>
+  <div class="bg-glow"></div>
+  <header class="top">
+    <h1>🎭 ماسك شات</h1>
+    <p class="sub">5 دقائق مجهولين — ثم كشف الهوية</p>
+    <div id="timer" class="timer">05:00</div>
+  </header>
+
+  <main id="chat" class="chat"></main>
+
+  <footer class="composer" id="composer">
+    <input id="input" type="text" maxlength="500" placeholder="اكتب رسالة..." autocomplete="off" />
+    <button id="send" type="button">إرسال</button>
+  </footer>
+
+  <div id="reveal" class="reveal hidden">
+    <h2>انتهى الوقت!</h2>
+    <div id="reveal-cards" class="reveal-cards"></div>
+    <button id="close-reveal" type="button">إغلاق</button>
+  </div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>XO — LinkUp</title>
+  <link rel="stylesheet" href="../shared/linkup-game-ui.css" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="../shared/linkup-room-boot.js"></script>
+  <script src="../shared/linkup-audio.js"></script>
+</head>
+<body class="linkup-game">
+  <div class="bg-glow"></div>
+  <canvas id="fx" class="fx-canvas" aria-hidden="true"></canvas>
+  <div class="shell">
+    <header class="game-header">
+      <h1>❌⭕ XO</h1>
+      <p class="sub">إكس أو — لاعبان، مؤثرات حية</p>
+    </header>
+
+    <section id="lobby" class="panel lobby-form">
+      <input id="name" type="text" maxlength="16" placeholder="اسمك" />
+      <input id="code" type="text" maxlength="8" placeholder="رمز الغرفة" />
+      <button id="join" class="btn" type="button">انضم</button>
+      <div id="lobby-info" class="hidden">
+        <p>الغرفة: <span id="room-code" class="code-pill"></span></p>
+        <ul id="players" class="players-list"></ul>
+        <button id="ready" class="btn secondary" type="button">جاهز</button>
+      </div>
+    </section>
+
+    <section id="game" class="hidden">
+      <div id="scoreboard" class="scoreboard"></div>
+      <div id="status" class="status-bar">...</div>
+      <div id="board" class="board" role="grid" aria-label="لوحة XO"></div>
+      <button id="rematch" class="btn secondary hidden" type="button">جولة جديدة</button>
+      <div id="overlay" class="result-overlay hidden">
+        <div class="result-card">
+          <div id="result-emoji" class="result-emoji">🏆</div>
+          <p id="result-text" class="result-text"></p>
+          <button id="result-rematch" class="btn" type="button">العب مرة أخرى</button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

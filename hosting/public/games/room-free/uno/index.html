@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>أونو — LinkUp</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../shared/linkup-mobile.css">
+    <script src="../shared/linkup-room-boot.js"></script>
+</head>
+<body>
+    <h1>🟥 أونو</h1>
+    <div id="lobby">
+        <h2>انضم للعبة</h2>
+        <div>
+            <input type="text" id="name" placeholder="اسمك">
+        </div>
+        <div>
+            <input type="text" id="lobby-id" placeholder="رمز اللوبي (اتركه فارغاً لإنشاء جديد)">
+        </div>
+        <button id="join">انضم</button>
+        <div id="lobby-info" style="display: none;">
+            <h3>اللوبي: <span id="current-lobby-id"></span></h3>
+            <p>شارك الرمز مع أصدقائك!</p>
+        </div>
+        <ul id="players"></ul>
+        <button id="ready">جاهز</button>
+    </div>
+    <div id="game" style="display: none;">
+        <div id="turn-indicator">
+            <h3 id="turn-text">بانتظار بدء اللعبة...</h3>
+        </div>
+        <div id="opponent-hands"></div>
+        <div id="center-area">
+            <button id="draw-card">اسحب ورقة</button>
+            <div id="discard-pile"></div>
+            <div id="wild-color-picker" style="display: none;">
+                <h4>اختر لوناً:</h4>
+                <div id="color-options">
+                    <div class="color-option" data-color="red" style="background-color: red;"></div>
+                    <div class="color-option" data-color="yellow" style="background-color: yellow;"></div>
+                    <div class="color-option" data-color="green" style="background-color: green;"></div>
+                    <div class="color-option" data-color="blue" style="background-color: blue;"></div>
+                </div>
+            </div>
+        </div>
+        <div id="player-hand"></div>
+    </div>
+    <script src="client.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "ludo-js",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Multiplayer Ludo game using vanilla JS and custom data structures.",
+  "scripts": {
+    "server": "node src/server/server.js",
+    "dev": "nodemon src/server/server.js"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}

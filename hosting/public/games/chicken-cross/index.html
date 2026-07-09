@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>طريق الدجاجة — LinkUp</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="../casino-mobile.css?v=2">
+</head>
+<body>
+
+    <div class="sidebar-mask" id="sidebarMask" onclick="toggleSidebarMenu(false)"></div>
+
+    <div class="sidebar-menu" id="sidebarMenu">
+        <div class="sidebar-header">
+            <h2 class="sidebar-title">خيارات اللعبة</h2>
+            <button class="sidebar-close-btn" onclick="toggleSidebarMenu(false)">&times;</button>
+        </div>
+
+        <div class="menu-card">
+            <span class="card-label">رصيد المحفظة</span>
+            <p class="wallet-amount" id="walletBalanceText">0</p>
+            <button class="btn-refill" data-demo-only onclick="refillWalletBalance()">إعادة تعبئة الرصيد</button>
+        </div>
+
+        <div class="menu-card">
+            <span class="card-label">إعدادات الصوت</span>
+            <div class="sound-row">
+                <span class="sound-text">صوت الموسيقى</span>
+                <input type="range" class="volume-slider" id="musicVolumeSlider" min="0" max="1" step="0.05" value="1" oninput="handleMusicVolumeChange(this.value)">
+            </div>
+            <div class="sound-row">
+                <span class="sound-text">المؤثرات الصوتية</span>
+                <input type="range" class="volume-slider" id="sfxVolumeSlider" min="0" max="1" step="0.05" value="1" oninput="handleSfxVolumeChange(this.value)">
+            </div>
+        </div>
+    </div>
+
+    <div class="win-toast" id="winToastNotification">
+        🎉 لقد فزت! المضاعف: <span id="toastMultiplierText">1.00x</span>
+    </div>
+
+    <div class="game-frame" id="gameFrame">
+        <!-- Control Sidebar -->
+        <div class="game-sidebar" id="gameSidebar">
+            <!-- Game Tabs: Manual / Auto -->
+            <div class="game-tabs">
+                <button class="tab-btn active" id="manualTabBtn" onclick="switchBetMode('manual')">يدوي</button>
+                <button class="tab-btn" id="autoTabBtn" onclick="switchBetMode('auto')">تلقائي</button>
+            </div>
+
+            <!-- Scrollable Content -->
+            <div class="sidebar-scroll-content">
+                <!-- Bet Amount Group -->
+                <div class="form-group">
+                    <div class="label-row">
+                        <span class="field-label">مبلغ الرهان</span>
+                        <span class="fiat usd-conversion" id="betUsdConvert"></span>
+                    </div>
+                    <div class="input-container">
+                        <div class="currency-icon coin coin-sm" aria-hidden="true">$</div>
+                        <input type="number" class="stepper-input" id="betDisplayVal" value="100" min="100" max="50000" step="1" onchange="handleCustomBetInput()" onblur="handleCustomBetInput()">
+                        <!-- Quick multiplier buttons ½ and 2x -->
+                        <div class="bet-actions-wrap">
+                            <button class="bet-action-half" onclick="halveBetAmount()">½</button>
+                            <button class="bet-action-double" onclick="doubleBetAmount()">2×</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bet Shortcut Grid (Re-themed inside sidebar) -->
+                <div class="shortcut-grid">
+                    <button class="bet-shortcut-btn" onclick="setFixedBet(100)">100</button>
+                    <button class="bet-shortcut-btn" onclick="setFixedBet(500)">500</button>
+                    <button class="bet-shortcut-btn" onclick="setFixedBet(1000)">1000</button>
+                    <button class="bet-shortcut-btn" onclick="setFixedBet(5000)">5000</button>
+                </div>
+
+                <!-- Difficulty Select -->
+                <div class="form-group">
+                    <span class="field-label">الصعوبة</span>
+                    <div class="select-wrapper">
+                        <select class="dropdown-select" id="difficultyDropdown" onchange="handleDifficultyChange()">
+                            <option value="easy">سهل</option>
+                            <option value="medium" selected>متوسط</option>
+                            <option value="hard">صعب</option>
+                            <option value="hardcore">خارق</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Profit Display -->
+                <div class="form-group" id="profitGroup">
+                    <div class="label-row">
+                        <span class="field-label" id="profitLabel">إجمالي الربح (0.00×)</span>
+                        <span class="fiat usd-conversion" id="profitUsdConvert"></span>
+                    </div>
+                    <div class="input-container readonly-container">
+                        <div class="currency-icon coin coin-sm" aria-hidden="true">$</div>
+                        <input type="text" class="stepper-input" id="profitDisplayVal" value="0" readonly>
+                    </div>
+                </div>
+
+                <!-- Primary Action Buttons (Play / Cashout & Go) -->
+                <div class="sidebar-actions" id="dashboardControls">
+                    <button class="action-play-btn" id="playActionButton" onclick="triggerBetMatchStart()">ابدأ اللعب</button>
+                </div>
+
+                <div class="sidebar-actions" id="activeGameControls" style="display: none;">
+                    <div class="game-controls-wrapper">
+                        <button class="action-play-btn btn-cashout" id="cashoutActionButton" onclick="cashoutGame()">سحب الأموال</button>
+                        <button class="action-play-btn btn-go" id="goActionButton" onclick="performJump()">انطلق</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Content (Road map viewport) -->
+        <div class="game-content" id="gameContent">
+            <!-- Hamburger Menu Button -->
+            <button class="menu-toggle-btn" onclick="toggleSidebarMenu(true)">
+                <div></div>
+                <div></div>
+                <div></div>
+            </button>
+
+            <!-- Game Viewport -->
+            <div class="road-viewport" id="viewportArea">
+                <div class="road-container" id="roadContainer">
+                    <div class="player-wrapper" id="playerRig">
+                        <canvas id="characterSprite" width="256" height="256"></canvas>
+                        <div class="multiplier-badge" id="badgeText">1.00x</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../games-casino-boot.js?v=2"></script>
+    <script>LinkUpCasinoBoot.boot('chicken-cross');</script>
+    <script src="js/api.js"></script>
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

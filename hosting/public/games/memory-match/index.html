@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="lu-games">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title data-i18n="memoryTitle">تطابق الأشكال — ألعاب الذكاء</title>
+  <link rel="stylesheet" href="../games-pro-fx.css">
+  <link rel="stylesheet" href="../intelligence-mobile.css?v=3">
+  <link rel="stylesheet" href="../games-brand.css">
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <canvas id="fx-canvas"></canvas>
+  <div id="toast-container"></div>
+
+  <div id="app-container">
+    <header class="app-header">
+      <div class="wallet-info">
+        <span class="wallet-coin-container"></span>
+        <span id="wallet-balance">...</span>
+      </div>
+      <h1 class="game-title" data-i18n="memoryTitle">تطابق الأشكال</h1>
+      <div class="header-controls">
+        <button id="btn-mute" class="control-btn" title="كتم/تفعيل الصوت">🔊</button>
+        <div id="timer-display" class="timer-display hidden">30s</div>
+      </div>
+    </header>
+
+    <div id="timer-bar-container" class="hidden">
+      <div id="timer-bar"></div>
+    </div>
+
+    <main class="game-area">
+      <div id="blocked-view" class="overlay hidden">
+        <div class="intel-blocked-panel">
+          <div class="intel-blocked-icon" aria-hidden="true">🔒</div>
+          <h2 class="intel-blocked-title" data-i18n="dailyLimitTitle">تجاوزت الحد اليومي</h2>
+          <p class="intel-blocked-msg" data-i18n="dailyLimitUsed">لقد لعبت هذه اللعبة اليوم — جرّب لعبة ذكاء أخرى أو عد غداً.</p>
+          <p class="intel-blocked-sub" data-i18n="dailyLimitHint">عد غداً بعد منتصف الليل لتلعب مرة أخرى.</p>
+          <div class="intel-blocked-countdown-box">
+            <div class="intel-blocked-countdown-label" data-i18n="countdownLabel">يبدأ التحدي الجديد خلال:</div>
+            <div class="intel-blocked-countdown" id="lock-countdown">--:--:--</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="bet-view" class="overlay hidden">
+        <h2 data-i18n="chooseBet">اختر قيمة الدخولية للبدء</h2>
+        <p class="subtitle" data-i18n="memorySub">اعثر على الأزواج المتطابقة قبل انتهاء الوقت</p>
+        <div class="bet-chips">
+          <button class="bet-btn" data-bet="5000">
+            <span class="chip-val"><span class="btn-coin-container"></span>5,000</span>
+            <span class="chip-desc">خلط بطيء</span>
+          </button>
+          <button class="bet-btn" data-bet="10000">
+            <span class="chip-val"><span class="btn-coin-container"></span>10,000</span>
+            <span class="chip-desc">خلط متوسط</span>
+          </button>
+          <button class="bet-btn" data-bet="25000">
+            <span class="chip-val"><span class="btn-coin-container"></span>25,000</span>
+            <span class="chip-desc">خلط سريع</span>
+          </button>
+          <button class="bet-btn" data-bet="50000">
+            <span class="chip-val"><span class="btn-coin-container"></span>50,000</span>
+            <span class="chip-desc">خلط خارق</span>
+          </button>
+        </div>
+
+        <div class="custom-bet-container" data-embed-hide="1">
+          <div class="custom-bet-title" data-i18n="customBetMin" data-i18n-vars='{"min":"5,000"}'>أو دخولية مخصصة (الحد الأدنى 5,000)</div>
+          <div class="custom-bet-row">
+            <input type="number" id="input-custom-bet" min="5000" step="500" placeholder="أدخل قيمة الدخولية...">
+            <button id="btn-submit-custom-bet" class="custom-bet-submit-btn" data-i18n="startRound">ابدأ الجولة</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="memorize-countdown-overlay" class="overlay hidden">
+        <div class="countdown-circle">
+          <svg viewBox="0 0 100 100" class="countdown-svg">
+            <circle cx="50" cy="50" r="45" class="countdown-bg"/>
+            <circle cx="50" cy="50" r="45" class="countdown-fill"/>
+          </svg>
+          <div id="countdown-number">5</div>
+        </div>
+        <div class="countdown-text-container">
+          <h3>حرك بصرك واحفظ الأشكال!</h3>
+          <p class="subtitle">ستنقلب الأوراق وتختلط عشوائياً بعد قليل...</p>
+        </div>
+      </div>
+
+      <div id="shuffle-scan-overlay" class="overlay hidden">
+        <div class="scanner-container">
+          <div class="scanner-grid"></div>
+          <div class="scanner-laser"></div>
+          <h2 class="scanning-text">جاري الخلط والتعمية...</h2>
+          <p class="scanning-sub">ترقّب مواقع البطاقات الجديدة!</p>
+        </div>
+      </div>
+
+      <div id="game-board" class="hidden"></div>
+
+      <div id="cooldown-indicator" class="hidden">
+        <span class="lock-icon">🔒</span> مقفل مؤقتاً...
+      </div>
+
+      <div id="result-view" class="overlay hidden">
+        <div class="result-card">
+          <h2 id="result-title"></h2>
+          <div id="result-stats" class="stats-panel"></div>
+          <p id="result-desc"></p>
+          <button id="btn-home" class="primary-btn" data-i18n="backConfirm">العودة وتأكيد النتيجة</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../intel-i18n.js?v=2"></script>
+  <script src="../intel-coins.js?v=1"></script>
+  <script src="../intel-ui.js?v=1"></script>
+  <script src="../games-config-utils.js?v=15"></script>
+  <script src="../games-intel-boot.js?v=14"></script>
+  <script src="../intel-app-bridge.js?v=3"></script>
+
+  <script src="js/policyConfig.js"></script>
+  <script src="js/walletProvider.js"></script>
+  <script src="js/dailyLimitProvider.js"></script>
+  <script src="js/data/shapes.js"></script>
+  <script src="js/soundSynth.js"></script>
+  <script src="js/particles.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/matchEngine.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/main.js"></script>
+  <script>if (window.IntelI18n) window.IntelI18n.applyDocument();</script>
+</body>
+</html>

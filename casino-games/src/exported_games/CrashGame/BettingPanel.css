@@ -1,0 +1,167 @@
+.clone-betting-panel {
+    background: #111111;
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.clone-betting-controls {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.clone-input-row {
+    display: flex;
+    align-items: center;
+    background: #232323;
+    border-radius: 20px;
+    padding: 4px;
+}
+
+.clone-icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: #333;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.clone-icon-btn:hover {
+    background: #444;
+}
+
+.clone-amount-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: #fff;
+    text-align: center;
+    font-size: 16px;
+    font-weight: bold;
+    outline: none;
+    width: 100%;
+}
+
+.clone-preset-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.clone-preset-btn {
+    background: #232323;
+    border: none;
+    color: #aaa;
+    padding: 8px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 13px;
+    transition: background 0.2s, color 0.2s;
+}
+
+.clone-preset-btn:hover {
+    background: #333;
+    color: #fff;
+}
+
+.clone-auto-cashout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 4px;
+}
+
+.clone-betting-action {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 160px;
+}
+
+.clone-main-btn {
+    width: 100%;
+    height: 90px;
+    background: #10b981; /* bright green */
+    border: none;
+    border-radius: 12px;
+    color: #fff;
+    font-weight: 800;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 0 #059669;
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.clone-main-btn:active {
+    transform: translateY(4px);
+    box-shadow: 0 0 0 #059669;
+}
+
+.clone-main-btn.cashout {
+    background: #ef4444;
+    box-shadow: 0 4px 0 #dc2626;
+}
+
+.clone-main-btn.cashout:active {
+    transform: translateY(4px);
+    box-shadow: 0 0 0 #dc2626;
+}
+
+.clone-main-btn.cancel {
+    background: #64748b;
+    box-shadow: 0 4px 0 #475569;
+}
+
+.clone-main-btn.cancel:active {
+    transform: translateY(4px);
+    box-shadow: 0 0 0 #475569;
+}
+
+.clone-main-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-text {
+    font-size: 14px;
+    line-height: 1.2;
+}
+
+.btn-amount {
+    font-size: 18px;
+    margin-top: 4px;
+}
+
+.clone-auto-bet-btn {
+    background: #232323;
+    border: none;
+    color: #60a5fa;
+    padding: 6px 16px;
+    border-radius: 16px;
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.clone-auto-bet-btn:hover {
+    background: #333;
+}

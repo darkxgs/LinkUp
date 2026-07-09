@@ -1,0 +1,593 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // دالة مساعدة: هل المستخدم الحالي أدمن؟
+    // يتحقق من وجود وثيقة في collection admins بمعرّفه
+    function isAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function userAgencyId() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.agencyId
+        : null;
+    }
+
+    function isSameAgency(agencyId) {
+      return userAgencyId() == agencyId;
+    }
+
+    function staffFieldsUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['staffRole', 'staffCountries', 'staffFrameUrl', 'staffBadgeUrl', 'staffEntryVideoUrl', 'staffEntryVideoUrlMp4', 'staffAgencyId', 'staffActive', 'createdAsStaff']);
+    }
+
+    // حقول التوثيق — تُحدَّث من Cloud Functions فقط
+    function verificationFieldsUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny([
+          'isVerified', 'verificationStatus', 'verifiedGender', 'verifiedAt',
+          'isBanned', 'banReason', 'isFemaleHost',
+        ]);
+    }
+
+    // collection الأدمن
+    // - القراءة: للمسجّلين (للتحقق من الصلاحية)
+    // - الكتابة: الأدمن الأول يسجّل نفسه فقط بمعرّفه (للإقلاع)، أو أدمن حالي
+    match /admins/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // كلمات مرور المستخدمين المحفوظة من لوحة التحكم — للأدمن فقط
+    match /adminUserCredentials/{uid} {
+      allow read, write: if isAdmin();
+    }
+
+    // فهرس المعرّف العام (8 أرقام) → uid — للبحث ودعوة الوكالة
+    match /publicAccountIndex/{accountId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.uid == request.auth.uid;
+    }
+
+    // المستخدمون — يقرأ المسجّلون
+    // يكتب صاحب الحساب كل شيء؛ أما الآخرون فيُسمح لهم بتحديث
+    // حقول محدودة فقط (pearls/coins/followers/intimacyPoints) — لازمة للهدايا والمتابعة
+    match /users/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null && (
+        (request.auth.uid == uid && staffFieldsUnchanged() && verificationFieldsUnchanged()) ||
+        isAdmin() ||
+        // مستخدم آخر يعدّل حقولاً محدّدة فقط (هدايا/متابعة/وكالة)
+        // ملاحظة: stats متداخل، فتحديث stats.pearls يؤثّر على مفتاح 'stats'
+        // level/xp: الهدية ترفع خبرة ومستوى المستلم (buildWealthXpFirestoreUpdate)
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['stats', 'pearls', 'coins', 'followers', 'following', 'intimacyPoints', 'receivedGifts',
+                    'level', 'xp',
+                    'agencyId', 'agencyName', 'agencyRole', 'isAgent', 'accountKind'])
+      );
+      allow delete: if request.auth != null && (request.auth.uid == uid || isAdmin());
+
+      // الرومات المفضّلة + الأخيرة + الإشعارات الخاصة بالمستخدم
+      // فقط صاحب الحساب يقرأ ويكتب
+      match /favoriteRooms/{roomId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+      match /recentRooms/{roomId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+      // قائمة المحظورين
+      // - uid: صاحب القائمة يقرأ/يكتب كل المحظورين
+      // - blockedUid: المحظور يقرأ وثيقة نفسه فقط (للتحقق «هل حظرني هذا الشخص؟» في الشات)
+      match /blocked/{blockedUid} {
+        allow read: if request.auth != null && (
+          request.auth.uid == uid ||
+          request.auth.uid == blockedUid
+        );
+        allow create, update, delete: if request.auth != null && request.auth.uid == uid;
+      }
+      // سجل جلسات الدخول — للأدمن فقط (الكتابة عبر Cloud Functions)
+      match /loginSessions/{sessionId} {
+        allow read: if isAdmin();
+        allow write: if false;
+      }
+      // قفل يومي لألعاب الذكاء — يُنشأ من Cloud Functions فقط (وقت السيرفر)
+      match /intelligenceDaily/{lockId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    // ===== الوكالات =====
+    match /agencies/{agencyId} {
+      allow read: if request.auth != null;
+      // إنشاء: مستخدم مسجّل يجعل نفسه ownerUid
+      allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
+      // تحديث: المالك أو الأدمن، أو إضافة memberCount من أي شخص (لما يقبل دعوة)
+      allow update: if request.auth != null && (
+        resource.data.ownerUid == request.auth.uid ||
+        isAdmin() ||
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['memberCount', 'totalEarnings', 'updatedAt'])
+      );
+      allow delete: if request.auth != null && (resource.data.ownerUid == request.auth.uid || isAdmin());
+    }
+
+    // عضوية الوكالات
+    match /agencyMembers/{memberId} {
+      allow read: if request.auth != null;
+      // إنشاء: المستخدم يضيف نفسه، أو الأدمن يربط عضواً
+      allow create: if request.auth != null && (
+        request.resource.data.uid == request.auth.uid ||
+        isAdmin()
+      );
+      // تحديث وحذف: المالك أو العضو نفسه أو الأدمن
+      allow update, delete: if request.auth != null && (
+        resource.data.uid == request.auth.uid ||
+        isAdmin() ||
+        // الوكيل يحذف الأعضاء — نتحقق من ownership بالاستعلام (في الـ service)
+        request.auth.uid != null
+      );
+    }
+
+    // دعوات الوكالات
+    match /agencyInvites/{inviteId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && (
+        request.resource.data.agentUid == request.auth.uid ||
+        request.resource.data.invitedUid == request.auth.uid
+      );
+      allow update: if request.auth != null && (
+        resource.data.agentUid == request.auth.uid ||
+        resource.data.invitedUid == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if request.auth != null && (resource.data.agentUid == request.auth.uid || isAdmin());
+    }
+
+    // إحصائيات الوكالات (cron يكتبها، الوكلاء والأدمن يقرؤها)
+    match /agencyEarnings/{id} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // استردادات الوكيل للداعمين
+    match /agencyRefunds/{id} {
+      allow read: if request.auth != null && (
+        isAdmin() ||
+        resource.data.agentUid == request.auth.uid ||
+        resource.data.hostUid == request.auth.uid ||
+        resource.data.supporterUid == request.auth.uid
+      );
+      allow write: if false;
+    }
+
+    // طلبات فتح الوكالة
+    // الإنشاء عبر Cloud Function فقط (submitAgencyApplication) — لا يُسمح للعميل مباشرة
+    match /agencyApplications/{appId} {
+      allow read: if request.auth != null && (
+        isAdmin() ||
+        resource.data.applicantUid == request.auth.uid ||
+        request.auth.uid in resource.data.proposedHostUids
+      );
+      allow create: if false;
+      allow update, delete: if isAdmin();
+    }
+
+    // طلبات زيادة عدد المايكات في غرفة الوكالة
+    match /agencySeatRequests/{reqId} {
+      allow read: if request.auth != null && (
+        isAdmin() ||
+        resource.data.requesterUid == request.auth.uid ||
+        isSameAgency(resource.data.agencyId)
+      );
+      allow create: if request.auth != null
+        && request.resource.data.requesterUid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.agencyId is string
+        && request.resource.data.roomId is string
+        && isSameAgency(request.resource.data.agencyId)
+        && request.resource.data.requestedSeatsCount in [11, 16, 19, 21]
+        && request.resource.data.requestedSeatsCount > request.resource.data.currentMaxSeats;
+      allow update, delete: if isAdmin();
+    }
+
+    // طلبات/فعاليات الحفلات داخل الوكالة
+    match /agencyPartyRequests/{reqId} {
+      allow read: if request.auth != null && (
+        isAdmin() ||
+        resource.data.requesterUid == request.auth.uid ||
+        resource.data.status == 'approved' ||
+        isSameAgency(resource.data.agencyId)
+      );
+      allow create: if request.auth != null
+        && request.resource.data.requesterUid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.agencyId is string
+        && request.resource.data.roomId is string
+        && isSameAgency(request.resource.data.agencyId)
+        && request.resource.data.description is string
+        && request.resource.data.description.size() > 0
+        && request.resource.data.description.size() <= 100
+        && request.resource.data.eventType in ['dating', 'music', 'games', 'talk', 'celebration', 'other']
+        && request.resource.data.durationMinutes in [30, 60, 90, 120, 180]
+        && request.resource.data.startAt is int
+        && request.resource.data.allowPublicPromotion is bool;
+      allow update, delete: if isAdmin();
+    }
+
+    // دعوات BD (وكيل يدعو وكيل)
+    match /bdInvites/{inviteId} {
+      allow read: if request.auth != null && (
+        resource.data.fromUid == request.auth.uid ||
+        resource.data.invitedUid == request.auth.uid ||
+        isAdmin()
+      );
+      allow create, update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // طلبات السحب
+    match /withdrawals/{id} {
+      allow read: if request.auth != null && (
+        resource.data.uid == request.auth.uid ||
+        resource.data.agentUid == request.auth.uid ||
+        isAdmin()
+      );
+      // إنشاء: المستخدم يقدّم طلب لنفسه
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      // تحديث: الوكيل المسؤول، أو الأدمن
+      allow update: if request.auth != null && (
+        resource.data.agentUid == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // إشعارات دخول الرومات — يقرأها المستهدف فقط، أي مسجّل يكتبها
+    match /roomEntryNotifications/{notifId} {
+      allow read, delete: if request.auth != null && resource.data.forUid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.fromUid == request.auth.uid;
+    }
+
+    // المتابعة — المسجّلون يقرؤون، وكل واحد يكتب متابعاته فقط
+    // الحذف: المتابِع (إلغاء متابعة) أو المتابَع (إزالة متابِع من قائمته)
+    match /follows/{followId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.follower == request.auth.uid;
+      allow delete: if request.auth != null &&
+        (resource.data.follower == request.auth.uid || resource.data.followed == request.auth.uid);
+    }
+
+    // طلبات حذف الحساب — صاحب الحساب فقط؛ التنفيذ النهائي عبر Cloud Function مجدولة
+    match /accountDeletionRequests/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid;
+      allow delete: if isAdmin();
+    }
+
+    // المكالمات الواردة — يقرأ المستهدف ويحذف، وأي مسجّل يكتب
+    match /incomingCalls/{targetUid}/calls/{callId} {
+      allow read, delete: if request.auth != null && request.auth.uid == targetUid;
+      allow create: if request.auth != null && request.resource.data.from == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.from == request.auth.uid;
+    }
+
+    // الإعدادات القابلة للتحكم — يقرأ الجميع، يكتب الأدمن فقط
+    // config/botAdmin: مفتاح Bot API — للأدمن فقط (لا يُعرّض للتطبيق)
+    match /config/botAdmin {
+      allow read, write: if isAdmin();
+    }
+    match /config/{doc} {
+      allow read: if doc != 'botAdmin';
+      allow write: if isAdmin();
+    }
+
+    // المعاملات — يقرؤها المسجّلون، الأدمن يعدّل/يحذف
+    match /transactions/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if isAdmin();
+    }
+
+    match /gameTransactions/{id} {
+      allow read, create: if request.auth != null;
+    }
+
+    // جلسات المكالمات 1:1 — تُنشأ/تُحدّث من Cloud Functions (Admin SDK يتجاوز القواعد).
+    // الأدمن يقرأ الكل (شاشة استهلاك دقائق المزوّد)، والمشارك يقرأ جلسته فقط.
+    match /callSessions/{id} {
+      allow read: if isAdmin()
+        || (request.auth != null
+            && (resource.data.callerUid == request.auth.uid
+                || resource.data.calleeUid == request.auth.uid));
+    }
+
+    // سجلّ استهلاك المزوّدين (LiveKit) — يكتبه Webhook عبر Admin SDK، والأدمن يقرأ.
+    match /providerSessions/{id} {
+      allow read: if isAdmin();
+    }
+
+    // العلاقات
+    match /relationships/{id} {
+      allow read, write: if request.auth != null;
+    }
+
+    // المطابقات وقائمة الانتظار
+    match /matchQueue/{id} {
+      allow read, write: if request.auth != null;
+    }
+    match /matches/{id} {
+      allow read, write: if request.auth != null;
+    }
+
+    // المحادثات والرسائل
+    // مضبوطة بحيث تسمح بكل عمليات التطبيق الحالية دون أي كسر، وتفعّل علامة
+    // القراءة ✓✓ (تحديث isRead من الطرف الثاني) وتمنع العبث بين المستخدمين فقط.
+    match /conversations/{id} {
+      // القراءة/الإنشاء مفتوحة للمسجّلين (كما كانت) — حتى لا يتأثر أي تدفّق
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      // التحديث (lastReadAt / unreadBy / pin / archive / lastMessage): للمشاركين فقط
+      allow update: if request.auth != null
+        && request.auth.uid in resource.data.participants;
+    }
+    match /messages/{id} {
+      allow read: if request.auth != null;
+      // الإنشاء: صاحب الرسالة (fromUid)، أو حسابات LinkUp الرسمية
+      allow create: if request.auth != null
+        && (request.resource.data.fromUid == request.auth.uid
+            || request.resource.data.fromUid == 'linkup_support'
+            || request.resource.data.fromUid == 'linkup_assistant'
+            || request.resource.data.fromUid == 'linkup_feedback'
+            || request.resource.data.fromUid == 'linkup_recharge_bot');
+      // التحديث: المرسِل أو المستقبِل — يفعّل isRead (✓✓) والحذف للجميع والإخفاء
+      allow update: if request.auth != null
+        && (resource.data.fromUid == request.auth.uid
+            || resource.data.toUid == request.auth.uid);
+      // الحذف النهائي: المرسِل فقط
+      allow delete: if request.auth != null
+        && resource.data.fromUid == request.auth.uid;
+    }
+
+    // دردشة الوكالة الخاصة
+    // - عضوية الأعضاء تُدار عبر Cloud Functions فقط (admin SDK يتجاوز القواعد)
+    // - العميل يحدّث lastMessage فقط (دون تغيير members)
+    match /agencyChats/{id} {
+      allow read: if request.auth != null;
+      allow update: if request.auth != null
+        && request.resource.data.members == resource.data.members;
+      allow create, delete: if false;
+    }
+    match /agencyChatMessages/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.fromUid == request.auth.uid;
+      allow update, delete: if request.auth != null && isAdmin();
+    }
+
+    // جدولة المطابقة — كل مستخدم يدير جدولاته فقط
+    match /matchSchedules/{id} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    // تحديث عدّادات التفاعل على المنشور (إعجاب / تعليق / هدية / مشاركة) — أي مستخدم مسجّل
+    function isPostEngagementCounterUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['likes', 'comments', 'gifts', 'shares']);
+    }
+
+    function isCommentLikeCounterUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes']);
+    }
+
+    // المنشورات / اللحظات
+    // get('status','active') — منشورات قديمة بلا حقل status تُعامل كـ active
+    match /posts/{postId} {
+      allow read: if request.auth != null
+        && (resource.data.get('status', 'active') == 'active'
+            || resource.data.uid == request.auth.uid
+            || isAdmin());
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'active';
+      allow update: if request.auth != null && (
+        resource.data.uid == request.auth.uid
+        || isAdmin()
+        || isPostEngagementCounterUpdate()
+      );
+      allow delete: if request.auth != null
+        && (resource.data.uid == request.auth.uid || isAdmin());
+
+      match /likes/{uid} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.auth.uid == uid;
+        allow delete: if request.auth != null && request.auth.uid == uid;
+      }
+
+      match /shares/{uid} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && request.auth.uid == uid;
+        allow update, delete: if false;
+      }
+
+      match /comments/{commentId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+          && request.resource.data.uid == request.auth.uid;
+        allow update: if request.auth != null && (
+          resource.data.uid == request.auth.uid
+          || isAdmin()
+          || isCommentLikeCounterUpdate()
+        );
+        allow delete: if request.auth != null
+          && (resource.data.uid == request.auth.uid || isAdmin());
+
+        match /likes/{uid} {
+          allow read: if request.auth != null;
+          allow create: if request.auth != null && request.auth.uid == uid;
+          allow delete: if request.auth != null && request.auth.uid == uid;
+        }
+      }
+    }
+
+    // المخزون والإشعارات
+    match /inventory/{id} { allow read, write: if request.auth != null; }
+    match /notifications/{id} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      // المستلم يقرأ إشعاراته؛ المرسل يمكنه إنشاء إشعار للطرف الآخر؛ الأدمن (شحن، إدارة...)
+      allow create: if request.auth != null && (
+        request.resource.data.uid == request.auth.uid
+        || request.resource.data.fromUid == request.auth.uid
+        || isAdmin()
+      );
+      allow update: if request.auth != null && (
+        resource.data.uid == request.auth.uid || isAdmin()
+      );
+      allow delete: if request.auth != null && (
+        resource.data.uid == request.auth.uid || isAdmin()
+      );
+    }
+
+    // زيارات الملف الشخصي
+    match /profileVisitors/{profileUid}/visits/{visitorUid} {
+      allow read: if request.auth != null && request.auth.uid == profileUid;
+      allow create, update: if request.auth != null
+        && request.auth.uid == visitorUid
+        && profileUid != request.auth.uid;
+    }
+    match /lotteryTickets/{id} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if false;
+    }
+
+    match /weeklyLotteryDraws/{id} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /lotteryState/{id} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+    match /voiceBios/{id} { allow read, write: if request.auth != null; }
+
+    // أرباح الإدارة (من فتح الرسائل المقفلة وغيرها)
+    // يُنشئها المستخدمون عند الدفع، يقرأها الأدمن فقط
+    match /adminEarnings/{id} {
+      allow read: if isAdmin();
+      allow create: if request.auth != null;
+      allow update, delete: if isAdmin();
+    }
+
+    // سجل إشعارات الإدارة للمستخدمين
+    match /adminModerationLogs/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // بث الإشعارات وسجل الأدمن — الأدمن فقط
+    match /broadcasts/{id} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+      match /viewers/{viewerId} {
+        allow read: if isAdmin();
+        allow write: if false;
+      }
+    }
+    match /adminLogs/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // نشاط الكازينو المباشر — دخول ورهان وفوز
+    match /casinoLiveActivity/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.type in ['bet', 'win', 'recharge']
+        && request.resource.data.stake is number
+        && request.resource.data.createdAt is number
+        && (
+          request.resource.data.type == 'recharge'
+          || request.resource.data.gameId is string
+        );
+      allow update, delete: if false;
+    }
+
+    // طلبات شحن العملات (من بوت الشحن في التطبيق)
+    match /rechargeRequests/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid;
+      allow read: if request.auth != null && (
+        resource.data.uid == request.auth.uid || isAdmin()
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    // بلاغات المستخدمين
+    match /reports/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.reporterUid == request.auth.uid;
+      allow read: if isAdmin()
+        || (request.auth != null && resource.data.reporterUid == request.auth.uid);
+      allow update: if isAdmin();
+    }
+
+    // روابط المشاركة المختصرة — تُدار من Cloud Functions فقط
+    match /shareLinks/{code} {
+      allow read, write: if false;
+    }
+
+    // طلبات التحقق من الهوية (KYC)
+    match /kycRequests/{uid} {
+      allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.status in ['processing', 'pending'];
+      allow update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.status in ['processing', 'pending']
+        && !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['approvedAt', 'aiGender', 'aiConfidence', 'aiProvider', 'genderMatch', 'rejectionReason']);
+      allow update, delete: if isAdmin();
+    }
+
+    // ألعاب التحدي الجماعي (1v1 Online Challenges)
+    match /gameChallenges/{challengeId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.challengerId == request.auth.uid;
+      allow update: if request.auth != null && (
+        resource.data.challengerId == request.auth.uid ||
+        resource.data.challengedId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // مطابقة ألعاب التحدي
+    match /gameMatchQueue/{uid} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == uid;
+      allow delete: if request.auth != null && (
+        request.auth.uid == uid ||
+        resource.data.status == 'waiting'
+      );
+    }
+
+    // إيرادات الإدارة من عمولات التحديات
+    match /adminRevenue/{id} {
+      allow read: if isAdmin();
+      allow create: if request.auth != null;
+      allow update, delete: if isAdmin();
+    }
+  }
+}

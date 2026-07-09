@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dragon Tower — Linkup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@600;700;800;900&family=Tajawal:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="../casino-mobile.css?v=2">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo">Link<span>up</span></div>
+  <div class="wallet">
+    <div class="balance-pill" title="Balance">
+      <span id="balanceDisplay">$0.00</span>
+      <span class="coin coin-sm" aria-hidden="true">$</span>
+    </div>
+    <span class="demo-badge" id="demoBadge">DEMO</span>
+  </div>
+</header>
+
+<main class="game-shell">
+  <div class="game-frame">
+
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar">
+      <div class="mode-tabs">
+        <button id="tabManual" class="mode-tab active" type="button" data-i18n="manual">Manual</button>
+        <button id="tabAuto" class="mode-tab" type="button" data-i18n="auto">Auto</button>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <span data-i18n="betAmount">Bet Amount</span>
+          <span id="betFiat" class="fiat">$0.00</span>
+        </div>
+        <div class="input-group">
+          <div class="input-wrap">
+            <input id="betInput" type="text" inputmode="decimal" value="0.00" autocomplete="off" spellcheck="false">
+            <span class="coin coin-input" aria-hidden="true">$</span>
+          </div>
+          <button id="betHalf" class="mod-btn" type="button">½</button>
+          <button id="betDouble" class="mod-btn" type="button">2×</button>
+        </div>
+        <!-- شرائح الرهان من إعدادات لوحة التحكم (5k/10k/25k/50k افتراضياً) -->
+        <div class="chips-row" id="chipsRow" aria-label="quick bets"></div>
+      </div>
+
+      <div class="field">
+        <div class="field-label"><span data-i18n="difficulty">Difficulty</span></div>
+        <div class="select-wrap">
+          <select id="difficultySelect">
+            <option value="easy" data-i18n="diff_easy">Easy</option>
+            <option value="medium" selected data-i18n="diff_medium">Medium</option>
+            <option value="hard" data-i18n="diff_hard">Hard</option>
+            <option value="expert" data-i18n="diff_expert">Expert</option>
+            <option value="master" data-i18n="diff_master">Master</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- auto-mode only -->
+      <div class="field auto-only hidden">
+        <div class="field-label"><span data-i18n="numberOfBets">Number of Bets</span></div>
+        <div class="input-group">
+          <div class="input-wrap">
+            <input id="autoBetsInput" type="text" inputmode="numeric" value="10" autocomplete="off">
+            <!-- ليست عملة — أيقونة ∞ فقط (كلاس coin كان سيستبدلها casino-coins بعملة ذهبية) -->
+            <svg viewBox="0 0 24 24" class="inf-icon" width="16"><path fill="#b1bad3" d="M18.6 6.62c-1.44 0-2.8.56-3.77 1.53L12 10.66 10.48 12h.01L7.8 14.39c-.64.64-1.49.99-2.4.99a3.4 3.4 0 0 1-3.4-3.38 3.4 3.4 0 0 1 3.4-3.38c.91 0 1.76.35 2.44 1.03l1.13 1 1.51-1.34-1.3-1.15a5.35 5.35 0 0 0-3.78-1.54A5.42 5.42 0 0 0 0 12a5.42 5.42 0 0 0 5.4 5.38c1.44 0 2.8-.56 3.77-1.53l2.83-2.5.01.01L13.52 12h-.01l2.69-2.39c.64-.64 1.49-.99 2.4-.99a3.4 3.4 0 0 1 3.4 3.38 3.4 3.4 0 0 1-3.4 3.38c-.9 0-1.76-.35-2.44-1.03l-1.14-1.01-1.51 1.34 1.31 1.16a5.35 5.35 0 0 0 3.78 1.54A5.42 5.42 0 0 0 24 12a5.42 5.42 0 0 0-5.4-5.38Z"/></svg>
+          </div>
+        </div>
+        <p class="hint" data-i18n="runUntilStopped">0 = run until stopped</p>
+      </div>
+
+      <div class="field auto-only hidden">
+        <div class="field-label"><span data-i18n="cashoutAfterRows">Cashout After Rows</span></div>
+        <div class="select-wrap">
+          <select id="autoRowsSelect"></select>
+        </div>
+      </div>
+
+      <button id="actionBtn" class="action-btn" type="button">Bet</button>
+      <button id="randomBtn" class="secondary-btn manual-only" type="button" disabled data-i18n="randomPick">Random Pick</button>
+
+      <div class="field profit-field">
+        <div class="field-label">
+          <span><span data-i18n="totalProfit">Total Profit</span> (<span id="multDisplay">1.00×</span>)</span>
+          <span id="profitFiat" class="fiat">$0.00</span>
+        </div>
+        <div class="input-wrap readonly">
+          <input id="profitInput" type="text" value="0.00" readonly tabindex="-1">
+          <span class="coin coin-input" aria-hidden="true">$</span>
+        </div>
+      </div>
+
+      <div class="next-mult">
+        <span data-i18n="nextTile">Next tile:</span> <span id="nextMultDisplay">—</span>
+      </div>
+    </aside>
+
+    <!-- ============ BOARD ============ -->
+    <section class="board-area">
+      <div class="scenery" aria-hidden="true">
+        <svg class="chain chain-left" viewBox="0 0 24 160">
+          <g fill="none" stroke="#2a3f50" stroke-width="3.5">
+            <ellipse cx="12" cy="12" rx="7" ry="10"/>
+            <ellipse cx="12" cy="34" rx="5" ry="9"/>
+            <ellipse cx="12" cy="56" rx="7" ry="10"/>
+            <ellipse cx="12" cy="78" rx="5" ry="9"/>
+            <ellipse cx="12" cy="100" rx="7" ry="10"/>
+            <ellipse cx="12" cy="122" rx="5" ry="9"/>
+            <ellipse cx="12" cy="144" rx="7" ry="10"/>
+          </g>
+        </svg>
+        <svg class="chain chain-right" viewBox="0 0 24 160">
+          <g fill="none" stroke="#2a3f50" stroke-width="3.5">
+            <ellipse cx="12" cy="12" rx="7" ry="10"/>
+            <ellipse cx="12" cy="34" rx="5" ry="9"/>
+            <ellipse cx="12" cy="56" rx="7" ry="10"/>
+            <ellipse cx="12" cy="78" rx="5" ry="9"/>
+            <ellipse cx="12" cy="100" rx="7" ry="10"/>
+          </g>
+        </svg>
+        <svg class="eggshell" viewBox="0 0 80 52">
+          <path fill="#22374a" d="M8 34 C 8 16, 20 4, 40 4 L 34 14 L 44 10 L 50 20 L 60 12 C 68 18, 72 26, 72 34 C 72 44, 58 50, 40 50 C 22 50, 8 44, 8 34 Z"/>
+          <ellipse cx="40" cy="34" rx="24" ry="10" fill="#1a2c3c"/>
+        </svg>
+        <svg class="bone" viewBox="0 0 90 34">
+          <g fill="#253a4d">
+            <rect x="16" y="12" width="58" height="9" rx="4.5"/>
+            <circle cx="16" cy="11" r="8"/><circle cx="14" cy="22" r="8"/>
+            <circle cx="76" cy="11" r="8"/><circle cx="74" cy="22" r="8"/>
+          </g>
+        </svg>
+        <svg class="rocks rocks-left" viewBox="0 0 120 50">
+          <path fill="#14273a" d="M0 50 L 6 26 L 26 14 L 46 24 L 54 40 L 60 50 Z"/>
+          <path fill="#1a3045" d="M40 50 L 52 30 L 74 22 L 96 34 L 104 50 Z"/>
+        </svg>
+        <svg class="rocks rocks-right" viewBox="0 0 120 50">
+          <path fill="#14273a" d="M120 50 L 112 24 L 90 14 L 70 26 L 62 42 L 58 50 Z"/>
+          <path fill="#1a3045" d="M10 50 L 24 32 L 46 26 L 62 38 L 68 50 Z"/>
+        </svg>
+        <div class="torch"></div>
+      </div>
+      <div class="tower">
+        <div class="dragon-wrap">
+          <svg class="dragon" viewBox="0 0 300 150" aria-hidden="true">
+            <defs>
+              <linearGradient id="dgHead" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#4d6a80"/>
+                <stop offset="1" stop-color="#33485a"/>
+              </linearGradient>
+              <linearGradient id="dgSnout" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#62809a"/>
+                <stop offset="1" stop-color="#425a6e"/>
+              </linearGradient>
+              <linearGradient id="dgHorn" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#93abc0"/>
+                <stop offset="1" stop-color="#5d7a90"/>
+              </linearGradient>
+              <linearGradient id="dgWing" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#31465a"/>
+                <stop offset="1" stop-color="#22333f"/>
+              </linearGradient>
+            </defs>
+            <!-- wings -->
+            <path class="d-wing" d="M64 150 C 36 116, 40 72, 80 52 C 98 43, 114 42, 124 45 C 105 62, 94 84, 92 108 C 90 124, 91 138, 95 150 Z"/>
+            <path class="d-wing" d="M236 150 C 264 116, 260 72, 220 52 C 202 43, 186 42, 176 45 C 195 62, 206 84, 208 108 C 210 124, 209 138, 205 150 Z"/>
+            <!-- wing finger ridges -->
+            <path class="d-wingbone" d="M80 52 C 66 84, 64 118, 74 150 L 82 150 C 73 118, 76 86, 88 58 Z"/>
+            <path class="d-wingbone" d="M220 52 C 234 84, 236 118, 226 150 L 218 150 C 227 118, 224 86, 212 58 Z"/>
+            <!-- neck -->
+            <path class="d-neck" d="M119 150 L 124 94 L 176 94 L 181 150 Z"/>
+            <!-- horns -->
+            <path class="d-horn" d="M124 54 C 102 48, 88 34, 84 12 C 83 7, 85 3, 90 1 C 91 12, 98 26, 110 36 C 116 41, 122 45, 128 47 Z"/>
+            <path class="d-horn" d="M176 54 C 198 48, 212 34, 216 12 C 217 7, 215 3, 210 1 C 209 12, 202 26, 190 36 C 184 41, 178 45, 172 47 Z"/>
+            <!-- ear spikes -->
+            <path class="d-horn2" d="M104 80 L 85 73 L 100 91 Z"/>
+            <path class="d-horn2" d="M196 80 L 215 73 L 200 91 Z"/>
+            <!-- head -->
+            <path class="d-head" d="M150 28 C 122 28, 106 46, 105 72 C 104 88, 111 102, 123 111 C 132 118, 141 122, 150 123 C 159 122, 168 118, 177 111 C 189 102, 196 88, 195 72 C 194 46, 178 28, 150 28 Z"/>
+            <!-- crest spikes -->
+            <path class="d-horn2" d="M150 18 L 144 33 L 156 33 Z"/>
+            <path class="d-horn2" d="M131 24 L 129 38 L 141 33 Z"/>
+            <path class="d-horn2" d="M169 24 L 171 38 L 159 33 Z"/>
+            <!-- nose bridge ridge -->
+            <path class="d-ridge" d="M145 38 C 148 36, 152 36, 155 38 L 153 82 L 147 82 Z"/>
+            <!-- brow ridges -->
+            <path class="d-brow" d="M112 66 C 122 56, 138 57, 148 66 L 144 77 C 135 68, 123 68, 116 76 Z"/>
+            <path class="d-brow" d="M188 66 C 178 56, 162 57, 152 66 L 156 77 C 165 68, 177 68, 184 76 Z"/>
+            <!-- eyes -->
+            <path class="d-eye" d="M118 77 C 125 71, 136 72, 143 80 C 135 84.5, 124 83.5, 118 77 Z"/>
+            <path class="d-eye" d="M182 77 C 175 71, 164 72, 157 80 C 165 84.5, 176 83.5, 182 77 Z"/>
+            <!-- muzzle -->
+            <path class="d-snout" d="M150 80 C 135 80, 125 88, 123 99 C 121.5 110, 132 119.5, 150 120.5 C 168 119.5, 178.5 110, 177 99 C 175 88, 165 80, 150 80 Z"/>
+            <!-- nostril slits -->
+            <path class="d-nostril" d="M139 92 C 136.5 96, 136.5 100, 139 103.5 C 142 101, 142.5 95.5, 139 92 Z"/>
+            <path class="d-nostril" d="M161 92 C 163.5 96, 163.5 100, 161 103.5 C 158 101, 157.5 95.5, 161 92 Z"/>
+            <!-- mouth line -->
+            <path class="d-mouth" d="M130 108 C 140 115, 160 115, 170 108 C 161 118, 139 118, 130 108 Z"/>
+            <!-- fangs -->
+            <path class="d-fang" d="M132 109 L 136 121 L 140 111 Z"/>
+            <path class="d-fang" d="M168 109 L 164 121 L 160 111 Z"/>
+          </svg>
+          <img class="castle castle-top" src="assets/castle-top.svg" alt="">
+          <svg class="dragon-claws" viewBox="0 0 300 36" aria-hidden="true">
+            <g transform="translate(84,2)">
+              <path class="d-paw" d="M1 12 C 1 3, 29 3, 29 12 L 29 16 L 1 16 Z"/>
+              <path class="d-talon" d="M3 15 C 4 23, 6 27, 9 31 C 10.5 25, 10.5 19, 9.5 15 Z"/>
+              <path class="d-talon" d="M11.5 15 C 12.5 24, 14 28, 16 32 C 17.5 26, 17.5 19, 16.5 15 Z"/>
+              <path class="d-talon" d="M20 15 C 21 23, 22.5 27, 25 31 C 26 25, 26 19, 25 15 Z"/>
+            </g>
+            <g transform="translate(186,2)">
+              <path class="d-paw" d="M1 12 C 1 3, 29 3, 29 12 L 29 16 L 1 16 Z"/>
+              <path class="d-talon" d="M3 15 C 4 23, 6 27, 9 31 C 10.5 25, 10.5 19, 9.5 15 Z"/>
+              <path class="d-talon" d="M11.5 15 C 12.5 24, 14 28, 16 32 C 17.5 26, 17.5 19, 16.5 15 Z"/>
+              <path class="d-talon" d="M20 15 C 21 23, 22.5 27, 25 31 C 26 25, 26 19, 25 15 Z"/>
+            </g>
+          </svg>
+        </div>
+
+        <div id="board" class="board"></div>
+
+        <div class="castle-bottom-wrap">
+          <img class="castle castle-bottom" src="assets/castle-top.svg" alt="">
+        </div>
+
+        <!-- win popup -->
+        <div id="winPopup" class="win-popup hidden">
+          <div class="win-mult" id="winPopupMult">2.25×</div>
+          <div class="win-divider"></div>
+          <div class="win-amount"><span id="winPopupAmount">$0.00</span>
+            <span class="coin coin-sm" aria-hidden="true">$</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ FOOTER BAR ============ -->
+  <footer class="gamebar">
+    <div class="gamebar-left">
+      <button id="soundBtn" class="icon-btn" type="button" title="Toggle sound" data-i18n-title="soundTitle">
+        <svg id="soundOnIcon" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        <svg id="soundOffIcon" viewBox="0 0 24 24" width="16" height="16" class="hidden"><path fill="currentColor" d="M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>
+      </button>
+      <button id="resetBtn" class="icon-btn" type="button" title="Reset balance" data-i18n-title="resetTitle">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+      </button>
+    </div>
+    <div class="gamebar-logo">Link<span>up</span></div>
+    <div class="gamebar-right">
+      <div class="lang-wrap">
+        <svg class="globe" viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm6.93 6h-2.95a15.7 15.7 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.93 8ZM12 4c.83 1.2 1.48 2.53 1.91 3.96h-3.82C10.52 6.53 11.17 5.2 12 4ZM4.26 14a7.9 7.9 0 0 1 0-4h3.38a16.6 16.6 0 0 0 0 4H4.26Zm.81 2h2.95c.35 1.25.82 2.45 1.38 3.56A8 8 0 0 1 5.07 16Zm2.95-8H5.07a8 8 0 0 1 4.33-3.56A15.7 15.7 0 0 0 8.02 8ZM12 20c-.83-1.2-1.48-2.53-1.91-3.96h3.82C13.48 17.47 12.83 18.8 12 20Zm2.34-6H9.66a14.8 14.8 0 0 1 0-4h4.68a14.8 14.8 0 0 1 0 4Zm.27 5.56c.56-1.11 1.03-2.31 1.38-3.56h2.95a8 8 0 0 1-4.33 3.56ZM16.36 14a16.6 16.6 0 0 0 0-4h3.38a7.9 7.9 0 0 1 0 4h-3.38Z"/></svg>
+        <select id="langSelect" aria-label="Language">
+          <option value="ar">عربي</option>
+          <option value="en">EN</option>
+        </select>
+      </div>
+    </div>
+  </footer>
+</main>
+
+<!-- جسر منصة LinkUp: يحمّل games-config-utils + casino-coins + casino-app-bridge -->
+<script src="../games-casino-boot.js?v=2"></script>
+<script>if (window.LinkUpCasinoBoot) { window.LinkUpCasinoBoot.boot('dragon-tower'); }</script>
+<script src="js/api.js"></script>
+<script src="js/i18n.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

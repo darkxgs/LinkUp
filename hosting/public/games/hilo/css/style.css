@@ -1,0 +1,539 @@
+/* ============================================================
+   Linkup — Hilo stylesheet
+   ============================================================ */
+@import url("base.css");
+
+
+/* ====================== HILO LAYOUT OVERRIDES ====================== */
+.hilo-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  gap: 24px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+/* Hilo controls panel modifications */
+.panel .hilo-guess-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.hilo-btn-guess {
+  background: var(--surface-highest);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background 0.2s, transform 0.1s;
+  width: 100%;
+  font-size: 0.9rem;
+}
+.hilo-btn-guess:hover:not(:disabled) {
+  background: #2c4553;
+}
+.hilo-btn-guess:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.hilo-btn-guess:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.hilo-btn-guess .guess-label {
+  font-weight: 600;
+}
+.hilo-btn-guess .percent {
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+.hilo-btn-guess .arrow-icon {
+  font-size: 0.85rem;
+  margin: 0 6px;
+}
+.hilo-btn-guess.guess-higher .arrow-icon {
+  color: #ffa91f; /* caution orange */
+}
+.hilo-btn-guess.guess-lower .arrow-icon {
+  color: #03e625; /* positive green */
+}
+.hilo-btn-guess.guess-higher .percent {
+  color: #ffa91f;
+}
+.hilo-btn-guess.guess-lower .percent {
+  color: #03e625;
+}
+
+.skip-btn-wrap {
+  width: 100%;
+}
+.skip-btn-wrap button {
+  width: 100%;
+  background: var(--surface-highest);
+  color: var(--subtle);
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.skip-btn-wrap button:hover:not(:disabled) {
+  color: #fff;
+  background: #2c4553;
+}
+.skip-btn-wrap button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ====================== MAIN HILO STAGE ====================== */
+.hilo-stage-main {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  gap: 20px;
+  justify-content: space-between;
+}
+
+.hilo-play-area {
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  width: 100%;
+  flex: 1;
+  min-height: 240px;
+}
+
+/* Indicators */
+.hilo-indicator-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.hilo-indicator-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--input-border);
+  border-radius: var(--radius);
+  width: 80px;
+  height: 120px;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.8rem;
+  background: transparent;
+}
+.hilo-indicator-card .rank {
+  font-size: 2.2rem;
+  color: var(--input-border-hover);
+  line-height: 1.1;
+  font-weight: 700;
+}
+.hilo-indicator-card .arrow {
+  font-size: 0.85rem;
+}
+.hilo-indicator-card .arrow.higher {
+  color: #ffa91f;
+}
+.hilo-indicator-card .arrow.lower {
+  color: #03e625;
+}
+.indicator-label {
+  font-size: 0.65rem;
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-align: center;
+  max-width: 90px;
+  line-height: 1.25;
+}
+
+/* Card Stack */
+.hilo-card-deck-stack {
+  position: relative;
+  width: 120px;
+  height: 190px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Background stacked cards */
+.deck-card-shadow {
+  position: absolute;
+  width: 110px;
+  height: 170px;
+  background: #0b171e;
+  border-radius: var(--radius);
+  border: 1px solid var(--input-border);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+.deck-card-shadow-1 { transform: translate(0px, 8px) scale(0.96); z-index: 1; }
+.deck-card-shadow-2 { transform: translate(0px, 4px) scale(0.98); z-index: 2; }
+
+/* The active card wrapper */
+.active-card-wrap {
+  position: relative;
+  width: 120px;
+  height: 180px;
+  z-index: 5;
+  perspective: 1000px;
+}
+
+.hilo-card {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.hilo-card.face-down {
+  transform: rotateY(180deg);
+}
+
+.card-face {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: var(--radius);
+  backface-visibility: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+/* Card Front: White paper style */
+.card-front {
+  background: #ffffff;
+  color: #111b22;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid #dcdcdc;
+}
+.card-front .card-top-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-weight: 700;
+  font-size: 1.4rem;
+  line-height: 1.1;
+}
+.card-front .card-top-left svg {
+  width: 18px;
+  height: 18px;
+}
+.card-front .card-center-suit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+.card-front .card-center-suit svg {
+  width: 44px;
+  height: 44px;
+}
+.card-front.suit-red {
+  color: #e9113c;
+}
+.card-front.suit-black {
+  color: #1a2c38;
+}
+
+/* Card Back: Stake patterned */
+.card-back {
+  background-color: var(--primary);
+  background-image: radial-gradient(circle at 50% 50%, var(--primary) 0%, #0d519d 100%);
+  border: 4px solid #ffffff;
+  transform: rotateY(180deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card-back::after {
+  content: "◢";
+  font-size: 3rem;
+  color: rgba(255, 255, 255, 0.15);
+  transform: rotate(-10deg);
+}
+
+/* Game result win/loss popover modal (The Multi Box) */
+.game-result-wrap {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.9);
+  width: var(--modal-width, 150px);
+  height: var(--modal-height, 132px);
+  background: var(--panel-bg); /* #1a2c38 */
+  border-radius: 16px;
+  border: 6px solid var(--positive-strong); /* #03e625 */
+  box-shadow: var(--shadows-lg);
+  padding: var(--spacing-3, 12px);
+  z-index: 65 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.2s ease;
+}
+.game-result-wrap.win {
+  border-color: var(--positive-strong);
+}
+.game-result-wrap.lost {
+  border-color: var(--negative);
+}
+.game-result-wrap.show {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+  pointer-events: auto;
+}
+.game-result-wrap.hidden {
+  display: none !important;
+}
+
+.game-result-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  gap: 8px;
+}
+
+.game-result-content .number-multiplier {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.1;
+  font-family: var(--font);
+}
+
+.game-result-content .divider {
+  width: 80px;
+  height: 2px;
+  background: var(--input-border); /* #2f4553 */
+  margin: 2px 0;
+}
+
+.payout-result {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--subtle);
+}
+.payout-result .badge-profit-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.payout-result svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+
+/* Floating skip action inside card stack */
+.hilo-deck-skip-btn {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  background: var(--surface-highest);
+  color: #fff;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  transition: 0.2s;
+}
+.hilo-deck-skip-btn:hover:not(:disabled) {
+  background: var(--primary);
+  transform: scale(1.1);
+}
+.hilo-deck-skip-btn:disabled {
+  display: none;
+}
+
+/* ====================== NEXT PROFIT ESTIMATORS ====================== */
+.hilo-profit-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  width: 100%;
+}
+.hilo-profit-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.hilo-profit-box label {
+  font-size: 0.8rem;
+  color: var(--subtle);
+  font-weight: 600;
+}
+/* Note: We now reuse the root .input-group class for profit input fields */
+.hilo-profit-row .input-group {
+  height: 42px;
+  border-color: var(--input-border);
+}
+.hilo-profit-row .input-group:hover, .hilo-profit-row .input-group:focus-within {
+  border-color: var(--input-border-hover);
+}
+.hilo-profit-row .input {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+/* ====================== CARD HISTORY STRIP ====================== */
+.hilo-history-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  background: var(--surface-lowest);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+.hilo-history-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  min-height: 110px;
+  align-items: center;
+  padding-bottom: 4px;
+}
+/* Scrollbar styling */
+.hilo-history-strip::-webkit-scrollbar {
+  height: 6px;
+}
+.hilo-history-strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hilo-history-strip::-webkit-scrollbar-thumb {
+  background: var(--input-border);
+  border-radius: var(--radius-full);
+}
+
+.history-card-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  animation: slideIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.1) forwards;
+}
+
+.history-mini-card {
+  width: 44px;
+  height: 66px;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  color: #111b22;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px 6px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  position: relative;
+}
+.history-mini-card svg {
+  width: 12px;
+  height: 12px;
+  align-self: flex-end;
+}
+.history-mini-card.suit-red { color: #e9113c; }
+.history-mini-card.suit-black { color: #1a2c38; }
+
+.history-multiplier-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.history-multiplier-badge.win {
+  background: rgba(0, 231, 1, 0.15);
+  color: var(--positive-strong);
+}
+.history-multiplier-badge.lost {
+  background: rgba(237, 65, 99, 0.15);
+  color: var(--negative);
+}
+
+/* Up/Down arrow indicators between cards in history */
+.history-arrow-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: var(--surface-default);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  font-size: 0.65rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.history-arrow-item.win {
+  color: var(--positive-strong);
+  border-color: rgba(0, 231, 1, 0.3);
+}
+.history-arrow-item.lost {
+  color: var(--negative);
+  border-color: rgba(237, 65, 99, 0.3);
+}
+
+/* ====================== RTL MIRRORING ====================== */
+html[dir="rtl"] .mini-btn {
+  font-family: inherit;
+}
+html[dir="rtl"] .card-top-left {
+  align-items: center;
+}
+html[dir="rtl"] .hilo-btn-guess {
+  flex-direction: row-reverse;
+}
+
+/* ====================== ANIMATIONS ====================== */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

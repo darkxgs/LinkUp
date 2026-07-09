@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>سباق البط - Duck Race</title>
+  <!-- style.css containing resets and animations -->
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="../casino-mobile.css?v=1">
+</head>
+<body class="lu-games">
+
+<div dir="rtl" style="direction:rtl;font-family:'Cairo',sans-serif;min-height:100vh;background:linear-gradient(135deg, #0f172a 0%, #1e293b 100%);padding:18px 14px 40px;display:flex;flex-direction:column;align-items:center;color:#f8fafc;">
+
+  <div style="width:100%;max-width:1060px;">
+
+    <!-- HEADER -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+      <!-- Balance Box -->
+      <div style="display:flex;align-items:center;gap:10px;background:#1e293b;border:3px solid #fbbf24;border-radius:999px;padding:8px 16px;box-shadow:0 4px 0 #d97706;">
+        <img src="/images/coin-gold.png?v=4" alt="coin" style="width:26px;height:26px;object-fit:contain;flex-shrink:0;" />
+        <div style="display:flex;flex-direction:column;line-height:1.1;text-align:right;">
+          <span class="balance-title" data-balance-label style="font-size:11px;color:#fcd34d;font-weight:700;">رصيدك الحالي</span>
+          <span id="player-balance" style="font-size:24px;font-weight:800;color:#fbbf24;font-family:'Baloo Bhaijaan 2';display:flex;align-items:center;gap:5px;">0</span>
+        </div>
+      </div>
+      <!-- Title -->
+      <div style="flex:1;text-align:center;">
+        <div style="font-family:'Baloo Bhaijaan 2';font-size:34px;font-weight:800;color:#fff;text-shadow:0 3px 0 rgba(2,90,140,.25);">🦆 سباق البط</div>
+      </div>
+      <!-- Sound Control Button -->
+      <button id="sound-btn" style="width:46px;height:46px;border-radius:50%;border:3px solid #fff;background:rgba(255,255,255,.3);font-size:22px;cursor:pointer;flex-shrink:0;outline:none;">🔊</button>
+    </div>
+
+    <!-- TRACK -->
+    <div style="position:relative;background:#1e293b;border-radius:22px;padding:16px 16px 18px;box-shadow:0 12px 30px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,0.08);margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-weight:800;color:#38bdf8;font-size:13px;">
+        <span>🏁 خط النهاية</span>
+        <span>خط البداية 🚦</span>
+      </div>
+      <!-- Lanes Container -->
+      <div id="lanes-container" style="display:flex;flex-direction:column;gap:6px;">
+        <!-- Loaded dynamically by game.js -->
+      </div>
+
+      <!-- Countdown Overlay -->
+      <div id="countdown-overlay" style="display:none;position:absolute;inset:0;background:rgba(15,23,42,.18);align-items:center;justify-content:center;border-radius:22px;z-index:5;">
+        <div id="countdown-text" style="font-family:'Baloo Bhaijaan 2';font-weight:800;font-size:90px;color:#fff;text-shadow:0 6px 0 rgba(2,90,140,.4);animation:cdpop .8s ease;">3</div>
+      </div>
+    </div>
+
+    <!-- CONTROLS -->
+    <div style="background:#1e293b;border-radius:22px;padding:18px;box-shadow:0 12px 30px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,0.08);">
+      <!-- 1. Bet selection -->
+      <div style="font-weight:800;color:#f1f5f9;font-size:16px;margin-bottom:10px;">١. اختر قيمة الرهان</div>
+      <div id="chips-container" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;">
+        <!-- Chips loaded dynamically by game.js -->
+      </div>
+
+      <!-- 2. Duck selection -->
+      <div style="font-weight:800;color:#f1f5f9;font-size:16px;margin-bottom:12px;">٢. اختر بطتك</div>
+      <div id="ducks-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px;">
+        <!-- Duck buttons loaded dynamically by game.js -->
+      </div>
+
+      <!-- Summary / Info Text -->
+      <div id="bet-summary" style="text-align:center;font-weight:700;color:#38bdf8;font-size:15px;margin-bottom:12px;min-height:20px;">اختر قيمة رهان وبطة للبدء</div>
+
+      <!-- Start Button -->
+      <button id="start-btn" disabled style="width:100%;padding:16px;border:none;border-radius:16px;color:#fff;font-family:'Baloo Bhaijaan 2';font-weight:800;font-size:22px;transition:transform .1s;outline:none;">🚀 ابدأ السباق</button>
+
+      <!-- Recharge Button -->
+      <button id="recharge-btn" data-demo-only style="display:none;width:100%;margin-top:12px;padding:14px;border:none;border-radius:16px;background:#f59e0b;color:#fff;font-family:'Baloo Bhaijaan 2';font-weight:800;font-size:18px;cursor:pointer;box-shadow:0 6px 0 #b45309;outline:none;">🔄 إعادة شحن الرصيد التجريبي (1000$)</button>
+    </div>
+  </div>
+
+  <!-- RESULT MODAL -->
+  <div id="result-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.7);align-items:center;justify-content:center;z-index:50;padding:16px;backdrop-filter:blur(4px);">
+    <div style="background:#1e293b;color:#f8fafc;border-radius:24px;padding:24px;max-width:460px;width:100%;max-height:92vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,.6);border:1px solid rgba(255,255,255,0.08);animation:popin .35s ease;text-align:right;">
+      <div id="result-title" style="text-align:center;font-family:'Baloo Bhaijaan 2';font-size:30px;font-weight:800;margin-bottom:6px;">🏆 فوز! المركز الأول</div>
+
+      <!-- Picked Duck visual in results -->
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin:14px 0;">
+        <div style="position:relative;width:74px;height:64px;filter:drop-shadow(0 4px 5px rgba(0,0,0,.25));">
+          <!-- Filled SVG will be updated by game.js -->
+          <svg id="result-duck-svg" viewBox="0 0 100 84" style="width:100%;height:100%;display:block;overflow:visible;">
+            <path d="M74 42 L99 28 L88 54 Z" fill="#ef4444"></path>
+            <ellipse cx="56" cy="52" rx="33" ry="23" fill="#ef4444"></ellipse>
+            <ellipse cx="54" cy="64" rx="24" ry="9" fill="rgba(255,255,255,.22)"></ellipse>
+            <ellipse cx="60" cy="50" rx="17" ry="11" fill="rgba(0,0,0,.13)"></ellipse>
+            <circle cx="31" cy="29" r="18" fill="#ef4444"></circle>
+            <path d="M16 32 L-3 37 L17 40 Z" fill="#d97706"></path>
+            <path d="M15 25 L-2 30 L17 31 Z" fill="#f59e0b"></path>
+            <circle cx="27" cy="24" r="5" fill="#ffffff"></circle>
+            <circle cx="26" cy="25" r="3" fill="#1f2937"></circle>
+          </svg>
+          <div id="result-duck-badge" style="position:absolute;top:-2px;right:2px;width:24px;height:24px;border-radius:50%;background:#fff;color:#111;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid #ef4444;">1</div>
+        </div>
+        <div style="text-align:right;">
+          <div id="result-picked-duck-label" style="font-size:13px;color:#94a3b8;font-weight:700;">بطتك (رقم 1)</div>
+          <div id="result-place-label" style="font-size:22px;font-weight:800;color:#f1f5f9;font-family:'Baloo Bhaijaan 2';">المركز الأول</div>
+        </div>
+      </div>
+
+      <!-- Description and Payout summary -->
+      <div id="result-desc" style="text-align:center;font-size:16px;font-weight:700;color:#cbd5e1;margin-bottom:10px;">بطتك وصلت أولاً! ربحت 10$</div>
+      <div id="result-payout" style="text-align:center;font-family:'Baloo Bhaijaan 2';font-weight:800;font-size:24px;padding:10px;border-radius:14px;margin-bottom:18px;color:#fff;background:#16a34a;">العائد: +10$</div>
+
+      <!-- Standings Table -->
+      <div style="font-weight:800;color:#f1f5f9;font-size:15px;margin-bottom:8px;">🏁 الترتيب النهائي</div>
+      <div id="result-standings-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:18px;">
+        <!-- Standings populated dynamically by game.js -->
+      </div>
+
+      <!-- Modal Actions -->
+      <button id="replay-btn" style="width:100%;padding:15px;border:none;border-radius:16px;background:#16a34a;color:#fff;font-family:'Baloo Bhaijaan 2';font-weight:800;font-size:20px;cursor:pointer;box-shadow:0 6px 0 #15803d;outline:none;">🔁 العب مرة ثانية</button>
+      <button id="modal-recharge-btn" data-demo-only style="display:none;width:100%;margin-top:10px;padding:13px;border:none;border-radius:16px;background:#f59e0b;color:#fff;font-family:'Baloo Bhaijaan 2';font-weight:800;font-size:17px;cursor:pointer;box-shadow:0 6px 0 #b45309;outline:none;">🔄 إعادة شحن الرصيد</button>
+    </div>
+  </div>
+
+  <!-- Confetti Canvas -->
+  <canvas id="confetti-canvas" style="position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:60;"></canvas>
+</div>
+
+<!-- Load scripts in order -->
+<script src="../games-casino-boot.js?v=2"></script>
+<script>
+  LinkUpCasinoBoot.boot('duck-race', function () {
+    window.onCasinoBridgeReady = function (s) {
+      if (window.game && typeof window.game.syncBridgeBalance === 'function') {
+        window.game.syncBridgeBalance(s.balance);
+      }
+    };
+  });
+</script>
+<script src="js/api.js"></script>
+<script src="js/game.js"></script>
+
+</body>
+</html>

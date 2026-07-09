@@ -1,0 +1,116 @@
+/**
+ * LinkUp Games — الهوية البصرية الموحّدة
+ * مأخوذة من lu-brand (LinkUp): وردي → بنفسجي → أزرق + ذهبي
+ */
+:root {
+  --lu-pink: #FF2E93;
+  --lu-magenta: #C42BE0;
+  --lu-purple: #9B2BF0;
+  --lu-purple-dark: #7B5CFF;
+  --lu-blue: #2BB7FF;
+  --lu-gold: #FFC53D;
+  --lu-gold2: #FF9A2E;
+  --lu-mint: #2BD9A8;
+  --lu-room0: #1A0B2E;
+  --lu-room1: #2A0F4A;
+  --lu-room2: #3D1366;
+  --lu-ink: #FFFFFF;
+  --lu-muted: #B8AECC;
+
+  --bg-color: var(--lu-room0);
+  --card-bg: rgba(42, 15, 74, 0.92);
+  --border-color: rgba(155, 43, 240, 0.34);
+  --text-primary: var(--lu-ink);
+  --text-muted: var(--lu-muted);
+  --brand-gradient: linear-gradient(135deg, var(--lu-pink) 0%, var(--lu-purple) 48%, var(--lu-blue) 100%);
+  --gold-gradient: linear-gradient(135deg, var(--lu-gold) 0%, var(--lu-gold2) 100%);
+  --purple-gradient: linear-gradient(135deg, var(--lu-purple) 0%, var(--lu-pink) 100%);
+  --correct-color: var(--lu-mint);
+  --wrong-color: #FF2E62;
+  --shoot-color: var(--lu-pink);
+  --save-color: var(--lu-blue);
+  --glow-gold: rgba(255, 197, 61, 0.38);
+}
+
+html.lu-games,
+html.lu-games body {
+  font-family: 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+html.lu-games body {
+  background-color: var(--lu-room0);
+  background-image:
+    radial-gradient(ellipse 110% 70% at 50% -10%, rgba(155, 43, 240, 0.28) 0%, transparent 58%),
+    radial-gradient(ellipse 70% 50% at 0% 100%, rgba(255, 46, 147, 0.14) 0%, transparent 55%),
+    radial-gradient(ellipse 70% 50% at 100% 100%, rgba(43, 183, 255, 0.12) 0%, transparent 55%),
+    linear-gradient(168deg, #1A0B2E 0%, #2A0F4A 48%, #1A0B2E 100%);
+}
+
+html.lu-games .nebula-purple,
+html.lu-games .nebula-pink {
+  background: radial-gradient(circle, rgba(255, 46, 147, 0.22) 0%, transparent 70%);
+}
+
+html.lu-games .nebula-gold,
+html.lu-games .nebula-blue,
+html.lu-games .nebula-green {
+  background: radial-gradient(circle, rgba(43, 183, 255, 0.18) 0%, transparent 70%);
+}
+
+html.lu-games h1 {
+  background: var(--brand-gradient) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  text-shadow: none !important;
+  filter: drop-shadow(0 2px 12px rgba(155, 43, 240, 0.35));
+}
+
+html.lu-games .card {
+  border-color: var(--border-color) !important;
+  box-shadow: 0 12px 40px rgba(26, 11, 46, 0.55), 0 0 0 1px rgba(255, 46, 147, 0.06) inset !important;
+}
+
+html.lu-games .primary-btn,
+html.lu-games .btn-choice,
+html.lu-games .btn-shoot-pot {
+  background: var(--brand-gradient) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 18px rgba(155, 43, 240, 0.35) !important;
+}
+
+html.lu-games .chip-item.active,
+html.lu-games .chip.active {
+  background: var(--brand-gradient) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+html.lu-games .timer-bar {
+  background: var(--brand-gradient) !important;
+}
+
+html.lu-games .status-success {
+  color: var(--lu-mint) !important;
+}
+
+html.lu-games .status-danger {
+  color: #FF5C8A !important;
+}
+
+html.lu-games .gpf-toast.win {
+  background: linear-gradient(135deg, rgba(43, 217, 168, 0.94), rgba(43, 183, 255, 0.88)) !important;
+  border-color: rgba(43, 217, 168, 0.45) !important;
+}
+
+html.lu-games .gpf-toast.lose {
+  background: linear-gradient(135deg, rgba(255, 46, 98, 0.92), rgba(196, 43, 224, 0.88)) !important;
+}
+
+html.lu-games .gpf-toast.info {
+  background: linear-gradient(135deg, rgba(155, 43, 240, 0.94), rgba(43, 183, 255, 0.88)) !important;
+}
+
+html.lu-games .gpf-countdown-num {
+  color: var(--lu-gold) !important;
+  text-shadow: 0 0 28px rgba(255, 197, 61, 0.75), 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+}

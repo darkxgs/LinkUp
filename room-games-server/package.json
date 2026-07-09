@@ -1,0 +1,21 @@
+{
+  "name": "linkup-room-games-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Unified WebSocket + static server for LinkUp free room games",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "test:smoke:local": "ROOM_GAMES_BASE=http://localhost:8080 HOSTING_BASE=http://localhost:8080/games/room-free node scripts/smoke-test.mjs"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "ws": "^8.18.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

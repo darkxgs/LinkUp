@@ -1,0 +1,44 @@
+.lu-demo-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 99999;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.95), rgba(59, 130, 246, 0.95));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  padding: 8px 12px;
+  font-family: Cairo, sans-serif;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.lu-demo-banner button {
+  margin-right: 8px;
+  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #fff;
+  border-radius: 8px;
+  padding: 3px 12px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.lu-demo-banner button:active {
+  transform: scale(0.96);
+}
+
+body.lu-demo-active {
+  padding-top: 40px;
+}
+
+body.lu-embedded-app .lu-demo-banner {
+  display: none !important;
+}
+
+body.lu-embedded-app {
+  padding-top: 0 !important;
+}

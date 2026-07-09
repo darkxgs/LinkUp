@@ -1,0 +1,68 @@
+.jackpot-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(10px);
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.jackpot-content {
+  text-align: center;
+  z-index: 1001;
+  animation: popScale 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.jackpot-title {
+  font-family: var(--font-en);
+  font-size: 64px;
+  font-weight: 900;
+  color: #FFD700;
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 0 0 40px rgba(255, 100, 0, 0.6);
+  margin-bottom: 10px;
+  letter-spacing: 4px;
+  animation: flashTitle 0.5s infinite alternate;
+}
+
+.jackpot-amount {
+  font-family: var(--font-en);
+  font-size: 42px;
+  color: #fff;
+  text-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+}
+
+.jackpot-coin {
+  position: absolute;
+  top: -50px;
+  font-size: 32px;
+  animation-name: rainDown;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes popScale {
+  0% { transform: scale(0.5); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes flashTitle {
+  from { color: #FFD700; text-shadow: 0 0 20px rgba(255, 215, 0, 0.8); }
+  to { color: #fff; text-shadow: 0 0 40px #FFD700, 0 0 80px #FF8C00; }
+}
+
+@keyframes rainDown {
+  to { transform: translateY(110vh) rotate(360deg); }
+}

@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="lu-games">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>لعبة الصاروخ الحماسي — LinkUp Games</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Outfit:wght@600;800&display=swap');
+
+    :root {
+      --bg-color: #0c0717;
+      --card-bg: rgba(23, 15, 38, 0.75);
+      --border-color: rgba(168, 85, 247, 0.25);
+      --text-primary: #ffffff;
+      --text-muted: #a78bfa;
+      --brand-gradient: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      font-family: 'Cairo', sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-primary);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+      padding: 16px;
+      position: relative;
+    }
+
+    .nebula {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(85px);
+      z-index: 0;
+      opacity: 0.5;
+    }
+
+    .nebula-purple {
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, rgba(236, 72, 153, 0.2) 0%, rgba(0, 0, 0, 0) 70%);
+      top: -30px;
+      right: -30px;
+    }
+
+    .nebula-indigo {
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+      bottom: -30px;
+      left: -30px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 360px;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 14px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 900;
+      background: linear-gradient(135deg, #ec4899 0%, #c084fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(15px);
+      text-align: center;
+    }
+
+    .balance-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-bottom: 16px;
+    }
+
+    .balance-title {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .balance-val {
+      font-size: 16px;
+      font-weight: 800;
+      color: #f59e0b;
+    }
+
+    .multiplier-display {
+      background: rgba(0,0,0,0.2);
+      border: 1.5px solid var(--border-color);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .mult-title {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .mult-value {
+      font-size: 42px;
+      font-weight: 900;
+      color: #8b5cf6;
+      text-shadow: 0 0 15px rgba(139, 92, 246, 0.35);
+      transition: color 0.15s;
+    }
+
+    .mult-value.crashed {
+      color: #ef4444;
+      text-shadow: 0 0 15px rgba(239, 68, 68, 0.35);
+    }
+
+    .mult-value.cashed {
+      color: #10b981;
+      text-shadow: 0 0 15px rgba(16, 185, 129, 0.35);
+    }
+
+    .canvas-container {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    canvas {
+      width: 100%;
+      max-width: 320px;
+      height: 160px;
+      background: #060211;
+      border: 1.5px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+    }
+
+    .action-btn {
+      width: 100%;
+      background: var(--brand-gradient);
+      border: none;
+      color: white;
+      padding: 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(236, 72, 153, 0.3);
+      transition: all 0.2s;
+    }
+
+    .action-btn.cashout {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+    }
+
+    .action-btn:active {
+      transform: scale(0.97);
+    }
+
+    .status-msg {
+      min-height: 24px;
+      margin-top: 14px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    @keyframes modal-pop {
+      0% { transform: scale(0.9); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* Glowing borders for the canvas on Win/Loss */
+    .win-glow {
+      box-shadow: 0 0 25px rgba(16, 185, 129, 0.7), inset 0 0 15px rgba(16, 185, 129, 0.35) !important;
+      border-color: #10b981 !important;
+      transition: all 0.3s ease;
+    }
+
+    .lose-glow {
+      box-shadow: 0 0 25px rgba(239, 68, 68, 0.7), inset 0 0 15px rgba(239, 68, 68, 0.35) !important;
+      border-color: #ef4444 !important;
+      transition: all 0.3s ease;
+    }
+
+    /* Card shake animation on Loss */
+    @keyframes card-shake {
+      0%, 100% { transform: translateX(0); }
+      15%, 45%, 75% { transform: translateX(-8px); }
+      30%, 60%, 90% { transform: translateX(8px); }
+    }
+
+    .card-shake-anim {
+      animation: card-shake 0.45s ease-in-out;
+    }
+  </style>
+  <link rel="stylesheet" href="../games-brand.css">
+</head>
+<body>
+  <!-- نافذة التحذير المخصصة (Custom UI Warning Modal) -->
+  <div id="warning-modal" style="
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(5px);
+  ">
+    <div style="
+      background: #170f26;
+      border: 1.5px solid rgba(239, 68, 68, 0.4);
+      border-radius: 20px;
+      padding: 24px;
+      width: 90%;
+      max-width: 320px;
+      text-align: center;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      animation: modal-pop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    ">
+      <div style="font-size: 40px; margin-bottom: 12px;">⚠️</div>
+      <h3 style="font-size: 16px; font-weight: 800; color: #ef4444; margin-bottom: 8px;">تنبيه هام</h3>
+      <p id="warning-modal-text" style="font-size: 13px; color: #a78bfa; margin-bottom: 20px; line-height: 1.6;"></p>
+      <button onclick="closeWarningModal()" style="
+        background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+        border: none;
+        color: white;
+        padding: 10px 24px;
+        border-radius: 10px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3);
+      ">موافق</button>
+    </div>
+  </div>
+
+  <div class="nebula nebula-purple"></div>
+  <div class="nebula nebula-indigo"></div>
+
+  <div class="container">
+    <header>
+      <h1>LinkUp Games</h1>
+      <p class="subtitle">تحدي تحليق الصاروخ (Crash Rocket)</p>
+    </header>
+
+    <div class="card">
+      <div class="balance-bar" style="flex-direction: column; gap: 8px; align-items: stretch;">
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <span class="balance-title">الرصيد:</span>
+          <span class="balance-val" id="balance-el">1000 كوين</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; width: 100%;">
+          <span class="balance-title">الرهان:</span>
+          <input type="number" id="bet-amt" class="bet-input" value="50" min="10" style="
+            width: 80px;
+            padding: 4px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.2);
+            color: white;
+            text-align: center;
+            font-weight: 700;
+            font-size: 13px;
+          ">
+        </div>
+      </div>
+
+      <div class="multiplier-display">
+        <span class="mult-title">المضاعف الحالي</span>
+        <span class="mult-value" id="mult-el">1.00x</span>
+      </div>
+
+      <div class="canvas-container">
+        <canvas id="game-canvas" width="320" height="160"></canvas>
+      </div>
+
+      <button class="action-btn" id="action-btn" onclick="triggerAction()">🚀 أطلق الصاروخ</button>
+
+      <div class="status-msg" id="status-el">حدد الرهان وأطلق الصاروخ (التكلفة: 50 كوين)</div>
+    </div>
+  </div>
+
+  <script>
+    function showWarningModal(text) {
+      document.getElementById('warning-modal-text').innerText = text;
+      document.getElementById('warning-modal').style.display = 'flex';
+    }
+
+    function closeWarningModal() {
+      document.getElementById('warning-modal').style.display = 'none';
+    }
+
+    function triggerVibration(isWin) {
+      if (navigator.vibrate) {
+        if (isWin) {
+          navigator.vibrate([100, 50, 100]);
+        } else {
+          navigator.vibrate([200]);
+        }
+      }
+    }
+
+    let balance = 1000;
+    let gameState = 'idle'; // 'idle', 'running', 'crashed', 'cashed_out'
+    let multiplier = 1.00;
+    let crashPoint = 1.00;
+    let cashOutMult = null;
+    let config = null;
+    let minBet = 10;
+    let maxBet = 100000;
+
+    // React Native WebView Bridge
+    function initGameBridge() {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'INIT_GAME' }));
+      } else {
+        setTimeout(initGameBridge, 100);
+      }
+    }
+    window.addEventListener('load', initGameBridge);
+
+    window.addEventListener('message', function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'INIT_DATA') {
+          balance = data.balance;
+          updateUI();
+          if (data.config) {
+            config = data.config;
+            minBet = config.minBet;
+            maxBet = config.maxBet;
+            document.getElementById('bet-amt').min = minBet;
+            document.getElementById('bet-amt').max = maxBet;
+          }
+        } else if (data.type === 'UPDATE_BALANCE') {
+          balance = data.balance;
+          updateUI();
+        } else if (data.type === 'BET_CONFIRMED') {
+          const betAmt = Math.max(10, parseInt(document.getElementById('bet-amt').value) || 0);
+          startFlightConfirmed(betAmt);
+        } else if (data.type === 'RESULT_RECORDED') {
+          console.log('Result recorded successfully');
+        } else if (data.type === 'ERROR') {
+          showWarningModal('خطأ: ' + data.message);
+          document.getElementById('action-btn').disabled = false;
+        }
+      } catch (e) {
+        console.warn('Error parsing message from RN:', e);
+      }
+    });
+
+    let audioCtx = null;
+    let engineOsc = null;
+    let engineGain = null;
+    let intervalId = null;
+
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+    let shakeAmount = 0;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function startEngineSound() {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+
+        engineOsc = audioCtx.createOscillator();
+        engineGain = audioCtx.createGain();
+
+        engineOsc.connect(engineGain);
+        engineGain.connect(audioCtx.destination);
+
+        engineOsc.type = 'sawtooth';
+        engineOsc.frequency.setValueAtTime(65, now);
+        engineGain.gain.setValueAtTime(0.06, now);
+
+        engineOsc.start(now);
+      } catch {}
+    }
+
+    function updateEngineSound(mult) {
+      try {
+        if (engineOsc && audioCtx) {
+          const freq = Math.min(240, 65 + (mult - 1) * 35);
+          engineOsc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        }
+      } catch {}
+    }
+
+    function stopEngineSound() {
+      try {
+        if (engineOsc) {
+          engineOsc.stop();
+          engineOsc = null;
+        }
+      } catch {}
+    }
+
+    function playCashOutSound() {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.setValueAtTime(783.99, now + 0.08);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.005, now + 0.25);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      } catch {}
+    }
+
+    function playExplosionSound() {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+
+        const bufferSize = audioCtx.sampleRate * 0.55;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(280, now);
+        filter.frequency.exponentialRampToValueAtTime(10, now + 0.5);
+
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+        source.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        source.start(now);
+      } catch {}
+    }
+
+    function triggerAction() {
+      initAudio();
+      if (gameState === 'idle' || gameState === 'crashed' || gameState === 'cashed_out') {
+        startFlight();
+      } else if (gameState === 'running') {
+        cashOut();
+      }
+    }
+
+    function generateCrashPoint() {
+      if (Math.random() < 0.08) return 1.00;
+      const rand = Math.random();
+      const crash = parseFloat((95 / (100 - rand * 95) + 0.05).toFixed(2));
+      return Math.max(1.01, crash);
+    }
+
+    function startFlight() {
+      const betAmt = Math.max(10, parseInt(document.getElementById('bet-amt').value) || 0);
+
+      if (betAmt < minBet || betAmt > maxBet) {
+        showWarningModal(`الرهان يجب أن يكون بين ${minBet} و ${maxBet} كوين!`);
+        return;
+      }
+
+      if (balance < betAmt) {
+        showWarningModal('رصيدك غير كافٍ للرهان!');
+        return;
+      }
+
+      const canvasEl = document.getElementById('game-canvas');
+      if (canvasEl) {
+        canvasEl.classList.remove('win-glow', 'lose-glow');
+      }
+
+      if (window.ReactNativeWebView) {
+        document.getElementById('action-btn').disabled = true;
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'PLACE_BET',
+          stake: betAmt
+        }));
+      } else {
+        startFlightConfirmed(betAmt);
+      }
+    }
+
+    function startFlightConfirmed(betAmt) {
+      if (!window.ReactNativeWebView) {
+        balance -= betAmt;
+      }
+      gameState = 'running';
+      multiplier = 1.00;
+      cashOutMult = null;
+      
+      const rtpVal = (config && config.rtp) ? config.rtp : 97;
+      const rand = Math.random();
+      const factor = rtpVal / 100;
+      crashPoint = parseFloat((1.01 + Math.pow(rand, 2.5) * 8.99 * factor).toFixed(2));
+      if (Math.random() > factor) {
+        crashPoint = 1.00;
+      }
+
+      particles = [];
+
+      updateUI();
+      startEngineSound();
+
+      const actionBtn = document.getElementById('action-btn');
+      actionBtn.innerText = '💰 سحب الأرباح';
+      actionBtn.className = 'action-btn cashout';
+      actionBtn.disabled = false;
+
+      document.getElementById('status-el').innerText = 'انطلق الصاروخ! سارع بالسحب قبل الانفجار!';
+
+      const startTime = Date.now();
+      intervalId = setInterval(() => {
+        const elapsed = (Date.now() - startTime) / 1000;
+        multiplier = parseFloat((1 + Math.pow(elapsed * 0.45, 1.7)).toFixed(2));
+        updateEngineSound(multiplier);
+
+        const multEl = document.getElementById('mult-el');
+        multEl.innerText = `${multiplier.toFixed(2)}x`;
+        actionBtn.innerText = `💰 سحب الأرباح (+${Math.round(betAmt * multiplier)} كوين)`;
+
+        if (multiplier >= crashPoint) {
+          clearInterval(intervalId);
+          stopEngineSound();
+          playExplosionSound();
+          triggerVibration(false);
+          
+          gameState = 'crashed';
+          shakeAmount = 14;
+          triggerExplosionParticles();
+
+          const canvasEl = document.getElementById('game-canvas');
+          if (canvasEl) canvasEl.classList.add('lose-glow');
+          const cardEl = document.querySelector('.card');
+          if (cardEl) {
+            cardEl.classList.add('card-shake-anim');
+            setTimeout(() => cardEl.classList.remove('card-shake-anim'), 450);
+          }
+
+          multEl.className = 'mult-value crashed';
+          multEl.innerText = `💥 ${multiplier.toFixed(2)}x`;
+
+          actionBtn.innerText = '🚀 أطلق الصاروخ';
+          actionBtn.className = 'action-btn';
+          actionBtn.disabled = true;
+
+          document.getElementById('status-el').innerHTML = `<span style="color:#ef4444;">انفجر الصاروخ عند ${crashPoint.toFixed(2)}x!</span>`;
+
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'GAME_RESULT',
+              stake: betAmt,
+              winAmount: 0,
+              isWin: false,
+              result: { crashPoint }
+            }));
+          }
+
+          setTimeout(() => {
+            actionBtn.disabled = false;
+          }, 1000);
+        }
+      }, 50);
+    }
+
+    function cashOut() {
+      clearInterval(intervalId);
+      stopEngineSound();
+      playCashOutSound();
+      triggerVibration(true);
+
+      gameState = 'cashed_out';
+      cashOutMult = multiplier;
+      const betAmt = Math.max(10, parseInt(document.getElementById('bet-amt').value) || 0);
+      const winAmt = Math.round(betAmt * multiplier);
+
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'GAME_RESULT',
+          stake: betAmt,
+          winAmount: winAmt,
+          isWin: true,
+          result: { cashOutMult }
+        }));
+      } else {
+        balance += winAmt;
+      }
+
+      const canvasEl = document.getElementById('game-canvas');
+      if (canvasEl) canvasEl.classList.add('win-glow');
+
+      const multEl = document.getElementById('mult-el');
+      multEl.className = 'mult-value cashed';
+
+      const actionBtn = document.getElementById('action-btn');
+      actionBtn.innerText = '🚀 أطلق الصاروخ';
+      actionBtn.className = 'action-btn';
+
+      document.getElementById('status-el').innerHTML = `<span style="color:#10b981;">🎉 تم السحب بنجاح عند ${cashOutMult.toFixed(2)}x! (+${winAmt} كوين)</span>`;
+      updateUI();
+    }
+
+    function updateUI() {
+      document.getElementById('balance-el').innerText = `${balance} كوين`;
+      const multEl = document.getElementById('mult-el');
+      if (gameState === 'idle') {
+        multEl.innerText = '1.00x';
+        multEl.className = 'mult-value';
+      }
+    }
+
+    function triggerExplosionParticles() {
+      const width = canvas.width;
+      const height = canvas.height;
+      const maxVal = Math.max(3.0, crashPoint);
+      const progress = Math.min(1.0, (multiplier - 1) / maxVal);
+      const endX = 35 + progress * (width - 65);
+      const endY = (height - 25) - progress * (height - 55);
+
+      for (let i = 0; i < 35; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 5 + 1.5;
+        particles.push({
+          x: endX,
+          y: endY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          alpha: 1.0,
+          size: Math.random() * 6 + 3,
+          color: Math.random() > 0.6 ? '#ef4444' : Math.random() > 0.3 ? '#f59e0b' : '#ffd700'
+        });
+      }
+    }
+
+    // Canvas rendering loop
+    function renderLoop() {
+      const width = canvas.width;
+      const height = canvas.height;
+
+      ctx.save();
+      if (shakeAmount > 0) {
+        const dx = (Math.random() - 0.5) * shakeAmount;
+        const dy = (Math.random() - 0.5) * shakeAmount;
+        ctx.translate(dx, dy);
+        shakeAmount *= 0.88;
+        if (shakeAmount < 0.2) shakeAmount = 0;
+      }
+
+      ctx.clearRect(0, 0, width, height);
+
+      // Deep background
+      ctx.fillStyle = '#060211';
+      ctx.fillRect(0, 0, width, height);
+
+      // Concentric circles
+      ctx.strokeStyle = 'rgba(139, 92, 246, 0.08)';
+      ctx.lineWidth = 1;
+      for (let r = 40; r <= width; r += 40) {
+        ctx.beginPath();
+        ctx.arc(width / 2, height / 2, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // HUD Grid
+      ctx.strokeStyle = 'rgba(139, 92, 246, 0.05)';
+      ctx.beginPath();
+      for (let x = 0; x < width; x += 25) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+      }
+      for (let y = 0; y < height; y += 25) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+      }
+      ctx.stroke();
+
+      // Sweeping radar
+      const sweepAngle = (Date.now() * 0.001) % (Math.PI * 2);
+      ctx.strokeStyle = 'rgba(236, 72, 153, 0.06)';
+      ctx.beginPath();
+      ctx.moveTo(width / 2, height / 2);
+      ctx.lineTo(width / 2 + Math.cos(sweepAngle) * width, height / 2 + Math.sin(sweepAngle) * width);
+      ctx.stroke();
+
+      // Axis lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(35, 15);
+      ctx.lineTo(35, height - 25);
+      ctx.lineTo(width - 15, height - 25);
+      ctx.stroke();
+
+      const maxVal = Math.max(3.0, crashPoint);
+      const progress = Math.min(1.0, (multiplier - 1) / maxVal);
+      const endX = 35 + progress * (width - 65);
+      const endY = (height - 25) - progress * (height - 55);
+
+      if (gameState === 'running' || gameState === 'cashed_out' || gameState === 'crashed') {
+        // Draw flight graph line
+        ctx.strokeStyle = gameState === 'crashed' ? 'rgba(239, 68, 68, 0.4)' : '#ec4899';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(35, height - 25);
+        ctx.quadraticCurveTo((35 + endX) / 2, height - 25, endX, endY);
+        ctx.stroke();
+
+        // Spawn rocket exhaust flames
+        if (gameState === 'running') {
+          for (let i = 0; i < 2; i++) {
+            particles.push({
+              x: endX - 4,
+              y: endY + (Math.random() - 0.5) * 4,
+              vx: -2 - Math.random() * 2,
+              vy: (Math.random() - 0.5) * 1.5,
+              alpha: 1.0,
+              size: Math.random() * 3 + 1.5,
+              color: Math.random() > 0.5 ? '#ec4899' : '#f59e0b'
+            });
+          }
+        }
+      }
+
+      // Draw & Update particles
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 0.035;
+
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.alpha);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+      particles = particles.filter(p => p.alpha > 0);
+
+      // Draw rocket ship
+      if (gameState === 'running' || gameState === 'cashed_out') {
+        ctx.save();
+        ctx.shadowColor = '#ec4899';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = '#ec4899';
+        ctx.beginPath();
+        ctx.moveTo(endX + 8, endY);
+        ctx.lineTo(endX - 8, endY - 4);
+        ctx.lineTo(endX - 5, endY);
+        ctx.lineTo(endX - 8, endY + 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      } else if (gameState === 'crashed') {
+        ctx.fillStyle = '#ef4444';
+        ctx.font = 'bold 11px Cairo';
+        ctx.textAlign = 'center';
+        ctx.fillText('💥 CRASHED', endX, endY - 14);
+      }
+
+      ctx.restore();
+      requestAnimationFrame(renderLoop);
+    }
+
+    renderLoop();
+  </script>
+</body>
+</html>

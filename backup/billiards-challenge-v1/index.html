@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Standard Billiards — بلياردو ستاندرد</title>
+  <link rel="stylesheet" href="style.css?v=20260622c" />
+  <link rel="preload" as="image" href="assets/sprites/ChatGPT Image Jun 20, 2026, 06_10_44 PM.png" />
+  <link rel="preload" as="image" href="assets/sprites/spr_stick.png" />
+</head>
+<body>
+  <!-- ================= WAGER / MENU SCREEN ================= -->
+  <section id="menu-screen" class="screen active">
+    <div class="menu-card">
+      <h1 class="title">Standard Billiards<span class="title-ar">بلياردو ستاندرد</span></h1>
+      <p class="subtitle">Standard 8-Ball · Call Shot · Hot-Seat 1v1</p>
+
+      <div class="wager-grid">
+        <!-- Player 1 -->
+        <div class="player-panel" data-player="0">
+          <input class="name-input" data-name="0" type="text" value="Player 1" maxlength="14" />
+          <div class="avatar av-0">P1</div>
+          <div class="balance-row">Balance: <span class="balance" data-balance="0">1000</span> <img class="coin-icon" src="/images/coin-gold.png?v=4" alt="كوين" /></div>
+          <button class="ready-btn" data-ready="0">Ready</button>
+        </div>
+
+        <!-- Center: bet -->
+        <div class="bet-panel">
+          <div class="bet-label">Wager</div>
+          <div class="chip-row">
+            <button class="chip" data-chip="50">50</button>
+            <button class="chip" data-chip="100">100</button>
+            <button class="chip" data-chip="250">250</button>
+            <button class="chip" data-chip="500">500</button>
+          </div>
+          <input id="bet-input" type="number" min="0" step="10" value="100" />
+          <div class="pot-preview">Pot: <span id="pot-preview">200</span> <img class="coin-icon" src="/images/coin-gold.png?v=4" alt="كوين" /></div>
+          <button id="start-btn" disabled>Start Match</button>
+          <div class="rake-note" id="rake-note"></div>
+        </div>
+
+        <!-- Player 2 -->
+        <div class="player-panel" data-player="1">
+          <input class="name-input" data-name="1" type="text" value="Player 2" maxlength="14" />
+          <div class="avatar av-1">P2</div>
+          <div class="balance-row">Balance: <span class="balance" data-balance="1">1000</span> <img class="coin-icon" src="/images/coin-gold.png?v=4" alt="كوين" /></div>
+          <button class="ready-btn" data-ready="1">Ready</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= GAME SCREEN ================= -->
+  <section id="game-screen" class="screen">
+    <!-- HUD top bar -->
+    <div id="hud">
+      <div class="hud-player" id="hud-p0">
+        <div class="avatar-wrap">
+          <svg class="timer-ring" width="56" height="56" viewBox="0 0 56 56">
+            <circle class="timer-bg" cx="28" cy="28" r="26"></circle>
+            <circle class="timer-value" id="timer-val-0" cx="28" cy="28" r="26"></circle>
+          </svg>
+          <div class="avatar av-0 small" data-hud-avatar="0">
+            <span class="hud-avatar-fallback">P1</span>
+          </div>
+          <div class="timer-text" id="timer-text-0">30</div>
+        </div>
+        <div class="hud-info">
+          <div class="hud-name" data-hud-name="0">Player 1</div>
+          <div class="hud-sub"><span class="group-icon" data-group="0"></span><span class="hud-balance" data-hud-balance="0">0</span> <img class="coin-icon" src="/images/coin-gold.png?v=4" alt="كوين" /></div>
+        </div>
+      </div>
+
+      <div class="hud-center">
+        <div class="pot-box">POT <span id="hud-pot">0</span> <img class="coin-icon" src="/images/coin-gold.png?v=4" alt="كوين" /></div>
+      </div>
+
+      <div class="hud-player right" id="hud-p1">
+        <div class="hud-info">
+          <div class="hud-name" data-hud-name="1">Player 2</div>
+          <div class="hud-sub"><span class="hud-balance" data-hud-balance="1">0</span> <img class="coin-icon" src="/images/coin-gold.png?v=4" alt="كوين" /><span class="group-icon" data-group="1"></span></div>
+        </div>
+        <div class="avatar-wrap">
+          <svg class="timer-ring" width="56" height="56" viewBox="0 0 56 56">
+            <circle class="timer-bg" cx="28" cy="28" r="26"></circle>
+            <circle class="timer-value" id="timer-val-1" cx="28" cy="28" r="26"></circle>
+          </svg>
+          <div class="avatar av-1 small" data-hud-avatar="1">
+            <span class="hud-avatar-fallback">P2</span>
+          </div>
+          <div class="timer-text" id="timer-text-1">30</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="canvas-wrap">
+      <canvas id="table"></canvas>
+      <div id="emoji-container"></div>
+    </div>
+
+    <!-- Power meter -->
+    <div id="power-meter-area">
+      <div id="power-meter">
+        <div id="power-fill"></div>
+        <div id="power-cue"></div>
+      </div>
+    </div>
+
+    <!-- Centered toast banner -->
+    <div id="banner"></div>
+
+    <!-- Call-pocket prompt -->
+    <div id="call-pocket-hint" class="hidden">Tap the pocket you're calling for the 8-ball</div>
+
+    <button id="menu-return" title="Options">≡</button>
+
+    <!-- Hamburger Dropdown -->
+    <div id="hamburger-dropdown" class="hidden">
+      <button id="btn-settings">Settings</button>
+      <button id="btn-exit" class="danger-btn">Exit Game</button>
+    </div>
+
+    <!-- Chat Button & Tray -->
+    <button id="chat-btn" title="Send Emoji">💬</button>
+    <div id="chat-tray" class="hidden">
+      <span class="chat-emoji">😂</span>
+      <span class="chat-emoji">😡</span>
+      <span class="chat-emoji">🎱</span>
+      <span class="chat-emoji">😭</span>
+      <span class="chat-emoji">😎</span>
+      <span class="chat-emoji">👍</span>
+    </div>
+
+    <!-- Modals -->
+    <div id="settings-modal" class="modal hidden">
+      <div class="modal-content">
+        <h3>Settings</h3>
+        <div class="settings-content">
+      <label>Aim Sensitivity: <span id="sens-val">0.5</span>x</label>
+      <input type="range" id="sens-slider" min="0.1" max="3.0" step="0.1" value="0.5">
+    </div>    <button id="btn-close-settings">Close</button>
+      </div>
+    </div>
+
+    <div id="forfeit-modal" class="modal hidden">
+      <div class="modal-content">
+        <h3>Forfeit Match?</h3>
+        <p>Are you sure you want to leave? You will automatically lose your wager.</p>
+        <div class="modal-buttons">
+          <button id="btn-cancel-forfeit">Cancel</button>
+          <button id="btn-confirm-forfeit" class="danger-btn">Confirm Exit</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RESULT SCREEN ================= -->
+  <section id="result-screen" class="screen">
+    <div class="result-card">
+      <h2 id="result-title">You Win!</h2>
+      <p id="result-amount"></p>
+      <div class="result-balances">
+        <div>Player 1: <span data-balance="0">0</span> <img class="coin-icon" src="/images/coin-gold.png?v=4" alt="كوين" /></div>
+        <div>Player 2: <span data-balance="1">0</span> <img class="coin-icon" src="/images/coin-gold.png?v=4" alt="كوين" /></div>
+      </div>
+      <div class="result-buttons">
+        <button id="rematch-btn">Rematch</button>
+        <button id="mainmenu-btn">Main Menu</button>
+      </div>
+    </div>
+  </section>
+
+  <!--
+    Loaded as classic scripts in dependency order so the game runs by simply
+    opening this file (file://) with NO build step or local server. (ES modules
+    are blocked under file:// in Chrome/Edge.) Each file keeps its own concern;
+    the load order below IS the dependency graph:
+        physics → rules → wallet → transport → state → render → input → main
+  -->
+  <script src="../challenge-i18n.js?v=2"></script>
+  <script src="../challenge-demo-bridge.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/physics.js"></script>
+  <script src="js/rules.js"></script>
+  <script src="js/wallet.js"></script>
+  <script src="js/transport.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/render.js?v=20260622"></script>
+  <script src="js/input.js?v=20260622"></script>
+  <script src="js/main.js?v=20260622d"></script>
+</body>
+</html>

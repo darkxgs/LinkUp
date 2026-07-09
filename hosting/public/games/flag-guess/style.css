@@ -1,0 +1,1143 @@
+/*
+ * style.css — "خمّن العلم أو المعلم"
+ * Mobile-first, RTL, premium casino theme.
+ * Tested breakpoints: phone portrait (375–430), phone landscape,
+ * iPad portrait (768–834), iPad landscape (1024–1194). Both orientations.
+ */
+
+/* ----------------------------- Tokens -------------------------------------- */
+:root {
+  --bg: #0a0e1c;
+  --bg-2: #141b30;
+  --panel: #1a233f;
+  --panel-2: #283356;
+  --line: rgba(255, 255, 255, .08);
+  --text: #f3f6ff;
+  --muted: #9aa6c4;
+  --gold: #ffce4f;
+  --gold-2: #ff9f1c;
+  --green: #34d399;
+  --blue: #60a5fa;
+  --purple: #a78bfa;
+  --pink: #f472b6;
+  --red: #fb7185;
+  --win: #34d399;
+  --lose: #fb7185;
+  --warn: #fbbf24;
+  --danger: #fb7185;
+  --ring-track: #2a3658;
+  --radius: 18px;
+  --radius-lg: 26px;
+  --tap: 48px;
+  --shadow: 0 14px 40px rgba(0, 0, 0, .45);
+  --shadow-gold: 0 10px 30px rgba(255, 179, 40, .28);
+  --maxw: 600px;
+  --content: 460px;
+  /* inner content width (chips / cards / rules) */
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  font-family: "Tajawal", "Segoe UI", "Tahoma", system-ui, -apple-system, sans-serif;
+  background-color: var(--bg);
+  min-height: 100svh;
+}
+
+/* Animated casino-felt backdrop: layered radial glows + faint moving sheen. */
+body {
+  background:
+    radial-gradient(900px 600px at 15% -10%, rgba(124, 92, 255, .18), transparent 60%),
+    radial-gradient(900px 600px at 95% 0%, rgba(255, 179, 40, .12), transparent 55%),
+    radial-gradient(1000px 700px at 50% 120%, rgba(52, 211, 153, .10), transparent 60%),
+    linear-gradient(180deg, var(--bg) 0%, #05070f 100%);
+  background-attachment: fixed;
+}
+
+.app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  min-height: 100svh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* --------------------------- Top bar --------------------------------------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  color: var(--gold);
+  letter-spacing: .2px;
+  font-size: 16px;
+}
+
+.brand-mark {
+  filter: drop-shadow(0 2px 6px rgba(255, 179, 40, .5));
+}
+
+.balance {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--panel-2);
+  border-radius: 14px;
+  padding: 7px 14px;
+  line-height: 1.15;
+  box-shadow: var(--shadow);
+}
+
+.balance-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.balance-amount {
+  font-size: 19px;
+  font-weight: 900;
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.coin {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 12px;
+  color: #4a2e00;
+  background: radial-gradient(circle at 35% 30%, #ffe79a, var(--gold-2));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .2);
+}
+
+/* --------------------------- Screens --------------------------------------- */
+.screen {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 26px;
+  padding: 22px 20px 40px;
+  min-height: 0;
+}
+
+/* Content-heavy bet screen reads better top-aligned with room to breathe. */
+.bet-screen {
+  justify-content: flex-start;
+  gap: 24px;
+  padding-top: 14px;
+}
+
+.screen-title {
+  font-size: clamp(24px, 6.6vw, 34px);
+  margin: 0;
+  font-weight: 900;
+  line-height: 1.2;
+  background: linear-gradient(180deg, #fff, #cfd8f5);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.screen-sub {
+  color: var(--muted);
+  margin: 0;
+  max-width: 38ch;
+  line-height: 1.6;
+}
+
+/* Section label with thin separators on both sides — adds vertical breathing. */
+.section-h {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  justify-content: center;
+  width: 100%;
+  max-width: var(--content);
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.section-h::before,
+.section-h::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(90deg, transparent, var(--line), var(--line), transparent);
+}
+
+.big-icon {
+  font-size: 56px;
+  line-height: 1;
+}
+
+/* Hero on the bet screen */
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.hero-emojis {
+  font-size: 32px;
+  letter-spacing: 8px;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .4));
+}
+
+/* --------------------- Bet chips (casino tokens) --------------------------- */
+.chips {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  width: 100%;
+  max-width: var(--content);
+}
+
+.chip {
+  --tier-color: var(--gold);
+  position: relative;
+  min-height: var(--tap);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 22px 12px 18px;
+  border: 1px solid var(--panel-2);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--panel) 0%, var(--bg-2) 100%);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: transform .1s ease, box-shadow .18s ease, border-color .18s ease;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.chip::before {
+  /* tier color glow at the top edge */
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--tier-color, var(--gold));
+  box-shadow: 0 0 18px 2px var(--tier-color, var(--gold));
+}
+
+.tier-bg-1 {
+  --tier-color: var(--green);
+}
+
+.tier-bg-2 {
+  --tier-color: var(--blue);
+}
+
+.tier-bg-3 {
+  --tier-color: var(--gold);
+}
+
+.tier-bg-4 {
+  --tier-color: var(--red);
+}
+
+.chip:active {
+  transform: translateY(2px) scale(.98);
+}
+
+.chip:not([disabled]):hover {
+  border-color: var(--tier-color);
+  box-shadow: var(--shadow), 0 0 0 1px var(--tier-color);
+}
+
+.chip[disabled] {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+/* The coin-token: a masked donut ring with the amount centered over it */
+.chip-token {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 94px;
+  height: 94px;
+}
+
+.chip-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: repeating-conic-gradient(var(--tier-color) 0deg 14deg, transparent 14deg 30deg);
+  /* mask carves out the center to leave only a dashed ring */
+  -webkit-mask: radial-gradient(circle, transparent 36px, #000 37px);
+  mask: radial-gradient(circle, transparent 36px, #000 37px);
+}
+
+.chip-amount {
+  position: relative;
+  z-index: 1;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--gold);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, .6);
+  font-variant-numeric: tabular-nums;
+}
+
+.chip-cur {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.chip-tier {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .07);
+  border: 1px solid var(--line);
+}
+
+/* --------------------------- Custom bet card ------------------------------- */
+.custom-bet {
+  width: 100%;
+  max-width: var(--content);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--panel-2);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.custom-label {
+  font-size: 15px;
+  font-weight: 800;
+  text-align: start;
+}
+
+.custom-row {
+  display: flex;
+  gap: 12px;
+}
+
+.custom-input {
+  flex: 1 1 auto;
+  min-height: var(--tap);
+  padding: 0 16px;
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--bg-2);
+  border: 2px solid var(--panel-2);
+  border-radius: 12px;
+  outline: none;
+}
+
+.custom-input:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(255, 179, 40, .18);
+}
+
+.custom-input::placeholder {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.custom-hint {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: start;
+  line-height: 1.6;
+}
+
+.custom-hint .coin {
+  width: 15px;
+  height: 15px;
+  font-size: 10px;
+}
+
+.bet-error {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--lose);
+  min-height: 0;
+  text-align: start;
+}
+
+.bet-error:not(:empty) {
+  min-height: 18px;
+}
+
+/* --------------------------- Rules grid ------------------------------------ */
+.rules-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  width: 100%;
+  max-width: var(--content);
+}
+
+.rule {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: start;
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px 14px;
+  transition: border-color .18s ease, transform .1s ease;
+}
+
+.rule:hover {
+  border-color: var(--panel-2);
+}
+
+.rule-ico {
+  font-size: 22px;
+  line-height: 1;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .05);
+}
+
+.rule-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rule-txt strong {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.rule-txt span {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* --------------------------- Countdown box --------------------------------- */
+.lock-badge {
+  display: grid;
+  place-items: center;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 179, 40, .25), rgba(255, 179, 40, .05));
+  border: 1px solid var(--panel-2);
+  animation: floaty 3s ease-in-out infinite;
+}
+
+@keyframes floaty {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.countdown-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--panel-2);
+  border-radius: var(--radius);
+  padding: 18px 26px;
+  box-shadow: var(--shadow);
+}
+
+.countdown-box.small {
+  padding: 12px 18px;
+}
+
+.countdown-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.countdown-clock {
+  font-size: 38px;
+  font-weight: 900;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 3px;
+  text-shadow: 0 0 18px rgba(255, 179, 40, .35);
+}
+
+.countdown-box.small .countdown-clock {
+  font-size: 26px;
+}
+
+/* =========================================================================== */
+/*  CHALLENGE — compact, keyboard-aware                                          */
+/* =========================================================================== */
+.challenge-screen {
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 12px 16px 16px;
+}
+
+.challenge-top {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.challenge-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.type-badge {
+  font-size: 13px;
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid var(--line);
+}
+
+.meta-bet {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.image-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgba(255, 255, 255, .05), transparent 60%),
+    var(--bg-2);
+  border: 1px solid var(--panel-2);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  padding: 10px;
+  box-shadow: var(--shadow), inset 0 0 60px rgba(0, 0, 0, .4);
+}
+
+.img-shine {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, .06) 50%, transparent 60%);
+}
+
+.challenge-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .5);
+  animation: imgIn .35s ease both;
+}
+
+@keyframes imgIn {
+  from {
+    opacity: 0;
+    transform: scale(.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.challenge-img.img-failed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80%;
+  min-height: 120px;
+  color: var(--muted);
+  font-size: 14px;
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.mcq-grid {
+  flex: 0 0 auto;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.mcq-btn {
+  min-height: var(--tap);
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--text);
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 2px solid var(--panel-2);
+  border-radius: 14px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: transform .1s ease, border-color .15s ease;
+}
+
+.mcq-btn:active {
+  transform: translateY(2px) scale(.98);
+}
+
+.mcq-btn:hover {
+  border-color: var(--gold);
+}
+
+.mcq-grid.count-3 .mcq-btn:last-child {
+  grid-column: span 2;
+}
+
+.mcq-grid.count-6 .mcq-btn,
+.mcq-grid.count-8 .mcq-btn {
+  min-height: 40px;
+  font-size: 13px;
+  padding: 0 8px;
+}
+
+.mcq-grid.count-8 {
+  gap: 6px;
+}
+
+/* --------------------------- Timer ring ------------------------------------ */
+.timer {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+}
+
+.timer-svg {
+  width: 64px;
+  height: 64px;
+  transform: rotate(-90deg);
+}
+
+.timer-track {
+  fill: none;
+  stroke: var(--ring-track);
+  stroke-width: 6;
+}
+
+.timer-bar {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset .12s linear, stroke .25s ease;
+  filter: drop-shadow(0 0 5px currentColor);
+}
+
+.timer.warn .timer-bar {
+  stroke: var(--warn);
+}
+
+.timer.danger .timer-bar {
+  stroke: var(--danger);
+}
+
+.timer.danger {
+  animation: pulse .6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.timer-num {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer.danger .timer-num {
+  color: var(--danger);
+}
+
+/* --------------------------- Loading screen -------------------------------- */
+.loading-screen {
+  gap: 22px;
+}
+
+.spinner {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 6px solid var(--panel-2);
+  border-top-color: var(--gold);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.load-error {
+  width: 100%;
+  max-width: 440px;
+  background: rgba(251, 113, 133, .12);
+  border: 1px solid rgba(251, 113, 133, .4);
+  color: #fecdd3;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* --------------------------- Result screen --------------------------------- */
+.result-place {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+
+.result-screen {
+  position: relative;
+  overflow: hidden;
+}
+
+.result-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.result-emoji {
+  font-size: 64px;
+}
+
+.result-title {
+  margin: 0;
+  font-size: clamp(23px, 6.4vw, 32px);
+  font-weight: 900;
+}
+
+.result-screen.is-win .result-title {
+  color: var(--win);
+  text-shadow: 0 0 24px rgba(52, 211, 153, .4);
+}
+
+.result-screen.is-lose .result-title {
+  color: var(--lose);
+}
+
+.result-thumb-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.result-thumb {
+  max-height: 130px;
+  max-width: 72%;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid var(--panel-2);
+  background: var(--bg-2);
+  padding: 5px;
+  box-shadow: var(--shadow);
+}
+
+.result-names {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.result-country-ar {
+  font-weight: 900;
+  font-size: 20px;
+}
+
+.result-country-en {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  background: rgba(251, 113, 133, .12);
+  border: 1px solid rgba(251, 113, 133, .4);
+  border-radius: var(--radius);
+  padding: 12px 22px;
+}
+
+.reveal-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.reveal-answer {
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--text);
+}
+
+.payout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.payout-win {
+  font-size: 36px;
+  font-weight: 900;
+  color: var(--win);
+  text-shadow: 0 0 22px rgba(52, 211, 153, .45);
+}
+
+.payout-lose {
+  font-size: 36px;
+  font-weight: 900;
+  color: var(--lose);
+}
+
+.payout-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.balance-after {
+  color: var(--muted);
+}
+
+.balance-after strong {
+  color: var(--gold);
+}
+
+.result-emoji {
+  animation: pop .45s cubic-bezier(.2, 1.4, .4, 1) both;
+}
+
+.result-screen.is-win .payout-win {
+  animation: pop .5s .1s cubic-bezier(.2, 1.4, .4, 1) both;
+}
+
+.result-screen.is-lose .result-badge {
+  animation: shake .5s ease both;
+}
+
+@keyframes pop {
+  from {
+    transform: scale(.4);
+    opacity: 0;
+  }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes shake {
+
+  10%,
+  90% {
+    transform: translateX(-2px);
+  }
+
+  20%,
+  80% {
+    transform: translateX(4px);
+  }
+
+  30%,
+  50%,
+  70% {
+    transform: translateX(-8px);
+  }
+
+  40%,
+  60% {
+    transform: translateX(8px);
+  }
+}
+
+/* --------------------------- Confetti (win) -------------------------------- */
+.confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -16px;
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: .95;
+  animation-name: fall;
+  animation-timing-function: linear;
+  animation-iteration-count: 1;
+}
+
+@keyframes fall {
+  0% {
+    transform: translateY(-20px) rotate(0deg);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(110vh) rotate(540deg);
+    opacity: 0;
+  }
+}
+
+/* --------------------------- Dev tools (testing) --------------------------- */
+.dev-row {
+  position: fixed;
+  bottom: 8px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+}
+
+.dev-reset {
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  text-decoration: none;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid var(--panel-2);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  opacity: .6;
+}
+
+.dev-reset:active,
+.dev-reset:hover {
+  opacity: 1;
+}
+
+/* =========================================================================== */
+/*  RESPONSIVE BREAKPOINTS                                                       */
+/* =========================================================================== */
+
+/* Phone landscape: short height — condense, keep image + input visible. */
+@media (max-height: 480px) and (orientation: landscape) {
+  .screen {
+    gap: 8px;
+    padding: 8px 16px;
+  }
+
+  .hero-emojis {
+    font-size: 22px;
+  }
+
+  .chips {
+    grid-template-columns: repeat(4, 1fr);
+    max-width: 720px;
+  }
+
+  .chip {
+    padding: 10px 6px;
+  }
+
+  .chip-token {
+    width: 64px;
+    height: 64px;
+  }
+
+  .chip-ring {
+    -webkit-mask: radial-gradient(circle, transparent 23px, #000 24px);
+    mask: radial-gradient(circle, transparent 23px, #000 24px);
+  }
+
+  .chip-amount {
+    font-size: 14px;
+  }
+
+  .section-h,
+  .rules-grid {
+    display: none;
+  }
+
+  /* save vertical space */
+  .timer,
+  .timer-svg {
+    width: 52px;
+    height: 52px;
+  }
+
+  .lock-badge {
+    width: 80px;
+    height: 80px;
+  }
+
+  .big-icon {
+    font-size: 40px;
+  }
+
+  .countdown-clock {
+    font-size: 28px;
+  }
+
+  .result-emoji {
+    font-size: 44px;
+  }
+}
+
+/* iPad portrait and up. */
+@media (min-width: 768px) {
+  :root {
+    --maxw: 720px;
+    --content: 560px;
+  }
+
+  .topbar {
+    padding: 22px 26px;
+  }
+
+  .screen {
+    gap: 34px;
+    padding: 32px 28px 44px;
+  }
+
+  .bet-screen {
+    gap: 30px;
+  }
+
+  .chips {
+    gap: 22px;
+  }
+
+  .chip {
+    padding: 26px 14px 22px;
+  }
+
+  .chip-token {
+    width: 110px;
+    height: 110px;
+  }
+
+  .chip-ring {
+    -webkit-mask: radial-gradient(circle, transparent 44px, #000 45px);
+    mask: radial-gradient(circle, transparent 44px, #000 45px);
+  }
+
+  .chip-amount {
+    font-size: 23px;
+  }
+
+  .rules-grid {
+    gap: 16px;
+  }
+
+  .image-wrap {
+    border-radius: 28px;
+  }
+
+  .answer-input {
+    font-size: 18px;
+  }
+}
+
+/* iPad landscape / desktop. */
+@media (min-width: 1024px) {
+  :root {
+    --maxw: 820px;
+  }
+
+  .app {
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  .timer.danger,
+  .lock-badge {
+    animation: none !important;
+    transition: none !important;
+  }
+}

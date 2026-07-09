@@ -1,0 +1,199 @@
+{
+  "rules": {
+    "rooms": {
+      ".read": "auth != null",
+      ".indexOn": ["createdAt", "isActive", "hostUid", "vanityId"],
+      "$roomId": {
+        ".write": "auth != null",
+
+        // hostUid: منع الاستيلاء على الغرفة — يُسمح عند الإنشاء (لا وكيل سابق)،
+        // أو بلا تغيير، أو من الوكيل الحالي فقط (نقل الاستضافة).
+        "hostUid": {
+          ".validate": "!data.exists() || data.val() == newData.val() || data.val() == auth.uid"
+        },
+
+        // seats: منع طرد/كتم مستخدم آخر عبر الكتابة المباشرة.
+        // مسموح: الوكيل/المشرف الأصفر (أي مقعد)؛ غيرهم فقط مقعده هو أو مقعد فارغ
+        // (انضمام/خروج/كتم ذاتي/انتقال)، أو تفريغ مقعد لعضو مقطوع الاتصال (تنظيف).
+        // المقاعد غير المتغيّرة (uid + isMuted) تمرّ كما هي حتى لا تنكسر معاملات المقاعد الكلّية.
+        "seats": {
+          "$seatKey": {
+            ".validate": "root.child('rooms').child($roomId).child('hostUid').val() == auth.uid || root.child('rooms').child($roomId).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor' || (data.child('uid').val() == newData.child('uid').val() && data.child('isMuted').val() == newData.child('isMuted').val()) || ((!data.exists() || data.child('uid').val() == '' || data.child('uid').val() == auth.uid) && (newData.child('uid').val() == '' || newData.child('uid').val() == auth.uid)) || (data.child('disconnectedAt').exists() && newData.child('uid').val() == '')"
+          }
+        },
+
+        // lockedSeats: قفل المقاعد إجراء إشرافي — الوكيل أو المشرف الأصفر فقط
+        // (الإلغاء = حذف لا يخضع للتحقق).
+        "lockedSeats": {
+          "$seatKey": {
+            ".validate": "data.val() == newData.val() || root.child('rooms').child($roomId).child('hostUid').val() == auth.uid || root.child('rooms').child($roomId).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor'"
+          }
+        },
+
+        // memberRoles: لا يعدّل الأدوار إلا الوكيل (أي دور)، أو مشرف أصفر (أدوار غير
+        // صفراء لغيره)، أو المستخدم لنفسه (دور غير أصفر: انضمام/خروج).
+        // تعيين مشرف أصفر (yellow_supervisor) للوكيل فقط.
+        "memberRoles": {
+          ".write": "auth != null && (root.child('rooms').child($roomId).child('hostUid').val() == auth.uid || root.child('rooms').child($roomId).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor')",
+          "$targetUid": {
+            ".validate": "data.val() == newData.val() || root.child('rooms').child($roomId).child('hostUid').val() == auth.uid || ($targetUid == auth.uid && newData.val() != 'yellow_supervisor') || (root.child('rooms').child($roomId).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor' && newData.val() != 'yellow_supervisor')"
+          }
+        },
+
+        "video": {
+          ".read": "auth != null",
+          ".write": "auth != null && ((!data.exists() && newData.child('addedBy').val() == auth.uid) || (data.exists() && (root.child('rooms').child($roomId).child('hostUid').val() == auth.uid || root.child('rooms').child($roomId).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor')))"
+        },
+        "music": {
+          ".read": "auth != null",
+          ".write": "auth != null && ((!data.exists() && newData.child('addedBy').val() == auth.uid) || (data.exists() && data.child('addedBy').val() == auth.uid))"
+        },
+        "soundEffect": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        },
+        "soundEffectEvents": {
+          ".read": "auth != null",
+          "$eventId": {
+            ".write": "auth != null && !data.exists() && newData.child('triggeredBy').val() == auth.uid"
+          }
+        },
+        "pins": {
+          ".read": "auth != null",
+          "$pinId": {
+            ".write": "auth != null && (root.child('rooms').child($roomId).child('hostUid').val() == auth.uid || (data.exists() && data.child('pinnedBy').val() == auth.uid) || (!data.exists() && newData.child('pinnedBy').val() == auth.uid))"
+          }
+        },
+        "luckyBags": {
+          ".read": "auth != null",
+          "$bagId": {
+            ".write": "auth != null"
+          }
+        },
+        "pk": {
+          ".read": "auth != null",
+          ".write": "auth != null && (root.child('rooms').child($roomId).child('hostUid').val() == auth.uid || (!data.exists() && newData.child('status').val() == 'active' && newData.child('mode').val() == 'cross_room' && newData.child('crossRoom').child('opponentRoomId').exists() && root.child('rooms').child(newData.child('crossRoom').child('opponentRoomId').val()).child('hostUid').val() == auth.uid))",
+          "blueScore": {
+            ".write": "auth != null"
+          },
+          "redScore": {
+            ".write": "auth != null"
+          },
+          "blueTopGifters": {
+            ".write": "auth != null"
+          },
+          "redTopGifters": {
+            ".write": "auth != null"
+          }
+        }
+      }
+    },
+    "roomMessages": {
+      "$roomId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".indexOn": ["createdAt"]
+      }
+    },
+    "roomMusicLibrary": {
+      "$roomId": {
+        ".read": "auth != null",
+        "$trackId": {
+          ".write": "auth != null && (!data.exists() ? newData.child('addedByUid').val() == auth.uid : (data.child('addedByUid').val() == auth.uid || root.child('rooms').child($roomId).child('hostUid').val() == auth.uid))"
+        }
+      }
+    },
+    "roomAudience": {
+      "$roomId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".indexOn": ["joinedAt"]
+      }
+    },
+    "presence": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "userPresence": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "gamePresence": {
+      ".read": "auth != null",
+      "$category": {
+        "$uid": {
+          ".write": "auth != null && auth.uid == $uid"
+        }
+      }
+    },
+    "roomSeatHold": {
+      "$roomId": {
+        "$uid": {
+          ".read": "auth != null",
+          ".write": "auth != null && auth.uid == $uid"
+        }
+      }
+    },
+    "roomGameSessions": {
+      ".read": "auth != null",
+      "$sessionId": {
+        ".write": "auth != null && (
+          !data.exists() && newData.child('hostUid').val() == auth.uid
+          || data.exists() && (
+            data.child('hostUid').val() == auth.uid
+            || newData.child('playerUids').child(auth.uid).val() == true
+          )
+        )"
+      }
+    },
+    "roomGameInvites": {
+      "$targetUid": {
+        ".read": "auth != null && auth.uid == $targetUid",
+        "$inviteId": {
+          ".write": "auth != null && (
+            !data.exists() && newData.child('hostUid').val() == auth.uid && newData.child('targetUid').val() == $targetUid
+            || data.exists() && (auth.uid == $targetUid || auth.uid == data.child('hostUid').val())
+          )"
+        }
+      }
+    },
+    "roomMicInvites": {
+      "$targetUid": {
+        ".read": "auth != null && auth.uid == $targetUid",
+        "$inviteId": {
+          ".write": "auth != null && (
+            !data.exists() && newData.child('inviterUid').val() == auth.uid && newData.child('targetUid').val() == $targetUid
+            || data.exists() && (auth.uid == $targetUid || auth.uid == data.child('inviterUid').val())
+          )"
+        }
+      }
+    },
+    "pkMatchRequests": {
+      "$fromRoomId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() && newData.child('createdByUid').val() == auth.uid && root.child('rooms').child($fromRoomId).child('hostUid').val() == auth.uid || data.exists() && root.child('rooms').child($fromRoomId).child('hostUid').val() == auth.uid || data.exists() && data.child('status').val() == 'searching' && newData.child('status').val() == 'matched' && root.child('rooms').child(newData.child('matchedRoomId').val()).child('hostUid').val() == auth.uid)"
+      }
+    },
+    "pkAgencyInvites": {
+      ".read": "auth != null",
+      "$toRoomId": {
+        ".read": "auth != null",
+        "$inviteId": {
+          ".write": "auth != null && (!data.exists() && newData.child('createdByUid').val() == auth.uid || data.exists() && (data.child('createdByUid').val() == auth.uid || root.child('rooms').child($toRoomId).child('hostUid').val() == auth.uid || root.child('rooms').child($toRoomId).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor'))"
+        }
+      }
+    },
+    "agencyBlockedUsers": {
+      "$agencyId": {
+        ".read": "auth != null",
+        "$blockedUid": {
+          ".write": "auth != null"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,426 @@
+/**
+ * LinkUp Casino — WebView / embed=1
+ * ملء الشاشة بدون فراغ أسفل اللعبة أو سكرول عمودي على body
+ */
+
+html.linkup-embed,
+html.linkup-embed body,
+html.linkup-embed #root,
+html.linkup-embed .ant-app {
+  width: 100% !important;
+  height: var(--lu-app-h, 100dvh) !important;
+  max-height: var(--lu-app-h, 100dvh) !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+  touch-action: manipulation;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box !important;
+}
+
+html.linkup-embed .app-container {
+  height: 100% !important;
+  max-height: var(--lu-app-h, 100dvh) !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding-top: max(env(safe-area-inset-top, 0px), 2px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box !important;
+}
+
+html.linkup-embed .app-main {
+  height: 100% !important;
+  max-height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+/* ── جذور الألعاب ── */
+html.linkup-embed .crash-game,
+html.linkup-embed .mines-game,
+html.linkup-embed .plinko-page,
+html.linkup-embed .dino-game-page,
+html.linkup-embed .spin-win-app {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  width: 100% !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* ═══════════════════════════════════════
+   CRASH — الرسم البياني أعلى، الرهان/اللاعبون أسفل
+   ═══════════════════════════════════════ */
+html.linkup-embed .game-container.clone-layout {
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column-reverse !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 4px 6px !important;
+  gap: 6px !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+  background: #111 !important;
+}
+
+html.linkup-embed .clone-layout .crash-main-area {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  overflow: hidden !important;
+}
+
+html.linkup-embed .clone-layout .crash-chart-section {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+html.linkup-embed .clone-layout .crash-betting-section {
+  flex: 0 0 auto !important;
+  grid-template-columns: 1fr !important;
+  width: 100% !important;
+  gap: 6px !important;
+}
+
+html.linkup-embed .clone-layout .crash-sidebar-left {
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-height: min(34dvh, 240px) !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+html.linkup-embed .clone-layout .player-bets-panel {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+html.linkup-embed .chart-container-antd,
+html.linkup-embed .game-chart-container {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
+html.linkup-embed .chart-container-antd .multiplier-title {
+  font-size: clamp(26px, 7.5vw, 38px) !important;
+}
+
+html.linkup-embed .chart-container-antd .multiplier-suffix {
+  font-size: clamp(16px, 4.5vw, 24px) !important;
+}
+
+/* ═══════════════════════════════════════
+   MINES — الشبكة أعلى، لوحة الرهان أسفل
+   ═══════════════════════════════════════ */
+html.linkup-embed .mines-game .game-container {
+  flex: 1 1 auto !important;
+  flex-direction: column-reverse !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+
+html.linkup-embed .mines-display-wrapper {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: hidden !important;
+  padding: 4px 6px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+html.linkup-embed .mines-display {
+  width: 100% !important;
+  max-width: min(100%, 400px) !important;
+  margin: 0 auto !important;
+  aspect-ratio: 1 !important;
+  max-height: 100% !important;
+  height: auto !important;
+  padding: 4px !important;
+}
+
+html.linkup-embed .mines-grid {
+  gap: 4px !important;
+}
+
+html.linkup-embed .mine-tile {
+  transform: none !important;
+  border-radius: 8px !important;
+}
+
+html.linkup-embed .mines-sidebar {
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-height: min(40dvh, 300px) !important;
+  border-right: none !important;
+  border-top: 1px solid var(--border-color) !important;
+  overflow: hidden !important;
+}
+
+html.linkup-embed .mines-sidebar-content {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: min(40dvh, 300px) !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 10px 12px !important;
+}
+
+html.linkup-embed .lu-balance-value {
+  font-size: clamp(11px, 3.2vw, 14px) !important;
+  max-width: 58vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════
+   PLINKO — لوحة اللعب تملأ الباقي، إعدادات أعلى
+   ═══════════════════════════════════════ */
+html.linkup-embed .plinko-main {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+html.linkup-embed .plinko-container {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+
+html.linkup-embed .plinko-sidebar-wrapper {
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-height: min(42dvh, 320px) !important;
+  overflow: hidden !important;
+  border-right: none !important;
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
+html.linkup-embed .plinko-sidebar-wrapper .sidebar {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-height: min(42dvh, 320px) !important;
+  padding: 8px 10px 10px !important;
+  gap: 8px !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  border-right: none !important;
+}
+
+html.linkup-embed .plinko-game-wrapper {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+html.linkup-embed .plinko-game-wrapper > .plinko {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+}
+
+html.linkup-embed .plinko-floating-balance {
+  display: none !important;
+}
+
+html.linkup-embed .recent-plays {
+  display: none !important;
+}
+
+html.linkup-embed .plinko-controls {
+  flex: 0 0 auto !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px !important;
+  margin-top: 0 !important;
+  padding: 4px 8px !important;
+}
+
+html.linkup-embed .plinko-sidebar-wrapper .bet-mode-tabs {
+  margin-bottom: 0 !important;
+}
+
+html.linkup-embed .plinko-sidebar-wrapper .bet-button {
+  margin-bottom: 6px !important;
+  min-height: 42px !important;
+  padding: 10px 12px !important;
+  font-size: 14px !important;
+}
+
+html.linkup-embed .plinko-sidebar-wrapper .form-group {
+  margin-bottom: 0 !important;
+}
+
+html.linkup-embed .plinko-sidebar-wrapper .sidebar-footer,
+html.linkup-embed .plinko-sidebar-wrapper .ball-selector-card {
+  display: none !important;
+}
+
+html.linkup-embed .plinko-sidebar-wrapper .plinko-settings-pair {
+  gap: 8px !important;
+}
+
+/* ═══════════════════════════════════════
+   DINO — اللعبة أعلى، رهان أسفل
+   ═══════════════════════════════════════ */
+html.linkup-embed .dino-main {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+html.linkup-embed .dino-container {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  flex-direction: column-reverse !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+
+html.linkup-embed .dino-game-area {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+html.linkup-embed .phaser-container {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
+html.linkup-embed .phaser-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
+}
+
+html.linkup-embed .dino-sidebar {
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-height: min(42dvh, 320px) !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 10px 12px !important;
+  border-right: none !important;
+  border-top: 1px solid var(--border-color) !important;
+}
+
+html.linkup-embed .dino-sidebar .bet-mode-tabs {
+  transform: none !important;
+}
+
+/* ═══════════════════════════════════════
+   SPIN & WIN
+   ═══════════════════════════════════════ */
+html.linkup-embed .sw-scaler,
+html.linkup-embed .sw-wrapper,
+html.linkup-embed .sw-container {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+html.linkup-embed .content-scroll {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)) !important;
+}
+
+html.linkup-embed .topbar {
+  flex-shrink: 0;
+  padding: 8px 10px !important;
+}
+
+html.linkup-embed .jackpot-overlay {
+  height: var(--lu-app-h, 100dvh) !important;
+}
+
+/* ── عناصر مشتركة ── */
+html.linkup-embed .bet-mode-tab {
+  padding: 8px 10px !important;
+  font-size: 13px !important;
+}
+
+html.linkup-embed .bet-mode-tabs {
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+html.linkup-embed .ant-input-number,
+html.linkup-embed .ant-btn {
+  font-size: 13px !important;
+}
+
+html.linkup-embed .ant-drawer-content-wrapper {
+  max-width: 100vw !important;
+}
+
+html.linkup-embed .fixed-widget {
+  transform: scale(0.85);
+  transform-origin: bottom left;
+}
+
+@media (max-width: 380px) {
+  html.linkup-embed .mines-grid {
+    gap: 3px !important;
+  }
+}

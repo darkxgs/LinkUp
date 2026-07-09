@@ -1,0 +1,386 @@
+/**
+ * LinkUp Intelligence Games — responsive layout (WebView + mobile browsers)
+ * Loaded after per-game inline styles; overrides fixed px grids.
+ */
+
+/* ── Fluid containers ── */
+.lu-games .container {
+  width: 100%;
+  max-width: min(420px, 100%);
+}
+
+.lu-games body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: max(12px, env(safe-area-inset-top, 0px)) clamp(10px, 3vw, 16px)
+    max(12px, env(safe-area-inset-bottom, 0px));
+}
+
+/* ── Memory Match — fluid card grid ── */
+.lu-games .grid {
+  width: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(4px, 2vw, 12px);
+  justify-items: stretch;
+}
+
+.lu-games .grid.grid-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.lu-games .grid.grid-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(3px, 1.5vw, 8px);
+}
+
+.lu-games .card-item {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  max-width: 100%;
+}
+
+.lu-games .grid.grid-6 .card-item {
+  width: 100%;
+  height: auto;
+}
+
+.lu-games .card-emoji {
+  font-size: clamp(18px, 5.5vw, 28px);
+  line-height: 1;
+}
+
+.lu-games .card-back-mark {
+  font-size: clamp(14px, 4vw, 22px);
+  opacity: 0.85;
+}
+
+/* ── Sequence Memory — fluid gems & choices ── */
+.lu-games .sequence-row,
+.lu-games .choices-grid {
+  width: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(4px, 2vw, 12px);
+  justify-items: stretch;
+}
+
+.lu-games .gem-item,
+.lu-games .choice-btn {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  max-width: 100%;
+  font-size: clamp(18px, 5.5vw, 28px);
+}
+
+.lu-games .gem-item-index {
+  font-size: clamp(9px, 2.5vw, 12px);
+}
+
+/* ── Flag Guess — landmark image & chips ── */
+.lu-games .landmark-img {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: min(200px, 34dvh);
+  aspect-ratio: 16 / 10;
+}
+
+.lu-games .flag-img {
+  width: min(92%, 100%);
+  max-height: min(170px, 30dvh);
+}
+
+.lu-games .chip-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(8px, 2.5vw, 10px);
+}
+
+.lu-games .chip-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 8px !important;
+}
+
+.lu-games .chip-btn-inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  direction: ltr;
+}
+
+.lu-games .chip-amount {
+  font-size: clamp(12px, 3.4vw, 14px);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.lu-games .chip-coin {
+  font-size: clamp(14px, 3.8vw, 16px);
+  line-height: 1;
+  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.35));
+}
+
+.lu-games .chip-btn.active .chip-coin {
+  filter: none;
+}
+
+@media (max-width: 340px) {
+  .lu-games .chip-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ── Shared compact UI on narrow screens ── */
+@media (max-width: 380px) {
+  .lu-games .card {
+    padding: clamp(12px, 3.5vw, 18px);
+    border-radius: 20px;
+  }
+
+  .lu-games .header-title h1 {
+    font-size: clamp(16px, 4.5vw, 20px);
+  }
+
+  .lu-games .balance-bar {
+    padding: 8px 10px;
+  }
+
+  .lu-games .balance-val {
+    font-size: clamp(14px, 4vw, 16px);
+  }
+
+  .lu-games .status-hud {
+    font-size: clamp(11px, 3.2vw, 13px);
+    padding: 10px 8px;
+  }
+}
+
+/* ── WebView embed — full viewport, scroll inside game card ── */
+html.linkup-embed.lu-games,
+html.linkup-embed.lu-games body {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  justify-content: flex-start;
+}
+
+html.linkup-embed.lu-games .container {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+html.linkup-embed.lu-games .card {
+  margin-bottom: 4px;
+}
+
+html.linkup-embed.lu-games .nebula {
+  opacity: 0.35;
+}
+
+/* ── عملة LinkUp الموحّدة ── */
+.lu-games .lu-coin-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+}
+
+.lu-games .lu-coin-icon {
+  flex-shrink: 0;
+}
+
+.lu-games .lu-coin-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.lu-games .lu-coin-label {
+  font-size: 0.85em;
+  opacity: 0.85;
+}
+
+/* ── شاشة / إشعار الحد اليومي ── */
+.lu-games .intel-blocked-panel {
+  width: min(100%, 380px);
+  margin: 0 auto;
+  padding: clamp(20px, 5vw, 32px);
+  text-align: center;
+  border-radius: 20px;
+  background: linear-gradient(165deg, rgba(88, 28, 135, 0.55), rgba(30, 27, 75, 0.92));
+  border: 2px solid rgba(251, 191, 36, 0.45);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+}
+
+.lu-games .intel-blocked-icon {
+  font-size: clamp(48px, 14vw, 64px);
+  line-height: 1;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 4px 12px rgba(251, 191, 36, 0.35));
+}
+
+.lu-games .intel-blocked-title {
+  margin: 0 0 10px;
+  font-size: clamp(1.35rem, 5vw, 1.75rem);
+  font-weight: 800;
+  color: #fde68a;
+  line-height: 1.25;
+}
+
+.lu-games .intel-blocked-msg,
+.lu-games .intel-blocked-sub {
+  margin: 0 0 10px;
+  font-size: clamp(0.95rem, 3.5vw, 1.05rem);
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.lu-games .intel-blocked-sub {
+  color: rgba(255, 255, 255, 0.72);
+  margin-bottom: 18px;
+}
+
+.lu-games .intel-blocked-countdown-box {
+  margin-top: 8px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.lu-games .intel-blocked-countdown-label {
+  display: block;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.65);
+  margin-bottom: 6px;
+}
+
+.lu-games .intel-blocked-countdown {
+  display: block;
+  font-size: clamp(1.5rem, 6vw, 2rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: #34d399;
+}
+
+.lu-games .intel-daily-notice {
+  position: fixed;
+  inset: 0;
+  z-index: 99990;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top, 16px)) 14px 14px;
+  background: rgba(8, 10, 24, 0.72);
+  backdrop-filter: blur(6px);
+  animation: intelNoticeIn 0.25s ease-out;
+}
+
+@keyframes intelNoticeIn {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.lu-games .intel-daily-notice-inner {
+  width: min(100%, 400px);
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 14px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #4c1d95, #1e1b4b);
+  border: 2px solid #fbbf24;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.lu-games .intel-daily-notice-icon {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.lu-games .intel-daily-notice-title {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fde68a;
+  margin-bottom: 6px;
+}
+
+.lu-games .intel-daily-notice-msg,
+.lu-games .intel-daily-notice-hint {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.lu-games .intel-daily-notice-hint {
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 0;
+}
+
+.lu-games .intel-daily-notice-close {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+html.linkup-embed.lu-games [data-embed-hide],
+html.linkup-embed.lu-games .custom-bet-container {
+  display: none !important;
+}
+
+html.linkup-embed.lu-games #lu-intel-demo-banner {
+  display: none !important;
+}
+
+.lu-games .intel-daily-inline {
+  margin: 12px 0 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(76, 29, 149, 0.85), rgba(30, 27, 75, 0.95));
+  border: 2px solid rgba(251, 191, 36, 0.55);
+  text-align: center;
+}
+
+.lu-games .intel-daily-inline strong {
+  display: block;
+  font-size: 1.1rem;
+  color: #fde68a;
+  margin-bottom: 8px;
+}
+
+.lu-games .intel-daily-inline p {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.lu-games .intel-daily-inline-hint {
+  color: rgba(255, 255, 255, 0.7) !important;
+  margin-bottom: 0 !important;
+}

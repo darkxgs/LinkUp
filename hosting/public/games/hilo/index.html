@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Linkup — Hilo</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="../casino-mobile.css?v=2" />
+</head>
+<body class="lu-games">
+  <!-- ====================== TOP BAR ====================== -->
+  <header class="topbar">
+    <div class="brand-logo">
+      <span class="brand-mark">◢</span> Linkup Hilo
+    </div>
+
+    <div class="balance-wrap">
+      <div class="balance-box">
+        <span id="balance" class="balance-amount">0.00000000</span>
+        <span class="coin coin-sm" aria-hidden="true">$</span>
+      </div>
+      <button id="resetBalance" class="reset-btn" data-demo-only data-i18n-title="reset_balance" title="Reset demo balance" aria-label="Reset demo balance">↻</button>
+      <span class="demo-tag" data-demo-only data-i18n="demo">DEMO</span>
+      <button id="langToggle" class="lang-toggle" aria-label="Switch language">العربية</button>
+    </div>
+  </header>
+
+  <!-- ====================== GAME ====================== -->
+  <main class="game">
+    <!-- ---------- LEFT CONTROL PANEL ---------- -->
+    <section class="panel">
+      <div class="tabs">
+        <button class="tab active" data-i18n="manual">Manual</button>
+      </div>
+
+      <!-- Bet amount -->
+      <div class="field">
+        <div class="field-head">
+          <label for="betAmount" data-i18n="bet_amount">Bet Amount</label>
+          <span class="fiat" id="betFiat">$0.00</span>
+        </div>
+        <div class="input-group">
+          <input id="betAmount" class="input" type="number" min="0" step="0.00000001" value="0.00000000" />
+          <span class="coin coin-input" aria-hidden="true">$</span>
+          <div class="input-actions">
+            <button id="halfBet" class="mini-btn" type="button">½</button>
+            <span class="divider"></span>
+            <button id="doubleBet" class="mini-btn" type="button">2×</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Play Button (Bet / Cashout) -->
+      <button id="playButton" class="bet-btn" data-i18n="bet">Bet</button>
+
+      <!-- Skip Card (Free redraw) -->
+      <div class="skip-btn-wrap">
+        <button id="skipButton" type="button">
+          <span data-i18n="skip_card">Skip Card</span> ➔
+        </button>
+      </div>
+
+      <!-- Guess controls -->
+      <div class="hilo-guess-actions">
+        <button id="guessHigherBtn" class="hilo-btn-guess guess-higher" disabled>
+          <span class="guess-label" data-i18n="higher_or_same">Higher or Same</span>
+          <span class="arrow-icon higher">▲</span>
+          <span class="percent" id="higherPercent">0.00%</span>
+        </button>
+
+        <button id="guessLowerBtn" class="hilo-btn-guess guess-lower" disabled>
+          <span class="guess-label" data-i18n="lower_or_same">Lower or Same</span>
+          <span class="arrow-icon lower">▼</span>
+          <span class="percent" id="lowerPercent">0.00%</span>
+        </button>
+      </div>
+
+      <!-- Cumulative Profit / Multiplier -->
+      <div class="field">
+        <div class="field-head">
+          <label for="totalProfit" id="totalProfitLabel"><span data-i18n="total_profit">Total Profit</span> (1.00x)</label>
+          <span class="fiat" id="profitFiat">$0.00</span>
+        </div>
+        <div class="input-group">
+          <input id="totalProfit" class="input" type="text" value="0.00000000" readonly />
+          <span class="coin coin-input" aria-hidden="true">$</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- GAME STAGE ---------- -->
+    <section class="stage">
+      <div class="hilo-layout">
+        <!-- Play Area: Indicators + Deck -->
+        <div class="hilo-play-area">
+          <!-- King Indicator -->
+          <div class="hilo-indicator-wrap">
+            <div class="hilo-indicator-card">
+              <span class="rank">K</span>
+              <span class="arrow higher">▲</span>
+            </div>
+            <span class="indicator-label" data-i18n="king_highest">KING BEING THE HIGHEST</span>
+          </div>
+
+          <!-- Card Deck Stack -->
+          <div class="hilo-card-deck-stack">
+            <!-- Skips inside deck -->
+            <button id="deckSkipButton" class="hilo-deck-skip-btn" title="Skip Card" aria-label="Skip Card">»</button>
+
+            <!-- Stacked card effect -->
+            <div class="deck-card-shadow deck-card-shadow-1"></div>
+            <div class="deck-card-shadow deck-card-shadow-2"></div>
+
+            <!-- Active Card -->
+            <div class="active-card-wrap">
+              <div id="activeCard" class="hilo-card face-down">
+                <!-- Front -->
+                <div class="card-face card-front suit-black" id="cardFront">
+                  <div class="card-top-left">
+                    <span class="rank-val">A</span>
+                    <span class="suit-icon">♣</span>
+                  </div>
+                  <div class="card-center-suit">
+                    <span class="suit-icon-lg">♣</span>
+                  </div>
+                </div>
+                <!-- Back -->
+                <div class="card-face card-back"></div>
+              </div>
+              <!-- Game Result Win Popup (The Multi Box) -->
+              <div id="gameResultPopup" class="game-result-wrap hidden" style="--duration: 300ms; --modal-width: 150px; --modal-height: 132px; z-index: 65 !important;">
+                <div class="game-result-content">
+                  <span class="number-multiplier"><span id="popupMultiplier">1.17</span>×</span>
+                  <div class="divider"></div>
+                  <span class="payout-result win">
+                    <span class="badge-profit-row">
+                      <span id="popupPayout" class="badge-profit">0.00000000</span>
+                      <svg data-ds-icon="USDC" width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" class="inline-block shrink-0">
+                        <path fill="#0f97f8" d="M12 23c6.075 0 11-4.925 11-11S18.075 1 12 1 1 5.925 1 12s4.925 11 11 11"></path>
+                        <path fill="#fff" d="M9.654 20.7c0 .293-.239.457-.514.375a9.39 9.39 0 0 1-6.545-8.965A9.38 9.38 0 0 1 9.14 3.154c.284-.091.514.083.514.376v.733c0 .193-.147.422-.33.486-3.007 1.11-5.152 3.997-5.152 7.361a7.84 7.84 0 0 0 5.152 7.352c.183.064.33.293.33.486z"></path>
+                        <path fill="#fff" d="M12.78 17.986c0 .22-.175.394-.395.394h-.78a.39.39 0 0 1-.393-.394v-1.238c-1.714-.238-2.549-1.182-2.769-2.493a.362.362 0 0 1 .367-.422h.89a.41.41 0 0 1 .384.312c.165.77.614 1.375 1.99 1.375 1.008 0 1.732-.568 1.732-1.412 0-.843-.422-1.164-1.907-1.411-2.19-.294-3.236-.963-3.236-2.677 0-1.32 1.009-2.365 2.558-2.576v-1.21c0-.22.174-.394.394-.394h.78a.39.39 0 0 1 .393.394v1.247c1.265.229 2.063.944 2.329 2.136.046.229-.129.43-.367.43h-.825a.4.4 0 0 1-.376-.284c-.229-.751-.76-1.09-1.705-1.09-1.036 0-1.576.495-1.576 1.2 0 .743.302 1.119 1.897 1.339 2.154.293 3.273.907 3.273 2.74 0 1.394-1.036 2.521-2.659 2.769v1.256h-.009z"></path>
+                        <path fill="#fff" d="M14.86 21.075c-.284.092-.513-.082-.513-.376v-.733a.5.5 0 0 1 .33-.486c2.997-1.1 5.151-3.988 5.151-7.352a7.84 7.84 0 0 0-5.151-7.351c-.184-.064-.33-.294-.33-.486v-.734c0-.293.238-.458.513-.375a9.36 9.36 0 0 1 6.545 8.946 9.41 9.41 0 0 1-6.545 8.965z"></path>
+                      </svg>
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Ace Indicator -->
+          <div class="hilo-indicator-wrap">
+            <div class="hilo-indicator-card">
+              <span class="rank">A</span>
+              <span class="arrow lower">▼</span>
+            </div>
+            <span class="indicator-label" data-i18n="ace_lowest">ACE BEING THE LOWEST</span>
+          </div>
+        </div>
+
+        <!-- Profit Higher & Lower estimators -->
+        <div class="hilo-profit-row">
+          <div class="hilo-profit-box">
+            <label for="profitHigherVal"><span data-i18n="profit_higher">Profit Higher</span> (<span id="profitHigherMul">0.00x</span>)</label>
+            <div class="input-group">
+              <input id="profitHigherVal" class="input" type="text" value="0.00000000" readonly />
+              <span class="coin coin-input" aria-hidden="true">$</span>
+            </div>
+          </div>
+
+          <div class="hilo-profit-box">
+            <label for="profitLowerVal"><span data-i18n="profit_lower">Profit Lower</span> (<span id="profitLowerMul">0.00x</span>)</label>
+            <div class="input-group">
+              <input id="profitLowerVal" class="input" type="text" value="0.00000000" readonly />
+              <span class="coin coin-input" aria-hidden="true">$</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- History Strip -->
+        <div class="hilo-history-wrap">
+          <div class="hilo-history-strip" id="historyStrip">
+            <!-- Dynamically populated history cards -->
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ====================== BOTTOM BAR ====================== -->
+  <footer class="bar">
+    <div class="bar-left">
+      <button class="bar-icon" id="statsToggle" data-i18n-title="live_stats" title="Live stats">📈</button>
+      <button class="bar-icon" id="soundToggle" data-i18n-title="sound" title="Sound">🔊</button>
+    </div>
+    <div class="bar-brand">Linkup</div>
+    <div class="bar-right">
+      <button id="fairnessToggle" class="fairness"><span aria-hidden="true">🛡</span> <span data-i18n="fairness">Fairness</span></button>
+    </div>
+  </footer>
+
+  <!-- ====================== LIVE STATS PANEL ====================== -->
+  <aside id="liveStats" class="live-stats hidden">
+    <div class="ls-head">
+      <span><span aria-hidden="true">📈</span> <span data-i18n="live_stats">Live Stats</span></span>
+      <button id="statsClose" class="ls-close" aria-label="Close">✕</button>
+    </div>
+    <div class="ls-grid">
+      <div><span class="ls-label" data-i18n="profit">Profit</span><span id="lsProfit" class="ls-val">0.00000000</span></div>
+      <div><span class="ls-label" data-i18n="wins">Wins</span><span id="lsWins" class="ls-val">0</span></div>
+      <div><span class="ls-label" data-i18n="wagered">Wagered</span><span id="lsWagered" class="ls-val">0.00000000</span></div>
+      <div><span class="ls-label" data-i18n="losses">Losses</span><span id="lsLosses" class="ls-val red">0</span></div>
+    </div>
+  </aside>
+
+  <!-- ====================== FAIRNESS MODAL ====================== -->
+  <div id="fairnessModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="shield-check-icon"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 11 2 2 4-4"/></svg>
+          <span data-i18n="fairness">Fairness</span>
+        </div>
+        <button id="closeFairnessModal" class="modal-close" aria-label="Close modal">✕</button>
+      </div>
+
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-i18n="overview">Overview</button>
+      </div>
+
+      <div class="modal-body">
+        <h3 class="modal-body-title" data-i18n="fairness_modal_title">Solving the Trust Issue with Online Gambling</h3>
+        <p data-i18n="fairness_p1">The underlying concept of provable fairness is that players have the ability to prove and verify that their results are fair and unmanipulated. This is achieved through the use of a commitment scheme, along with cryptographic hashing.</p>
+        <p data-i18n="fairness_p2">The commitment scheme is used to ensure that the player has an influence on all results generated. Cryptographic hashing is used to ensure that the casino also remains honest to this commitment scheme. Both concepts combined creates a trust-less environment when gambling online.</p>
+        <p class="formula-label" data-i18n="fairness_p3">This is simplified in the following representation:</p>
+        <div class="formula-box">
+          <code>fair result = operators input (hashed) + players input</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- script sequence: bridge -> engine -> API -> sound -> i18n -> UI app -->
+  <script src="../games-casino-boot.js?v=2"></script>
+  <script>LinkUpCasinoBoot.boot('hilo');</script>
+  <script src="js/hilo.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/sound.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

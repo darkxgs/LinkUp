@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Linkup · Dice</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="../casino-mobile.css?v=2">
+</head>
+<body class="lu-games">
+
+<!-- top bar (brand + demo balance) -->
+<header class="topbar">
+  <div class="brand"><span class="brand-mark">⬡</span> Linkup</div>
+  <div class="balance-wrap" title="Demo balance">
+    <span class="coin">$</span>
+    <span class="balance-value" id="balanceValue">1000.00000000</span>
+    <button class="reset-btn" id="resetBtn" data-demo-only title="Reset demo balance">Reset</button>
+  </div>
+</header>
+
+<div class="game-shell">
+  <!-- ============================ BET PANEL ============================ -->
+  <aside class="bet-panel">
+    <div class="tabs">
+      <button class="tab active" id="tabManual">Manual</button>
+      <button class="tab" id="tabAuto">Auto</button>
+    </div>
+
+    <!-- Bet amount (shared) -->
+    <label class="field-label">Bet Amount <span class="field-sub" id="betUsd">$0.00</span></label>
+    <div class="input-row">
+      <span class="in-coin">$</span>
+      <input type="number" id="betAmount" value="0.00000000" min="0" step="0.00000001">
+      <button class="chip-btn" id="halfBtn">½</button>
+      <button class="chip-btn" id="doubleBtn">2×</button>
+    </div>
+
+    <!-- ----- MANUAL controls ----- -->
+    <div id="manualControls">
+      <button class="bet-btn" id="betBtn">Bet</button>
+
+      <label class="field-label">Profit on Win <span class="field-sub" id="profitUsd">$0.00</span></label>
+      <div class="input-row single">
+        <input type="number" id="profitOnWin" value="0.00000000" readonly>
+        <span class="in-coin right">$</span>
+      </div>
+    </div>
+
+    <!-- ----- AUTO controls ----- -->
+    <div id="autoControls" class="hidden">
+      <label class="field-label">Number of Bets</label>
+      <div class="input-row">
+        <input type="number" id="numBets" value="0" min="0" step="1">
+        <span class="chip-btn static" title="0 = infinite">∞</span>
+      </div>
+
+      <div class="auto-adv-toggle">
+        <span>Advanced</span>
+        <label class="switch"><input type="checkbox" id="advToggle"><span class="slider-sw"></span></label>
+      </div>
+
+      <div id="advancedFields" class="hidden">
+        <label class="field-label">On Win</label>
+        <div class="seg">
+          <button class="seg-btn active" data-win="reset">Reset</button>
+          <button class="seg-btn" data-win="increase">Increase by</button>
+          <div class="seg-input"><input type="number" id="onWinPct" value="0" step="0.1"><span>%</span></div>
+        </div>
+
+        <label class="field-label">On Loss</label>
+        <div class="seg">
+          <button class="seg-btn active" data-loss="reset">Reset</button>
+          <button class="seg-btn" data-loss="increase">Increase by</button>
+          <div class="seg-input"><input type="number" id="onLossPct" value="0" step="0.1"><span>%</span></div>
+        </div>
+
+        <label class="field-label">Stop on Profit <span class="field-sub">$</span></label>
+        <div class="input-row"><input type="number" id="stopProfit" value="0" step="0.00000001"></div>
+
+        <label class="field-label">Stop on Loss <span class="field-sub">$</span></label>
+        <div class="input-row"><input type="number" id="stopLoss" value="0" step="0.00000001"></div>
+      </div>
+
+      <button class="bet-btn" id="autoBtn">Start Autobet</button>
+    </div>
+
+  </aside>
+
+  <!-- ============================ GAME AREA ============================ -->
+  <main class="game-area">
+    <div class="last-rolls" id="lastRolls"></div>
+
+    <div class="board" id="board">
+      <div class="ruler">
+        <span style="left:0%">0</span>
+        <span style="left:25%">25</span>
+        <span style="left:50%">50</span>
+        <span style="left:75%">75</span>
+        <span style="left:100%">100</span>
+      </div>
+
+      <div class="track" id="track">
+        <!-- floating dice cube (last result) — hidden until the first roll -->
+        <div class="dice-cube hidden" id="diceCube">
+          <div class="cube-face" id="diceResult">0.00</div>
+        </div>
+        <!-- colored regions -->
+        <div class="region region-lower" id="regionLower"></div>
+        <div class="region region-higher" id="regionHigher"></div>
+        <!-- draggable threshold handle -->
+        <div class="thumb" id="thumb"><i></i><i></i><i></i></div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <label class="stat-field">
+        <span class="stat-label">Multiplier</span>
+        <div class="stat-input"><input type="number" id="multiplierInput" step="0.0001" min="1.0102" max="9900"><span class="suffix">✕</span></div>
+      </label>
+      <label class="stat-field">
+        <span class="stat-label" id="rollLabel">Roll Over</span>
+        <div class="stat-input">
+          <input type="number" id="rollOverInput" step="0.01">
+          <button class="suffix-btn" id="conditionToggle" title="Switch Over / Under">⟳</button>
+        </div>
+      </label>
+      <label class="stat-field">
+        <span class="stat-label">Win Chance</span>
+        <div class="stat-input"><input type="number" id="winChanceInput" step="0.0001" min="0.01" max="98"><span class="suffix">%</span></div>
+      </label>
+    </div>
+  </main>
+</div>
+
+<!-- ============================ GAME FOOTER ============================ -->
+<footer class="game-footer">
+  <div class="footer-left">
+    <button class="ic-btn" id="settingsBtn" title="Settings">⚙</button>
+    <button class="ic-btn" id="soundBtn" title="Toggle sound">🔊</button>
+  </div>
+  <div class="footer-brand">Linkup</div>
+  <div class="footer-right">
+    <button class="fairness-btn" id="fairnessBtn">🛡 Fairness</button>
+  </div>
+</footer>
+
+<!-- ============================ FAIRNESS MODAL ============================ -->
+<div class="modal-overlay hidden" id="fairnessModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Provably Fair</h3>
+      <button class="close-btn" data-close>✕</button>
+    </div>
+    <p class="modal-note">Each roll is derived from <code>HMAC_SHA256(serverSeed, clientSeed:nonce)</code>.
+      Verify any past roll once you rotate (reveal) the server seed.</p>
+
+    <label class="modal-label">Active Client Seed</label>
+    <div class="modal-row">
+      <input type="text" id="clientSeedInput">
+      <button class="mini-btn" id="saveSeedBtn">Save</button>
+    </div>
+
+    <label class="modal-label">Active Server Seed (hashed)</label>
+    <div class="modal-row"><input type="text" id="serverSeedHash" readonly></div>
+
+    <label class="modal-label">Nonce</label>
+    <div class="modal-row"><input type="text" id="nonceView" readonly></div>
+
+    <button class="mini-btn full" id="rotateSeedBtn">Rotate &amp; Reveal Server Seed</button>
+    <div class="reveal hidden" id="revealBox">
+      <label class="modal-label">Previous Server Seed (revealed)</label>
+      <div class="modal-row"><input type="text" id="revealedSeed" readonly></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ SETTINGS MODAL ============================ -->
+<div class="modal-overlay hidden" id="settingsModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Settings</h3>
+      <button class="close-btn" data-close>✕</button>
+    </div>
+    <div class="setting-row">
+      <span>Animations</span>
+      <label class="switch"><input type="checkbox" id="animToggle" checked><span class="slider-sw"></span></label>
+    </div>
+    <div class="setting-row">
+      <span>Sound effects</span>
+      <label class="switch"><input type="checkbox" id="soundToggle" checked><span class="slider-sw"></span></label>
+    </div>
+    <div class="setting-row">
+      <span>House edge</span>
+      <span class="muted">1.00%</span>
+    </div>
+  </div>
+</div>
+
+<script src="../games-casino-boot.js?v=2"></script>
+<script>LinkUpCasinoBoot.boot('dice');</script>
+<script src="api.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

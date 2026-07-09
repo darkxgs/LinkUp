@@ -1,0 +1,35 @@
+#board {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto;
+  border-radius: 16px;
+  border: 3px solid #b45309;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 0 40px rgba(0, 0, 0, 0.3);
+  touch-action: none;
+  background: #c2762a;
+}
+
+.scores {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 8px;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.hint {
+  text-align: center;
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-top: 8px;
+}
+
+.winner {
+  margin-top: 12px;
+  text-align: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(236, 72, 153, 0.2));
+  font-weight: 700;
+}

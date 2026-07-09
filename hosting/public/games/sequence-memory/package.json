@@ -1,0 +1,13 @@
+{
+  "name": "remember-the-sequence",
+  "version": "1.0.0",
+  "description": "Game #3 in the Intelligence Games suite - Remember the Sequence",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx http-server -p 8080"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
