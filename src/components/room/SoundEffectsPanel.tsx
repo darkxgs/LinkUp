@@ -27,6 +27,7 @@ import {
 } from '@/services/roomSoundEffects';
 import { playRoomSoundSource } from '@/utils/playRoomSound';
 import { lu } from '@/theme/lu-brand';
+import { ROOM_DESIGN } from '@/theme/room-design';
 import { spacing } from '@/theme';
 
 const COOLDOWN_MS = 700;
@@ -117,7 +118,7 @@ export function SoundEffectsPanel({ roomId, onClose }: PanelProps) {
   return (
     <View style={styles.panel}>
       <LinearGradient
-        colors={['#3A1316', '#1A0A0C', '#1F0606']}
+        colors={[...ROOM_DESIGN.panelGradient]}
         style={StyleSheet.absoluteFill}
       />
 

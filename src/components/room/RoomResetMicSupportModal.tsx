@@ -23,6 +23,7 @@ import {
   clearRoomSeatSupportForUsers,
 } from '@/services/roomContributions';
 import { lu } from '@/theme/lu-brand';
+import { ROOM_DESIGN } from '@/theme/room-design';
 import { colors, radius, spacing } from '@/theme';
 
 export type MicSupportResetMember = {
@@ -107,7 +108,7 @@ export function RoomResetMicSupportModal({
           style={[styles.sheet, { paddingBottom: insets.bottom + spacing.base }]}
           onPress={(e) => e.stopPropagation()}
         >
-          <LinearGradient colors={['#3A0A0A', '#1A0A0C']} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={[...ROOM_DESIGN.panelGradientShort]} style={StyleSheet.absoluteFill} />
           <View style={styles.handle} />
 
           <View style={styles.header}>

@@ -9,6 +9,7 @@ import { X, UserX } from 'lucide-react-native';
 
 import { Text } from '@/components/ui';
 import { lu } from '@/theme/lu-brand';
+import { ROOM_DESIGN } from '@/theme/room-design';
 import { radius, spacing } from '@/theme';
 import {
   BLOCK_DURATION_PRESETS,
@@ -55,7 +56,7 @@ export function RoomKickBanModal({ visible, userName, loading, onClose, onConfir
     >
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <LinearGradient colors={['#3A1316', '#1A0A0C']} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={[...ROOM_DESIGN.panelGradientShort]} style={StyleSheet.absoluteFill} />
 
           <View style={styles.header}>
             <View style={styles.titleRow}>

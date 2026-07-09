@@ -23,10 +23,10 @@ export const luColors = {
   card2: '#F6EFEF',
   line: '#EEE7E8',
 
-  // Room (dark immersive) — أسود فحمي بنبرة حمراء
-  room0: '#140A0C',
-  room1: '#26101380',
-  room2: '#3A1316',
+  // Room (dark immersive) — charcoal + red tint (brighter than pure black)
+  room0: '#1E1418',
+  room1: '#35202880',
+  room2: '#4A2830',
 
   // Ink (text) — حبر أسود من اللوجو
   ink: '#15151A',
@@ -68,7 +68,7 @@ export const luGradients = {
   // Room/Match
   matchVideo: ['#FF7A8A', '#E11414', '#8A0E0E'] as const,
   matchVoice: ['#FF5C6A', '#C40E1E', '#7A0A0A'] as const,
-  room: ['#3A0A0A', '#26090C', '#140A0C'] as const,
+  room: ['#4A2830', '#352028', '#241820', '#1E1418'] as const,
 
   // Aristocracy / VIP tiles
   aristocracy: ['#FFE08A', '#FFB347'] as const,

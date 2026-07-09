@@ -219,6 +219,7 @@ import { useLiveKitRoom } from '@/hooks/useLiveKitRoom';
 import { useAlert } from '@/components/ui';
 import { colors, radius, spacing, shadows } from '@/theme';
 import { lu } from '@/theme/lu-brand';
+import { ROOM_DESIGN } from '@/theme/room-design';
 
 // === ميزات الفيديو + الرسائل المثبتة ===
 import { RoomUserSheet, type RoomSeatUser } from '@/components/room/RoomUserSheet';
@@ -4676,7 +4677,7 @@ export default function RoomScreen() {
     return (
       <View style={styles.loading}>
         <LinearGradient
-          colors={['#26090C', '#3A0A0A', '#1A0A0C']}
+          colors={[...lu.gradients.room]}
           style={StyleSheet.absoluteFill}
         />
       </View>
@@ -6467,7 +6468,7 @@ const FloatingEmojiBurst = ({
 
 const styles = StyleSheet.create({
   gateBlockingScreen: {
-    backgroundColor: '#0a0a12',
+    backgroundColor: ROOM_DESIGN.shellBg,
   },
   flex1: { flex: 1 },
   container: { flex: 1, backgroundColor: lu.colors.room0 },

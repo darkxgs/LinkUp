@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next';
 import { Text } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { lu } from '@/theme/lu-brand';
+import { ROOM_DESIGN } from '@/theme/room-design';
 import { radius, spacing } from '@/theme';
 import {
   subscribeToConversations,
@@ -246,7 +247,7 @@ export function RoomPrivateMessagesModal({
           ]}
         >
           <LinearGradient
-            colors={['#1A0A0C', '#100406', '#0A0405']}
+            colors={[...ROOM_DESIGN.stageGradient]}
             style={StyleSheet.absoluteFill}
           />
           <View style={styles.sheetContent}>
@@ -485,7 +486,7 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     backgroundColor: '#FF2E62',
     borderWidth: 1.5,
-    borderColor: '#0A0405',
+    borderColor: ROOM_DESIGN.borderDark,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,

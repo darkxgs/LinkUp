@@ -18,7 +18,7 @@ export function RoomStageBackground({ customUri }: Props) {
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {/* Vibrant Premium Gradient (Clean, no blobs) */}
       <LinearGradient
-        colors={['#3A0A0A', '#26090C', '#1A0A0C', '#140404']}
+        colors={[...ROOM_DESIGN.stageGradient]}
         locations={[0, 0.3, 0.7, 1]}
         style={StyleSheet.absoluteFill}
       />
@@ -32,7 +32,7 @@ export function RoomStageBackground({ customUri }: Props) {
       {customUri ? (
         <>
           <Image source={{ uri: customUri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" recyclingKey={customUri} />
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(16, 4, 4, 0.75)' }]} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: ROOM_DESIGN.scrim }]} />
         </>
       ) : null}
     </View>

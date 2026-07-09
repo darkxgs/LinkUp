@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Text } from '@/components/ui';
 import { lu } from '@/theme/lu-brand';
+import { ROOM_DESIGN } from '@/theme/room-design';
 
 type Props = {
   visible: boolean;
@@ -110,7 +111,7 @@ const styles = StyleSheet.create({
   } as ViewStyle,
   embeddedOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#0a0a12',
+    backgroundColor: ROOM_DESIGN.shellBg,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -119,7 +120,7 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 340,
-    backgroundColor: '#26090C',
+    backgroundColor: ROOM_DESIGN.stageMid,
     borderRadius: 20,
     padding: 22,
   },

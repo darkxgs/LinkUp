@@ -15,6 +15,7 @@ import { X, Mic, MicOff, Volume2, VolumeX, AudioLines } from 'lucide-react-nativ
 
 import { Text } from '@/components/ui';
 import { lu } from '@/theme/lu-brand';
+import { ROOM_DESIGN } from '@/theme/room-design';
 import { spacing, radius } from '@/theme';
 
 interface VoiceMicPanelProps {
@@ -85,7 +86,7 @@ export function VoiceMicPanel({
   return (
     <View style={styles.sheet}>
       <LinearGradient
-        colors={['#3A1316', '#1A0A0C', '#1F0606']}
+        colors={[...ROOM_DESIGN.panelGradient]}
         style={StyleSheet.absoluteFill}
       />
 

@@ -21,6 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Text, BackButton } from '@/components/ui';
 import { IMG, IMG_ICON } from '@/utils/imageConfig';
 import { lu } from '@/theme/lu-brand';
+import { ROOM_DESIGN } from '@/theme/room-design';
 import { colors, radius, spacing } from '@/theme';
 import { useAuth } from '@/hooks/useAuth';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -407,7 +408,7 @@ export default function RoomCustomizeScreen() {
         {previewBg ? (
           <Image source={{ uri: previewBg }} style={StyleSheet.absoluteFill} contentFit="cover" recyclingKey={previewBg} {...IMG} />
         ) : (
-          <LinearGradient colors={['#3A0A0A', '#26090C']} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={[...ROOM_DESIGN.panelGradientShort]} style={StyleSheet.absoluteFill} />
         )}
         <View style={styles.previewInner}>
           <View style={styles.previewAvatar}>
