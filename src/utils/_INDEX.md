@@ -1,0 +1,57 @@
+# Utilities
+
+Pure helper functions: media URLs/upload/compression, display names, avatars, dates/time, mentions, deep links, notification routing, casino/challenge i18n, RTL, caching, and small formatting helpers.
+
+## Files
+- `agencyBubbleImage.ts`
+- `appVersion.ts`
+- `cacheManager.ts`
+- `callScreenNavigation.ts`
+- `casinoCoins.ts`
+- `casinoI18n.ts`
+- `challengeDeepLink.ts`
+- `challengeI18n.ts`
+- `challengeVoice.ts`
+- `copyToClipboard.ts`
+- `countryCode.ts`
+- `discoverFilter.ts`
+- `displayName.ts`
+- `gamesVisibility.ts`
+- `genderAccess.ts`
+- `giftCategories.ts`
+- `giftVideoPlayback.ts`
+- `imageCompress.ts`
+- `imageConfig.ts`
+- `joinDays.ts`
+- `mediaUpload.ts`
+- `mediaUrl.ts`
+- `mentions.ts`
+- `navigateToRoom.ts`
+- `notificationCategories.ts`
+- `notificationRouting.ts`
+- `partyDeepLink.ts`
+- `persistentListCache.ts`
+- `playRoomSound.ts`
+- `postShare.ts`
+- `presence.ts`
+- `privacyDisplay.ts`
+- `publicAccountId.ts`
+- `pushNotificationPolicy.ts`
+- `rechargePackageTags.ts`
+- `relativeTime.ts`
+- `reloadApp.ts`
+- `roomBlockDuration.ts`
+- `roomHostSeat.ts`
+- `roomMediaPickerGuard.ts`
+- `roomReactionValue.ts`
+- `roomVoiceSessionGuard.ts`
+- `rtcEnvironmentMessage.ts`
+- `rtl.ts`
+- `safeNumber.ts`
+- `serverTime.ts`
+- `userAge.ts`
+- `userAvatar.ts`
+- `userBalance.ts`
+- `videoCacheManager.ts`
+- `videoUrlParser.ts`
+

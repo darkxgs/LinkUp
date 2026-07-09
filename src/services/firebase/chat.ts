@@ -1,0 +1,1352 @@
+/**
+ * LinkUp App — Conversations Service (Firestore)
+ */
+
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  limit,
+  getDocs,
+  getDoc,
+  addDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  increment,
+  writeBatch,
+  runTransaction,
+  deleteField,
+} from 'firebase/firestore';
+import { firestore, auth } from './index';
+import { resolveDisplayName } from '@/utils/displayName';
+import { resolveUserDocAvatar, resolveConversationPeerAvatar } from '@/utils/userAvatar';
+import { getUser } from './users';
+import { waitForFirestoreAuth, subscribeWhenAuthenticated } from './authReady';
+import type { User } from '@firebase/auth';
+import { isBlockedBetween } from './blocks';
+import { isOfficialHiddenInChatList, resolveOfficialChatDisplayName, isOfficialSystemAccount } from '@/services/supportAccount';
+import {
+  buildBalanceIncrementPatch,
+  statsFromFirestoreDoc,
+} from '@/utils/userBalance';
+import {
+  getCallPricingOnce,
+  getChatMessagePrice,
+  type ChatMessagePriceType,
+} from './callPricingConfig';
+
+export interface Conversation {
+  id: string;
+  participants: string[];
+  participantNames: Record<string, string>;
+  participantAvatars: Record<string, string>;
+  lastMessage: string;
+  lastMessageAt: number;
+  unreadBy: Record<string, number>;
+  pinnedBy?: Record<string, boolean>;
+  archivedBy?: Record<string, boolean>;
+  hiddenBy?: Record<string, boolean>;
+  /** وقت حذف المحادثة صراحةً من القائمة — يمنع إعادة إظهارها تلقائياً */
+  deletedAtBy?: Record<string, number>;
+  lastReadAt?: Record<string, number>;
+  /** @deprecated — استخدم chatBackgroundBy */
+  chatBackgroundId?: string;
+  /** خلفية المحادثة لكل مستخدم على حدة */
+  chatBackgroundBy?: Record<string, string>;
+  isOnline?: boolean;
+}
+
+/** إعادة إظهار المحادثة في قائمة مستخدم (رسالة جديدة أو فتح الشات) */
+export function buildConversationUnhidePatch(uid: string): Record<string, unknown> {
+  return {
+    [`hiddenBy.${uid}`]: false,
+    [`deletedAtBy.${uid}`]: deleteField(),
+  };
+}
+
+export function buildConversationUnhidePatchForBoth(uidA: string, uidB: string): Record<string, unknown> {
+  return {
+    ...buildConversationUnhidePatch(uidA),
+    ...buildConversationUnhidePatch(uidB),
+  };
+}
+
+/** محادثة لها سجل فعلي — تستبعد المحادثات التي فُتحت دون إرسال رسالة */
+export function conversationHasThreadActivity(c: Conversation): boolean {
+  if ((c.lastMessage ?? '').trim().length > 0) return true;
+  return c.participants.some(
+    (p) => isOfficialSystemAccount(p) && !isOfficialHiddenInChatList(p),
+  );
+}
+
+/** خلفية المحادثة للمستخدم الحالي فقط (لا تظهر للطرف الآخر) */
+export function resolveConversationChatBackgroundId(
+  conv: Conversation | null | undefined,
+  uid: string | undefined,
+): string | undefined {
+  if (!uid || !conv) return undefined;
+  const mine = conv.chatBackgroundBy?.[uid];
+  if (mine) return mine;
+  if (!conv.chatBackgroundBy && conv.chatBackgroundId) {
+    return conv.chatBackgroundId;
+  }
+  return undefined;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  fromUid: string;
+  toUid: string;
+  text: string;
+  type: 'text' | 'gift' | 'image' | 'voice' | 'video' | 'file' | 'room_invite' | 'agency_invite' | 'party_invite' | 'game_invite' | 'post_share' | 'call';
+  /** دعوة غرفة */
+  inviteRoomId?: string;
+  inviteRoomName?: string;
+  inviteShortUrl?: string;
+  inviteDeepLink?: string;
+  /** مشاركة منشور */
+  invitePostId?: string;
+  invitePostAuthor?: string;
+  invitePostPreview?: string;
+  /** دعوة وكالة */
+  inviteAgencyId?: string;
+  inviteAgencyName?: string;
+  /** دعوة حفل */
+  invitePartyId?: string;
+  invitePartyTitle?: string;
+  /** دعوة تحدي لعبة */
+  inviteChallengeId?: string;
+  inviteGameId?: string;
+  inviteGameName?: string;
+  inviteBet?: number;
+  fileUrl?: string;
+  fileName?: string;
+  fileMime?: string;
+  fileSize?: number;
+  giftId?: string;
+  giftName?: string;
+  giftQuantity?: number;
+  giftPrice?: number;
+  imageUrl?: string;
+  animationUrl?: string;
+  soundUrl?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  voiceUrl?: string;
+  voiceDuration?: number; // بالثواني
+  videoUrl?: string;
+  videoThumbnail?: string;
+  videoDuration?: number;
+  /** سجل مكالمة 1-to-1 */
+  callType?: 'voice' | 'video';
+  callStatus?: 'completed' | 'missed' | 'declined';
+  callDurationSeconds?: number;
+  callChannelName?: string;
+  // === الرسائل المقفلة / المؤقتة ===
+  isLocked?: boolean;          // تحتاج دفع كوينز للفتح
+  unlockPrice?: number;        // السعر بالكوينز (snapshot وقت الإرسال)
+  unlockedBy?: string[];       // قائمة من فتحوها (uids)
+  expireMode?: 'once' | 'timed'; // مرة واحدة (تختفي) أو تقفل بعد مدة
+  viewDuration?: number;       // ثواني العرض قبل الإخفاء (لـ once و timed)
+  viewedBy?: string[];         // من شاهدها (لـ once)
+  createdAt: number;
+  isRead: boolean;
+  readAt?: number;
+  /** إخفاء الرسالة لمستخدم واحد (حذف لي فقط) */
+  hiddenFor?: Record<string, boolean>;
+  deleted?: boolean;
+  /** رد على رسالة سابقة — snapshot وقت الإرسال */
+  replyTo?: ChatReplySnapshot;
+}
+
+export type ChatReplySnapshot = {
+  messageId: string;
+  fromUid: string;
+  type: ChatMessage['type'];
+  /** نص معاينة مختصر (صورة، صوت، …) */
+  text: string;
+};
+
+/** بناء snapshot للرد — يُخزَّن مع الرسالة */
+export function buildReplySnapshot(msg: ChatMessage): ChatReplySnapshot {
+  return {
+    messageId: msg.id,
+    fromUid: msg.fromUid,
+    type: msg.type ?? 'text',
+    text: getChatMessagePreviewLabel(msg).slice(0, 200),
+  };
+}
+
+/** نص معاينة آخر رسالة في قائمة المحادثات */
+export function getChatMessagePreviewLabel(msg: Partial<ChatMessage>): string {
+  if (msg.type === 'text' || !msg.type) return (msg.text ?? '').trim();
+  if (msg.type === 'image') return 'صورة';
+  if (msg.type === 'voice') return 'رسالة صوتية';
+  if (msg.type === 'video') return 'فيديو';
+  if (msg.type === 'gift') return '🎁';
+  if (msg.type === 'call') {
+    const voice = msg.callType !== 'video';
+    if (msg.callStatus === 'completed') {
+      return voice ? '📞 مكالمة صوتية' : '📹 مكالمة فيديو';
+    }
+    if (msg.callStatus === 'declined') {
+      return voice ? '📞 مكالمة صوتية مرفوضة' : '📹 مكالمة فيديو مرفوضة';
+    }
+    return voice ? '📞 مكالمة صوتية فائتة' : '📹 مكالمة فيديو فائتة';
+  }
+  if (msg.type === 'file') return msg.fileName?.trim() ? `📎 ${msg.fileName.trim()}` : '📎 ملف';
+  if (msg.type === 'room_invite') return msg.text?.trim() || 'دعوة غرفة';
+  if (msg.type === 'agency_invite') return msg.text?.trim() || 'دعوة وكالة';
+  if (msg.type === 'party_invite') return msg.text?.trim() || 'دعوة حفل';
+  if (msg.type === 'game_invite') return msg.text?.trim() || 'دعوة تحدي';
+  if (msg.type === 'post_share') return msg.text?.trim() || 'منشور';
+  return (msg.text ?? '').trim();
+}
+
+const lastMessageRepairScheduled = new Set<string>();
+
+/** إصلاح lastMessage من آخر رسالة فعلية (للمحادثات التي فُرغت بالخطأ) */
+export async function repairConversationLastMessage(conversationId: string): Promise<boolean> {
+  if (!conversationId) return false;
+  try {
+    const snap = await getDocs(
+      query(
+        collection(firestore, 'messages'),
+        where('conversationId', '==', conversationId),
+        limit(100),
+      ),
+    );
+    const msgs = snap.docs
+      .map((d) => d.data() as ChatMessage)
+      .filter((m) => !m.deleted)
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    if (msgs.length === 0) return false;
+
+    const last = msgs[0]!;
+    const preview = getChatMessagePreviewLabel(last);
+    if (!preview) return false;
+
+    await updateDoc(doc(firestore, 'conversations', conversationId), {
+      lastMessage: preview,
+      lastMessageAt: last.createdAt ?? Date.now(),
+    });
+    return true;
+  } catch (e) {
+    console.warn('repairConversationLastMessage:', e);
+    return false;
+  }
+}
+
+function scheduleLastMessageRepair(conversationId: string): void {
+  if (!conversationId || lastMessageRepairScheduled.has(conversationId)) return;
+  lastMessageRepairScheduled.add(conversationId);
+  void repairConversationLastMessage(conversationId).finally(() => {
+    lastMessageRepairScheduled.delete(conversationId);
+  });
+}
+
+const hiddenWelcomeRepairScheduled = new Set<string>();
+
+/** إظهار محادثة مخفية عند المرسل إذا سبق وأرسل رسالة ترحيب/افتتاحية */
+function scheduleHiddenWelcomeConversationReveal(conversationId: string, uid: string): void {
+  const key = `${conversationId}_${uid}`;
+  if (!conversationId || !uid || hiddenWelcomeRepairScheduled.has(key)) return;
+  hiddenWelcomeRepairScheduled.add(key);
+  void (async () => {
+    try {
+      const convRef = doc(firestore, 'conversations', conversationId);
+      const convSnap = await getDoc(convRef);
+      if (!convSnap.exists()) return;
+      if (convSnap.data()?.deletedAtBy?.[uid]) return;
+
+      const snap = await getDocs(
+        query(
+          collection(firestore, 'messages'),
+          where('conversationId', '==', conversationId),
+          where('fromUid', '==', uid),
+          limit(1),
+        ),
+      );
+      if (snap.empty) return;
+      const msg = snap.docs[0]!.data() as ChatMessage;
+      const preview = getChatMessagePreviewLabel(msg);
+      if (!preview) return;
+      await updateDoc(convRef, {
+        lastMessage: preview,
+        lastMessageAt: msg.createdAt ?? Date.now(),
+        ...buildConversationUnhidePatch(uid),
+        [`archivedBy.${uid}`]: false,
+        [`unreadBy.${uid}`]: 0,
+      });
+    } catch (e) {
+      console.warn('scheduleHiddenWelcomeConversationReveal:', e);
+    } finally {
+      hiddenWelcomeRepairScheduled.delete(key);
+    }
+  })();
+}
+
+// === Get conversations ===
+export const getConversations = async (): Promise<Conversation[]> => {
+  const user = auth.currentUser;
+  if (!user) return [];
+
+  try {
+    const q = query(
+      collection(firestore, 'conversations'),
+      where('participants', 'array-contains', user.uid),
+      limit(100),
+    );
+    const snap = await getDocs(q);
+    const convs = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Conversation);
+    // ترتيب في الكلاينت
+    convs.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+    return convs.slice(0, 50);
+  } catch (e) {
+    console.error('getConversations:', e);
+    return [];
+  }
+};
+
+// === Subscribe to conversations ===
+// نضيف isOnline + presence بناءً على users/{uid}.lastSeen (آخر دقيقتين = متصل)
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // دقيقتان
+
+export const subscribeToConversations = (
+  callback: (convs: Conversation[]) => void,
+): (() => void) => {
+  // نفس إصلاح سباق الإقلاع في notifications.ts: قراءة auth.currentUser لحظة
+  // الاستدعاء تُرجع noop إذا رُكِّب المستمع قبل اكتمال استعادة الجلسة.
+  let fsUnsub: (() => void) | null = null;
+  let attachedUid: string | null = null;
+  let disposed = false;
+
+  const authUnsub = subscribeWhenAuthenticated(
+    (user) => {
+      if (disposed || attachedUid === user.uid) return;
+      fsUnsub?.();
+      attachedUid = user.uid;
+      fsUnsub = attachConversationsListener(user, callback);
+    },
+    () => {
+      if (disposed) return;
+      fsUnsub?.();
+      fsUnsub = null;
+      attachedUid = null;
+      callback([]);
+    },
+  );
+
+  return () => {
+    disposed = true;
+    authUnsub();
+    fsUnsub?.();
+    fsUnsub = null;
+  };
+};
+
+function attachConversationsListener(
+  user: User,
+  callback: (convs: Conversation[]) => void,
+): () => void {
+  const q = query(
+    collection(firestore, 'conversations'),
+    where('participants', 'array-contains', user.uid),
+    orderBy('lastMessageAt', 'desc'),
+    limit(50),
+  );
+
+  // كاش لـ lastSeen وأسماء العرض — صور البروفايل تُحدَّث كل snapshot
+  const lastSeenCache = new Map<string, number>();
+  const displayNameCache = new Map<string, string>();
+  const avatarCache = new Map<string, string>();
+
+  return onSnapshot(q, async (snap) => {
+    const baseConvs = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Conversation);
+
+    await waitForFirestoreAuth(12_000);
+
+    // اجلب بيانات الأطراف الآخرين من Firestore
+    const otherUids = new Set<string>();
+    for (const c of baseConvs) {
+      const other = c.participants.find((p) => p !== user.uid);
+      if (other) otherUids.add(other);
+    }
+
+    if (otherUids.size > 0) {
+      await Promise.all(
+        Array.from(otherUids).map(async (uid) => {
+          const officialName = resolveOfficialChatDisplayName(uid);
+          if (officialName) {
+            lastSeenCache.set(uid, 0);
+            if (!displayNameCache.has(uid)) displayNameCache.set(uid, officialName);
+            avatarCache.set(uid, '');
+            return;
+          }
+          try {
+            const userSnap = await getDoc(doc(firestore, 'users', uid));
+            if (userSnap.exists()) {
+              const data = userSnap.data() as Record<string, unknown>;
+              const { parseLastSeen } = await import('@/utils/presence');
+              lastSeenCache.set(uid, parseLastSeen(data.lastSeen));
+              if (!displayNameCache.has(uid)) {
+                displayNameCache.set(
+                  uid,
+                  resolveDisplayName({
+                    displayName: data.displayName as string | undefined,
+                    email: data.email as string | undefined,
+                  }),
+                );
+              }
+              avatarCache.set(uid, resolveUserDocAvatar(data, uid));
+            } else {
+              lastSeenCache.set(uid, 0);
+              if (!displayNameCache.has(uid)) displayNameCache.set(uid, 'مستخدم');
+              avatarCache.set(uid, '');
+            }
+          } catch {
+            lastSeenCache.set(uid, 0);
+            if (!displayNameCache.has(uid)) displayNameCache.set(uid, 'مستخدم');
+            avatarCache.set(uid, '');
+          }
+        }),
+      );
+    }
+
+    // ادمج isOnline + أسماء حقيقية + صور محدّثة
+    const now = Date.now();
+    const enriched: Conversation[] = baseConvs.map((c) => {
+      const other = c.participants.find((p) => p !== user.uid) ?? '';
+      const lastSeen = lastSeenCache.get(other) ?? 0;
+      const officialName = resolveOfficialChatDisplayName(other);
+      const resolvedOther = officialName
+        ?? displayNameCache.get(other)
+        ?? resolveDisplayName({ displayName: c.participantNames?.[other] ?? '' });
+
+      const myStored = c.participantNames?.[user.uid] ?? '';
+      const resolvedMe = displayNameCache.get(user.uid)
+        ?? resolveDisplayName({
+          displayName: myStored,
+          email: user.email ?? undefined,
+        });
+
+      const cachedAvatar = avatarCache.get(other)?.trim();
+      const resolvedAvatar = resolveConversationPeerAvatar(
+        c,
+        other,
+        cachedAvatar ? { avatar: cachedAvatar } : undefined,
+      );
+
+      return {
+        ...c,
+        participantNames: {
+          ...c.participantNames,
+          [other]: resolvedOther,
+          [user.uid]: resolvedMe,
+        },
+        participantAvatars: {
+          ...(c.participantAvatars ?? {}),
+          [other]: resolvedAvatar,
+        },
+        isOnline: lastSeen > 0 && now - lastSeen < ONLINE_THRESHOLD_MS,
+      };
+    });
+
+    // إخفاء المحادثات المحذوفة + الفارغة (فُتحت دون رسائل) + حسابات الدعم المكررة
+    const visible = enriched.filter(
+      (c) =>
+        !c.hiddenBy?.[user.uid] &&
+        !c.deletedAtBy?.[user.uid] &&
+        !c.participants.some((p) => isOfficialHiddenInChatList(p)) &&
+        conversationHasThreadActivity(c),
+    );
+
+    visible.sort((a, b) => {
+      const aPinned = a.pinnedBy?.[user.uid] ? 1 : 0;
+      const bPinned = b.pinnedBy?.[user.uid] ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      return (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0);
+    });
+
+    for (const c of enriched) {
+      if (c.hiddenBy?.[user.uid] && !c.deletedAtBy?.[user.uid]) {
+        scheduleHiddenWelcomeConversationReveal(c.id, user.uid);
+      }
+      if (!(c.lastMessage ?? '').trim()) {
+        scheduleLastMessageRepair(c.id);
+      }
+    }
+
+    callback(visible);
+  });
+}
+
+/** متابعة محادثة واحدة — لإيصالات القراءة اللحظية (lastReadAt) */
+export const subscribeToConversation = (
+  conversationId: string,
+  callback: (conv: Conversation | null) => void,
+): (() => void) => {
+  return onSnapshot(
+    doc(firestore, 'conversations', conversationId),
+    (snap) => {
+      if (!snap.exists()) {
+        callback(null);
+        return;
+      }
+      callback({ id: snap.id, ...snap.data() } as Conversation);
+    },
+    () => callback(null),
+  );
+};
+
+/** تعيين خلفية المحادثة للمستخدم الحالي فقط */
+export const setConversationChatBackground = async (
+  conversationId: string,
+  backgroundId: string,
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+  await updateDoc(doc(firestore, 'conversations', conversationId), {
+    [`chatBackgroundBy.${user.uid}`]: backgroundId,
+  });
+};
+
+// === Get/Create conversation ===
+export const getOrCreateConversation = async (
+  otherUid: string,
+  otherName: string,
+  otherAvatar: string,
+): Promise<string> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+
+  // Sort UIDs to create deterministic conversation ID
+  const sortedUids = [user.uid, otherUid].sort();
+  const convId = `${sortedUids[0]}_${sortedUids[1]}`;
+
+  const meDoc = await getUser(user.uid);
+  const otherDoc = await getUser(otherUid);
+
+  const myName = resolveDisplayName({
+    displayName: meDoc?.displayName ?? user.displayName,
+    email: meDoc?.email ?? user.email ?? undefined,
+  });
+  const theirName = resolveOfficialChatDisplayName(otherUid)
+    ?? resolveDisplayName({
+      displayName: otherDoc?.displayName ?? otherName,
+      email: otherDoc?.email,
+    });
+
+  const convRef = doc(firestore, 'conversations', convId);
+  const existingSnap = await getDoc(convRef);
+  const participantNames = {
+    [user.uid]: myName,
+    [otherUid]: theirName,
+  };
+  const participantAvatars = {
+    [user.uid]:
+      (meDoc
+        ? resolveUserDocAvatar(meDoc as unknown as Record<string, unknown>, user.uid)
+        : '')
+      || user.photoURL?.trim()
+      || '',
+    [otherUid]:
+      (otherDoc
+        ? resolveUserDocAvatar(otherDoc as unknown as Record<string, unknown>, otherUid)
+        : '')
+      || otherAvatar?.trim()
+      || '',
+  };
+
+  if (existingSnap.exists()) {
+    await updateDoc(convRef, {
+      participants: sortedUids,
+      participantNames,
+      participantAvatars,
+    });
+    const existing = existingSnap.data() as Conversation;
+    if (!(existing.lastMessage ?? '').trim()) {
+      scheduleLastMessageRepair(convId);
+    }
+    return convId;
+  }
+
+  await setDoc(convRef, {
+    participants: sortedUids,
+    participantNames,
+    participantAvatars,
+    lastMessage: '',
+    lastMessageAt: 0,
+    unreadBy: { [user.uid]: 0, [otherUid]: 0 },
+  });
+
+  return convId;
+};
+
+// ⚡ كاش الإعفاء من رسوم الرسائل — يوفّر قراءتي Firestore على كل رسالة
+// (حالة الإعفاء: حساب رسمي/وكيل/أنثى معفاة — لا تتغير خلال دقائق المحادثة)
+const chargeExemptCache = new Map<string, number>();
+const CHARGE_EXEMPT_TTL_MS = 2 * 60 * 1000;
+
+/** خصم كوينز إرسال رسالة شات — يُقرأ السعر من config/callPricing */
+async function chargeForChatMessage(
+  toUid: string,
+  messageType: ChatMessagePriceType,
+): Promise<number> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+  if (isOfficialSystemAccount(user.uid) || isOfficialSystemAccount(toUid)) return 0;
+
+  const exemptKey = `${user.uid}_${toUid}`;
+  const exemptAt = chargeExemptCache.get(exemptKey);
+  if (exemptAt && Date.now() - exemptAt < CHARGE_EXEMPT_TTL_MS) return 0;
+
+  const [senderDoc, recipientDoc] = await Promise.all([
+    getDoc(doc(firestore, 'users', user.uid)),
+    getDoc(doc(firestore, 'users', toUid)),
+  ]);
+  const { isAgentChatParticipant } = await import('./hostTasks');
+  const { canFemaleSendFreeText } = await import('@/utils/genderAccess');
+  const senderData = senderDoc.data() as Record<string, unknown> | undefined;
+  const recipientData = recipientDoc.data() as Record<string, unknown> | undefined;
+  if (isAgentChatParticipant(senderData) || isAgentChatParticipant(recipientData)) {
+    chargeExemptCache.set(exemptKey, Date.now());
+    return 0;
+  }
+
+  if (canFemaleSendFreeText(senderData as Parameters<typeof canFemaleSendFreeText>[0])) {
+    chargeExemptCache.set(exemptKey, Date.now());
+    return 0;
+  }
+
+  const pricing = await getCallPricingOnce();
+  const price = getChatMessagePrice(pricing, messageType);
+  if (price <= 0) {
+    chargeExemptCache.set(exemptKey, Date.now());
+    return 0;
+  }
+
+  const userRef = doc(firestore, 'users', user.uid);
+  await runTransaction(firestore, async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists()) throw new Error('المستخدم غير موجود');
+    const stats = statsFromFirestoreDoc(snap.data() as Record<string, unknown>);
+    if (stats.coins < price) {
+      throw new Error(
+        `رصيدك ${stats.coins.toLocaleString('en-US')} كوين — تحتاج ${price.toLocaleString('en-US')} كوين لإرسال هذه الرسالة`,
+      );
+    }
+    tx.update(userRef, buildBalanceIncrementPatch('coins', -price));
+  });
+
+  const label =
+    messageType === 'text' ? 'رسالة نصية'
+      : messageType === 'voice' ? 'رسالة صوتية'
+        : 'صورة';
+  await addDoc(collection(firestore, 'transactions'), {
+    uid: user.uid,
+    type: 'chat_message',
+    messageType,
+    amount: -price,
+    currency: 'coins',
+    toUid,
+    itemName: label,
+    status: 'completed',
+    createdAt: Date.now(),
+  });
+
+  return price;
+}
+
+// ⚡ كاش فحص الحظر — القيمة «غير محظور» تصلح لثوانٍ؛ الحظر الفعلي تفرضه القواعد
+const blockCheckCache = new Map<string, { blocked: boolean; at: number }>();
+const BLOCK_CHECK_TTL_MS = 30 * 1000;
+
+async function isBlockedBetweenCached(uid: string, toUid: string): Promise<boolean> {
+  const key = `${uid}_${toUid}`;
+  const hit = blockCheckCache.get(key);
+  if (hit && Date.now() - hit.at < BLOCK_CHECK_TTL_MS) return hit.blocked;
+  const blocked = await isBlockedBetween(uid, toUid);
+  blockCheckCache.set(key, { blocked, at: Date.now() });
+  return blocked;
+}
+
+// === Send message ===
+export const sendChatMessage = async (
+  conversationId: string,
+  toUid: string,
+  text: string,
+  replyTo?: ChatReplySnapshot,
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+  // ⚡ الفحصان مكاشان — بعد أول رسالة يصيران فوريين بلا رحلات شبكية
+  // (الحظر قبل الرسوم حتى لا يُخصم من مرسل محظور)
+  if (await isBlockedBetweenCached(user.uid, toUid)) {
+    throw new Error('BLOCKED');
+  }
+  const charged = await chargeForChatMessage(toUid, 'text');
+
+  await addDoc(collection(firestore, 'messages'), {
+    conversationId,
+    fromUid: user.uid,
+    toUid,
+    text,
+    type: 'text',
+    createdAt: Date.now(),
+    isRead: false,
+    ...(replyTo ? { replyTo } : {}),
+  });
+
+  // تحديث ملخص المحادثة في الخلفية — لا يؤخّر ظهور الرسالة
+  const now = Date.now();
+  void updateDoc(doc(firestore, 'conversations', conversationId), {
+    lastMessage: text,
+    lastMessageAt: now,
+    [`unreadBy.${toUid}`]: increment(1),
+    ...buildConversationUnhidePatchForBoth(user.uid, toUid),
+  }).catch(() => {});
+
+  const { notifyChatMessage } = await import('./activityNotifications');
+  void notifyChatMessage(toUid, conversationId, text);
+
+  void (async () => {
+    try {
+      const me = await getUser(user.uid);
+      const { isHostessUser, markHostInteraction } = await import('./hostTasks');
+      const { canEarnHostTasks } = await import('@/utils/genderAccess');
+      if (canEarnHostTasks(me)) {
+        await markHostInteraction();
+      }
+    } catch { /* non-blocking */ }
+  })();
+
+  void (async () => {
+    try {
+      const { trackRewardsMessageSent, hadIncomingReplyBeforeSend } = await import('./rewardsCenter');
+      const recipient = await getUser(toUid);
+      const isFemale = recipient?.gender === 'female';
+      const hadReply = await hadIncomingReplyBeforeSend(conversationId, user.uid);
+      await trackRewardsMessageSent(toUid, isFemale, hadReply);
+      const {
+        isHostessUser,
+        shouldCountMessageForHostTasks,
+        trackHostMessageReceived,
+      } = await import('./hostTasks');
+      const { canEarnHostTasks } = await import('@/utils/genderAccess');
+      const sender = await getUser(user.uid);
+      if (
+        charged > 0
+        && canEarnHostTasks(recipient)
+        && shouldCountMessageForHostTasks(sender)
+      ) {
+        await trackHostMessageReceived(toUid, true);
+      }
+    } catch { /* non-blocking */ }
+  })();
+};
+
+/** إظهار المحادثة في قائمة الطرفين وتحديث آخر رسالة */
+async function syncConversationListPreview(
+  convId: string,
+  myUid: string,
+  otherUid: string,
+  preview: string,
+  lastMessageAt: number,
+  incrementOtherUnread = false,
+): Promise<void> {
+  const patch: Record<string, unknown> = {
+    lastMessage: preview,
+    lastMessageAt,
+    ...buildConversationUnhidePatchForBoth(myUid, otherUid),
+    [`archivedBy.${myUid}`]: false,
+    [`archivedBy.${otherUid}`]: false,
+    [`unreadBy.${myUid}`]: 0,
+  };
+  if (incrementOtherUnread) {
+    patch[`unreadBy.${otherUid}`] = increment(1);
+  }
+  await updateDoc(doc(firestore, 'conversations', convId), patch);
+}
+
+/**
+ * رسالة ترحيب تلقائية عند الإعجاب من الشاشة الرئيسية — مجانية وبدون خصم كوينز
+ */
+export async function sendLikeWelcomeChatMessage(
+  toUid: string,
+  otherName?: string,
+  otherAvatar?: string,
+  welcomeText?: string,
+): Promise<string | null> {
+  const user = auth.currentUser;
+  if (!user || user.uid === toUid) return null;
+  if (await isBlockedBetween(user.uid, toUid)) return null;
+
+  const text = (welcomeText ?? 'مرحبا هل يمكنك التحدث').trim();
+  if (!text) return null;
+
+  const convId = await getOrCreateConversation(
+    toUid,
+    otherName ?? '',
+    otherAvatar ?? '',
+  );
+
+  const prior = await getDocs(
+    query(
+      collection(firestore, 'messages'),
+      where('conversationId', '==', convId),
+      where('fromUid', '==', user.uid),
+      limit(1),
+    ),
+  );
+
+  if (!prior.empty) {
+    const existing = prior.docs[0]!.data() as ChatMessage;
+    const preview = getChatMessagePreviewLabel(existing) || text;
+    const at = existing.createdAt ?? Date.now();
+    await syncConversationListPreview(convId, user.uid, toUid, preview, at, false);
+    return convId;
+  }
+
+  const now = Date.now();
+  const msgRef = doc(collection(firestore, 'messages'));
+  const batch = writeBatch(firestore);
+  batch.set(msgRef, {
+    conversationId: convId,
+    fromUid: user.uid,
+    toUid,
+    text,
+    type: 'text',
+    createdAt: now,
+    isRead: false,
+  });
+  batch.update(doc(firestore, 'conversations', convId), {
+    lastMessage: text,
+    lastMessageAt: now,
+    [`unreadBy.${toUid}`]: increment(1),
+    [`unreadBy.${user.uid}`]: 0,
+    ...buildConversationUnhidePatchForBoth(user.uid, toUid),
+    [`archivedBy.${user.uid}`]: false,
+    [`archivedBy.${toUid}`]: false,
+  });
+  await batch.commit();
+
+  const { notifyChatMessage } = await import('./activityNotifications');
+  void notifyChatMessage(toUid, convId, text);
+  return convId;
+}
+
+export { sendGiftChatMessage } from './chatGifts';
+export type { ChatGiftPayload } from './chatGifts';
+
+/**
+ * إرسال رسالة صورة
+ * - يرفع الصورة إلى Storage ثم يخزّن رابطها
+ */
+export const sendImageMessage = async (
+  conversationId: string,
+  toUid: string,
+  localUri: string,
+  dimensions?: { width: number; height: number },
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+  if (await isBlockedBetween(user.uid, toUid)) {
+    throw new Error('BLOCKED');
+  }
+
+  const charged = await chargeForChatMessage(toUid, 'image');
+
+  const { storage } = await import('./index');
+  const { ref: storageRef, uploadBytes, getDownloadURL } = await import('firebase/storage');
+
+  // ضغط الصورة قبل الرفع (تصغير بالعرض + JPEG) لتسريع الإرسال. أي فشل يُعيد الأصل.
+  const { compressImageForUpload, COMPRESS_PRESETS } = await import('@/utils/imageCompress');
+  const { uriToUploadBlob, assertUploadSize } = await import('@/utils/mediaUpload');
+  const uploadUri = await compressImageForUpload(localUri, COMPRESS_PRESETS.chat);
+
+  const blob = await uriToUploadBlob(uploadUri, 'image/jpeg');
+  assertUploadSize(blob);
+
+  const ext = 'jpg';
+  const path = `chat_images/${conversationId}/${user.uid}_${Date.now()}.${ext}`;
+  const fileRef = storageRef(storage, path);
+  await uploadBytes(fileRef, blob, { contentType: blob.type || `image/${ext}` });
+  const imageUrl = await getDownloadURL(fileRef);
+
+  const msgData: any = {
+    conversationId,
+    fromUid: user.uid,
+    toUid,
+    text: '',
+    type: 'image',
+    imageUrl,
+    createdAt: Date.now(),
+    isRead: false,
+  };
+  if (dimensions) {
+    msgData.imageWidth = dimensions.width;
+    msgData.imageHeight = dimensions.height;
+  }
+
+  await addDoc(collection(firestore, 'messages'), msgData);
+
+  await updateDoc(doc(firestore, 'conversations', conversationId), {
+    lastMessage: 'صورة',
+    lastMessageAt: Date.now(),
+    [`unreadBy.${toUid}`]: increment(1),
+    ...buildConversationUnhidePatchForBoth(user.uid, toUid),
+  });
+
+  const { notifyChatMessage } = await import('./activityNotifications');
+  void notifyChatMessage(toUid, conversationId, '📷 صورة');
+
+  void (async () => {
+    try {
+      const {
+        shouldCountMessageForHostTasks,
+        trackHostMessageReceived,
+      } = await import('./hostTasks');
+      const { canEarnHostTasks } = await import('@/utils/genderAccess');
+      const recipient = await getUser(toUid);
+      const sender = await getUser(user.uid);
+      if (
+        charged > 0
+        && canEarnHostTasks(recipient)
+        && shouldCountMessageForHostTasks(sender)
+      ) {
+        await trackHostMessageReceived(toUid, true);
+      }
+    } catch { /* non-blocking */ }
+  })();
+};
+
+/**
+ * إرسال رسالة صوتية
+ * - يرفع التسجيل إلى Storage ثم يخزّن رابطه + المدّة
+ */
+export const sendVoiceMessage = async (
+  conversationId: string,
+  toUid: string,
+  localUri: string,
+  durationSeconds: number,
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+  if (await isBlockedBetween(user.uid, toUid)) {
+    throw new Error('BLOCKED');
+  }
+
+  const charged = await chargeForChatMessage(toUid, 'voice');
+
+  const { storage } = await import('./index');
+  const { ref: storageRef, uploadBytes, getDownloadURL } = await import('firebase/storage');
+
+  const response = await fetch(localUri);
+  const blob = await response.blob();
+
+  // حد أقصى 10MB (~ عدة دقائق)
+  if (blob.size > 10 * 1024 * 1024) {
+    throw new Error('التسجيل طويل جداً');
+  }
+
+  const ext = localUri.split('.').pop()?.toLowerCase() ?? 'm4a';
+  const path = `chat_voices/${conversationId}/${user.uid}_${Date.now()}.${ext}`;
+  const fileRef = storageRef(storage, path);
+  await uploadBytes(fileRef, blob, { contentType: blob.type || 'audio/m4a' });
+  const voiceUrl = await getDownloadURL(fileRef);
+
+  await addDoc(collection(firestore, 'messages'), {
+    conversationId,
+    fromUid: user.uid,
+    toUid,
+    text: '',
+    type: 'voice',
+    voiceUrl,
+    voiceDuration: Math.round(durationSeconds),
+    createdAt: Date.now(),
+    isRead: false,
+  });
+
+  await updateDoc(doc(firestore, 'conversations', conversationId), {
+    lastMessage: 'رسالة صوتية',
+    lastMessageAt: Date.now(),
+    [`unreadBy.${toUid}`]: increment(1),
+    ...buildConversationUnhidePatchForBoth(user.uid, toUid),
+  });
+
+  const { notifyChatMessage } = await import('./activityNotifications');
+  void notifyChatMessage(toUid, conversationId, '🎤 رسالة صوتية');
+
+  void (async () => {
+    try {
+      const {
+        shouldCountMessageForHostTasks,
+        trackHostMessageReceived,
+      } = await import('./hostTasks');
+      const { canEarnHostTasks } = await import('@/utils/genderAccess');
+      const recipient = await getUser(toUid);
+      const sender = await getUser(user.uid);
+      if (
+        charged > 0
+        && canEarnHostTasks(recipient)
+        && shouldCountMessageForHostTasks(sender)
+      ) {
+        await trackHostMessageReceived(toUid, true);
+      }
+    } catch { /* non-blocking */ }
+  })();
+};
+
+const MAX_CHAT_FILE_BYTES = 15 * 1024 * 1024;
+
+/**
+ * إرسال ملف (PDF، مستند، إلخ) — للدعم والشات
+ */
+export const sendFileMessage = async (
+  conversationId: string,
+  toUid: string,
+  localUri: string,
+  fileName: string,
+  mimeType?: string,
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+  if (await isBlockedBetween(user.uid, toUid)) {
+    throw new Error('BLOCKED');
+  }
+
+  const { storage } = await import('./index');
+  const { ref: storageRef, uploadBytes, getDownloadURL } = await import('firebase/storage');
+
+  const response = await fetch(localUri);
+  const blob = await response.blob();
+  if (blob.size > MAX_CHAT_FILE_BYTES) {
+    throw new Error('FILE_TOO_LARGE');
+  }
+
+  const safeName = fileName.replace(/[^\w.\-أ-ي\s]/g, '_').slice(0, 80) || 'file';
+  const ext = safeName.includes('.') ? safeName.split('.').pop() : 'bin';
+  const path = `chat_files/${conversationId}/${user.uid}_${Date.now()}.${ext}`;
+  const fileRef = storageRef(storage, path);
+  await uploadBytes(fileRef, blob, {
+    contentType: mimeType || blob.type || 'application/octet-stream',
+  });
+  const fileUrl = await getDownloadURL(fileRef);
+
+  await addDoc(collection(firestore, 'messages'), {
+    conversationId,
+    fromUid: user.uid,
+    toUid,
+    text: safeName,
+    type: 'file',
+    fileUrl,
+    fileName: safeName,
+    fileMime: mimeType || blob.type,
+    fileSize: blob.size,
+    createdAt: Date.now(),
+    isRead: false,
+  });
+
+  await updateDoc(doc(firestore, 'conversations', conversationId), {
+    lastMessage: `📎 ${safeName}`,
+    lastMessageAt: Date.now(),
+    [`unreadBy.${toUid}`]: increment(1),
+    ...buildConversationUnhidePatchForBoth(user.uid, toUid),
+  });
+
+  const { notifyChatMessage } = await import('./activityNotifications');
+  void notifyChatMessage(toUid, conversationId, `📎 ${safeName}`);
+};
+
+/**
+ * تصفير عدّاد الرسائل غير المقروءة لي في هذه المحادثة
+ * يُستدعى عند فتح المحادثة وعرضها
+ */
+export const markConversationAsRead = async (
+  conversationId: string,
+  otherUid?: string,
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) return;
+  const now = Date.now();
+  try {
+    await updateDoc(doc(firestore, 'conversations', conversationId), {
+      [`unreadBy.${user.uid}`]: 0,
+      [`lastReadAt.${user.uid}`]: now,
+    });
+
+    const q = query(
+      collection(firestore, 'messages'),
+      where('conversationId', '==', conversationId),
+      where('toUid', '==', user.uid),
+      limit(100),
+    );
+    const snap = await getDocs(q);
+    const batch = writeBatch(firestore);
+    let pending = 0;
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      if (data.isRead === true || data.deleted === true) return;
+      batch.update(d.ref, { isRead: true, readAt: now });
+      pending += 1;
+    });
+    if (pending > 0) await batch.commit();
+
+    let peerUid = otherUid?.trim() || '';
+    if (!peerUid) {
+      const convSnap = await getDoc(doc(firestore, 'conversations', conversationId));
+      const participants = convSnap.data()?.participants as string[] | undefined;
+      peerUid = participants?.find((p) => p !== user.uid) ?? '';
+    }
+    if (peerUid) {
+      const { dismissChatMessageNotifications } = await import('./notifications');
+      void dismissChatMessageNotifications({ fromUid: peerUid, conversationId });
+    }
+  } catch (e) {
+    console.warn('markConversationAsRead:', e);
+  }
+};
+
+/**
+ * تثبيت/إلغاء تثبيت محادثة (للأولوية في القائمة)
+ */
+export const togglePinConversation = async (
+  conversationId: string,
+  pinned: boolean,
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+  await updateDoc(doc(firestore, 'conversations', conversationId), {
+    [`pinnedBy.${user.uid}`]: pinned,
+  });
+};
+
+/** أرشفة / إلغاء أرشفة محادثة (لك فقط) */
+export const archiveConversation = async (
+  conversationId: string,
+  archived: boolean,
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+  await updateDoc(doc(firestore, 'conversations', conversationId), {
+    [`archivedBy.${user.uid}`]: archived,
+  });
+};
+
+/** حذف المحادثة من قائمتك (soft delete) */
+export const hideConversationForUser = async (conversationId: string): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+
+  const convSnap = await getDoc(doc(firestore, 'conversations', conversationId));
+  const participants = convSnap.data()?.participants as string[] | undefined;
+  const peerUid = participants?.find((p) => p !== user.uid) ?? '';
+
+  await updateDoc(doc(firestore, 'conversations', conversationId), {
+    [`hiddenBy.${user.uid}`]: true,
+    [`deletedAtBy.${user.uid}`]: Date.now(),
+    [`pinnedBy.${user.uid}`]: false,
+  });
+
+  if (peerUid) {
+    const { dismissChatMessageNotifications } = await import('./notifications');
+    void dismissChatMessageNotifications({ fromUid: peerUid, conversationId });
+  }
+};
+
+export type QuickClearDays = 4 | 14 | 21 | 90;
+
+function isImportantChatMessage(m: ChatMessage): boolean {
+  if (m.type === 'gift') return true;
+  if (m.isLocked) return true;
+  if (m.type === 'image' || m.type === 'video' || m.type === 'voice' || m.type === 'file') {
+    return true;
+  }
+  return false;
+}
+
+/** مسح سريع — إخفاء الرسائل القديمة غير الهامة للمستخدم الحالي */
+export async function quickClearOldChatMessages(olderThanDays: QuickClearDays): Promise<number> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+
+  const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
+
+  const convSnap = await getDocs(
+    query(collection(firestore, 'conversations'), where('participants', 'array-contains', user.uid)),
+  );
+
+  let cleared = 0;
+  let batch = writeBatch(firestore);
+  let batchCount = 0;
+
+  const flush = async () => {
+    if (batchCount === 0) return;
+    await batch.commit();
+    batch = writeBatch(firestore);
+    batchCount = 0;
+  };
+
+  for (const convDoc of convSnap.docs) {
+    const convId = convDoc.id;
+    const msgSnap = await getDocs(
+      query(collection(firestore, 'messages'), where('conversationId', '==', convId), limit(500)),
+    );
+
+    for (const msgDoc of msgSnap.docs) {
+      const m = { id: msgDoc.id, ...msgDoc.data() } as ChatMessage;
+      if (m.deleted) continue;
+      if (m.hiddenFor?.[user.uid]) continue;
+      if ((m.createdAt ?? 0) >= cutoff) continue;
+      if (isImportantChatMessage(m)) continue;
+
+      batch.update(msgDoc.ref, { [`hiddenFor.${user.uid}`]: true });
+      batchCount += 1;
+      cleared += 1;
+
+      if (batchCount >= 450) await flush();
+    }
+  }
+
+  await flush();
+  return cleared;
+}
+
+/** حذف رسالة — forEveryone=true يحذف للجميع (المرسل فقط) */
+export const deleteChatMessage = async (
+  messageId: string,
+  options: { forEveryone?: boolean } = {},
+): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+
+  const msgRef = doc(firestore, 'messages', messageId);
+  const snap = await getDoc(msgRef);
+  if (!snap.exists()) return;
+
+  const data = snap.data();
+  if (options.forEveryone) {
+    if (data.fromUid !== user.uid) throw new Error('NOT_AUTHORIZED');
+    await deleteDoc(msgRef);
+    return;
+  }
+
+  await updateDoc(msgRef, {
+    [`hiddenFor.${user.uid}`]: true,
+  });
+};
+
+// === Subscribe to messages ===
+export const subscribeToMessages = (
+  conversationId: string,
+  callback: (messages: ChatMessage[]) => void,
+): (() => void) => {
+  const user = auth.currentUser;
+  const q = query(
+    collection(firestore, 'messages'),
+    where('conversationId', '==', conversationId),
+    limit(200),
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      const msgs = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as ChatMessage)
+        .filter((m) => {
+          if (m.deleted) return false;
+          if (user && m.hiddenFor?.[user.uid]) return false;
+          return true;
+        });
+      msgs.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+      callback(msgs);
+    },
+    (err) => {
+      console.error('subscribeToMessages:', err);
+      callback([]);
+    },
+  );
+};
+
+// === Seed demo conversations ===
+export const seedDemoConversations = async (): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  // Check if any conversation exists
+  const q = query(
+    collection(firestore, 'conversations'),
+    where('participants', 'array-contains', user.uid),
+    limit(1),
+  );
+  const snap = await getDocs(q);
+  if (!snap.empty) return;
+
+  const demos = [
+    {
+      uid: 'demo_msg_user_1',
+      name: 'مريم العتيبي',
+      avatar: 'https://i.pravatar.cc/100?img=47',
+      lastMsg: 'كيف حالك اليوم؟',
+      offset: 1000 * 60 * 3,
+      unread: 2,
+    },
+    {
+      uid: 'demo_msg_user_2',
+      name: 'محمد العتيبي',
+      avatar: 'https://i.pravatar.cc/100?img=15',
+      lastMsg: 'شكراً على الهدية الجميلة',
+      offset: 1000 * 60 * 30,
+      unread: 0,
+    },
+    {
+      uid: 'demo_msg_user_3',
+      name: 'سارة أحمد',
+      avatar: 'https://i.pravatar.cc/100?img=44',
+      lastMsg: 'متى موعدنا التالي في الغرفة؟',
+      offset: 1000 * 60 * 60 * 2,
+      unread: 1,
+    },
+    {
+      uid: 'demo_msg_user_4',
+      name: 'يوسف الفهد',
+      avatar: 'https://i.pravatar.cc/100?img=33',
+      lastMsg: 'تم! سأكون هناك',
+      offset: 1000 * 60 * 60 * 5,
+      unread: 0,
+    },
+    {
+      uid: 'demo_msg_user_5',
+      name: 'ليلى المغربية',
+      avatar: 'https://i.pravatar.cc/100?img=45',
+      lastMsg: 'صورة',
+      offset: 1000 * 60 * 60 * 24,
+      unread: 0,
+    },
+  ];
+
+  for (const d of demos) {
+    const sortedUids = [user.uid, d.uid].sort();
+    const convId = `${sortedUids[0]}_${sortedUids[1]}`;
+    await setDoc(doc(firestore, 'conversations', convId), {
+      participants: sortedUids,
+      participantNames: {
+        [user.uid]: user.displayName ?? 'مستخدم',
+        [d.uid]: d.name,
+      },
+      participantAvatars: {
+        [user.uid]: user.photoURL ?? '',
+        [d.uid]: d.avatar,
+      },
+      lastMessage: d.lastMsg,
+      lastMessageAt: Date.now() - d.offset,
+      unreadBy: { [user.uid]: d.unread, [d.uid]: 0 },
+    });
+  }
+};

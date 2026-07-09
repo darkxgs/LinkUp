@@ -1,0 +1,188 @@
+{
+  "expo": {
+    "name": "LinkUp",
+    "slug": "linkup-app",
+    "version": "1.6.0",
+    "orientation": "portrait",
+    "scheme": "linkup",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/linkup-native-splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0506"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.linkup.app",
+      "associatedDomains": [
+        "applinks:linkuplivechat.com",
+        "applinks:www.linkuplivechat.com"
+      ],
+      "infoPlist": {
+        "CFBundleLocalizations": [
+          "ar",
+          "en"
+        ],
+        "NSPhotoLibraryUsageDescription": "نحتاج للوصول إلى مكتبة الصور لاختيار صورة الملف الشخصي والألبومات",
+        "NSCameraUsageDescription": "نحتاج للوصول إلى الكاميرا لمكالمات الفيديو والمطابقة وصورة الملف الشخصي",
+        "NSMicrophoneUsageDescription": "نحتاج للوصول للمايكروفون للمكالمات الصوتية والفيديو",
+        "UIBackgroundModes": [
+          "audio",
+          "voip"
+        ],
+        "NSLocationWhenInUseUsageDescription": "نحتاج للوصول إلى موقعك لعرض الأشخاص القريبين منك"
+      },
+      "bitcode": false
+    },
+    "android": {
+      "package": "com.linkup.app",
+      "versionCode": 10,
+      "googleServicesFile": "./google-services1.json",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png"
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "linkuplivechat.com",
+              "pathPrefix": "/r"
+            },
+            {
+              "scheme": "https",
+              "host": "www.linkuplivechat.com",
+              "pathPrefix": "/r"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.BLUETOOTH",
+        "android.permission.INTERNET",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0A0506",
+          "image": "./assets/linkup-native-splash.png",
+          "resizeMode": "contain"
+        }
+      ],
+      "expo-localization",
+      "expo-video",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "السماح للتطبيق بالوصول إلى صورك لاختيار صورة الملف الشخصي",
+          "cameraPermission": "السماح للتطبيق باستخدام الكاميرا لالتقاط صور"
+        }
+      ],
+      [
+        "@livekit/react-native-expo-plugin",
+        {
+          "android": {
+            "audioType": "communication"
+          }
+        }
+      ],
+      "@config-plugins/react-native-webrtc",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static",
+            "deploymentTarget": "15.1"
+          },
+          "android": {
+            "minSdkVersion": 24,
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 34,
+            "kotlinVersion": "1.9.25",
+            "enableProguardInReleaseBuilds": false,
+            "packagingOptions": {
+              "pickFirst": [
+                "**/libc++_shared.so",
+                "**/libjsc.so",
+                "**/libfbjni.so"
+              ]
+            }
+          }
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "نحتاج للوصول إلى موقعك لعرض الأشخاص القريبين منك"
+        }
+      ],
+      "./plugins/withForcedRTL",
+      "./plugins/withRoomForegroundService"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "firebaseApiKey": "AIzaSyB0sVIAe63jkq0O_tU8B98GWe0SywBWaBM",
+      "firebaseAuthDomain": "linkup-dc45f.firebaseapp.com",
+      "firebaseDatabaseURL": "https://linkup-dc45f-default-rtdb.firebaseio.com",
+      "firebaseProjectId": "linkup-dc45f",
+      "firebaseStorageBucket": "linkup-dc45f.firebasestorage.app",
+      "firebaseMessagingSenderId": "521319798732",
+      "firebaseAppId": "1:521319798732:web:689bb9e8a40c4771ec2f69",
+      "firebaseMeasurementId": "G-Z1VJDQL3N4",
+      "shareLinkBase": "https://linkuplivechat.com",
+      "router": {
+        "origin": false
+      },
+      "googleAuth": {
+        "webClientId": "521319798732-o5lejfk4u80738rnea5ut82fjlmjcicp.apps.googleusercontent.com",
+        "androidClientId": "521319798732-guqiq2qkbhe0uf66gqsok9bakpe2hpj3.apps.googleusercontent.com",
+        "iosClientId": "521319798732-o5lejfk4u80738rnea5ut82fjlmjcicp.apps.googleusercontent.com"
+      },
+      "eas": {
+        "projectId": "9acaa4ef-dba2-4d67-b482-c481a38d2c61"
+      }
+    },
+    "icon": "./assets/icon.png",
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "locales": {
+      "ar": {
+        "CFBundleDisplayName": "LinkUp"
+      }
+    },
+    "jsEngine": "hermes",
+    "owner": "gsdark"
+  }
+}
