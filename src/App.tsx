@@ -1,0 +1,140 @@
+import { lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Layout from '@/components/Layout';
+import Login from '@/pages/Login';
+import PublicLayout from '@/landing/PublicLayout';
+import { ADMIN_BASE } from '@/lib/adminPaths';
+import { Loading } from '@/components/Common';
+
+const SiteLanding = lazy(() => import('@/landing/pages/Landing'));
+const SiteAbout = lazy(() => import('@/landing/pages/About'));
+const SiteContact = lazy(() => import('@/landing/pages/Contact'));
+const SitePrivacy = lazy(() => import('@/landing/pages/Privacy'));
+const SiteDeleteAccount = lazy(() => import('@/landing/pages/DeleteAccount'));
+const AppDownload = lazy(() => import('@/pages/AppDownload'));
+
+const Dashboard = lazy(() => import('@/pages/Dashboard'));
+const Analytics = lazy(() => import('@/pages/Analytics'));
+const Users = lazy(() => import('@/pages/Users'));
+const UserDetail = lazy(() => import('@/pages/UserDetail'));
+const Rooms = lazy(() => import('@/pages/Rooms'));
+const RoomDecor = lazy(() => import('@/pages/RoomDecor'));
+const Agencies = lazy(() => import('@/pages/Agencies'));
+const AgencyDetail = lazy(() => import('@/pages/AgencyDetail'));
+const AgencyApplications = lazy(() => import('@/pages/AgencyApplications'));
+const Admins = lazy(() => import('@/pages/Admins'));
+const Staff = lazy(() => import('@/pages/Staff'));
+const Wallet = lazy(() => import('@/pages/Wallet'));
+const Withdrawals = lazy(() => import('@/pages/Withdrawals'));
+const RechargePackages = lazy(() => import('@/pages/RechargePackages'));
+const Gifts = lazy(() => import('@/pages/Gifts'));
+const Store = lazy(() => import('@/pages/Store'));
+const LuckyBag = lazy(() => import('@/pages/LuckyBag'));
+const RoomThrone = lazy(() => import('@/pages/RoomThrone'));
+const RoomReactions = lazy(() => import('@/pages/RoomReactions'));
+const Vip = lazy(() => import('@/pages/Vip'));
+const AgencyLevels = lazy(() => import('@/pages/AgencyLevels'));
+const AgencyPrince = lazy(() => import('@/pages/AgencyPrince'));
+const RewardsCenter = lazy(() => import('@/pages/RewardsCenter'));
+const HostTasks = lazy(() => import('@/pages/HostTasks'));
+const Aristocracy = lazy(() => import('@/pages/Aristocracy'));
+const Titles = lazy(() => import('@/pages/Titles'));
+const GiftPrivileges = lazy(() => import('@/pages/GiftPrivileges'));
+const Privacy = lazy(() => import('@/pages/Privacy'));
+const AboutPages = lazy(() => import('@/pages/AboutPages'));
+const Games = lazy(() => import('@/pages/Games'));
+const CallPricing = lazy(() => import('@/pages/CallPricing'));
+const CallUsage = lazy(() => import('@/pages/CallUsage'));
+const ChatBackgrounds = lazy(() => import('@/pages/ChatBackgrounds'));
+const Relationships = lazy(() => import('@/pages/Relationships'));
+const Posts = lazy(() => import('@/pages/Posts'));
+const Notifications = lazy(() => import('@/pages/Notifications'));
+const AdminLogs = lazy(() => import('@/pages/AdminLogs'));
+const Settings = lazy(() => import('@/pages/Settings'));
+const Support = lazy(() => import('@/pages/Support'));
+const Reports = lazy(() => import('@/pages/Reports'));
+const KycRequests = lazy(() => import('@/pages/KycRequests'));
+const AppRelease = lazy(() => import('@/pages/AppRelease'));
+const BotAdmin = lazy(() => import('@/pages/BotAdmin'));
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const isAuth = localStorage.getItem('admin_auth') === 'true';
+  return isAuth ? <>{children}</> : <Navigate to="/login" replace />;
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Suspense fallback={<div className="page-container"><Loading /></div>}>
+        <Routes>
+          <Route element={<PublicLayout />}>
+            <Route path="/" element={<SiteLanding />} />
+            <Route path="/about" element={<SiteAbout />} />
+            <Route path="/contact" element={<SiteContact />} />
+            <Route path="/privacy" element={<SitePrivacy />} />
+            <Route path="/delete-account" element={<SiteDeleteAccount />} />
+            <Route path="/download" element={<AppDownload />} />
+            <Route path="/landing" element={<Navigate to="/download" replace />} />
+          </Route>
+
+          <Route path="/login" element={<Login />} />
+
+          <Route
+            path={ADMIN_BASE}
+            element={
+              <RequireAuth>
+                <Layout />
+              </RequireAuth>
+            }
+          >
+            <Route index element={<Dashboard />} />
+            <Route path="analytics" element={<Analytics />} />
+            <Route path="users" element={<Users />} />
+            <Route path="users/:uid" element={<UserDetail />} />
+            <Route path="rooms" element={<Rooms />} />
+            <Route path="room-decor" element={<RoomDecor />} />
+            <Route path="agencies" element={<Agencies />} />
+            <Route path="agencies/:id" element={<AgencyDetail />} />
+            <Route path="agency-prince" element={<AgencyPrince />} />
+            <Route path="agency-levels" element={<AgencyLevels />} />
+            <Route path="agency-applications" element={<AgencyApplications />} />
+            <Route path="wallet" element={<Wallet />} />
+            <Route path="withdrawals" element={<Withdrawals />} />
+            <Route path="bot" element={<BotAdmin />} />
+            <Route path="packages" element={<RechargePackages />} />
+            <Route path="gifts" element={<Gifts />} />
+            <Route path="store" element={<Store />} />
+            <Route path="lucky-bag" element={<LuckyBag />} />
+            <Route path="room-throne" element={<RoomThrone />} />
+            <Route path="room-reactions" element={<RoomReactions />} />
+            <Route path="vip" element={<Vip />} />
+            <Route path="rewards-center" element={<RewardsCenter />} />
+            <Route path="host-tasks" element={<HostTasks />} />
+            <Route path="aristocracy" element={<Aristocracy />} />
+            <Route path="titles" element={<Titles />} />
+            <Route path="gift-privileges" element={<GiftPrivileges />} />
+            <Route path="privacy" element={<Privacy />} />
+            <Route path="about-pages" element={<AboutPages />} />
+            <Route path="games" element={<Games />} />
+            <Route path="call-pricing" element={<CallPricing />} />
+            <Route path="call-usage" element={<CallUsage />} />
+            <Route path="relationships" element={<Relationships />} />
+            <Route path="chat-backgrounds" element={<ChatBackgrounds />} />
+            <Route path="posts" element={<Posts />} />
+            <Route path="notifications" element={<Notifications />} />
+            <Route path="support" element={<Support />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="kyc-requests" element={<KycRequests />} />
+            <Route path="admins" element={<Admins />} />
+            <Route path="staff" element={<Staff />} />
+            <Route path="logs" element={<AdminLogs />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="app-release" element={<AppRelease />} />
+          </Route>
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
+  );
+}
