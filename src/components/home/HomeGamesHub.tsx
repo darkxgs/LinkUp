@@ -1,8 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, Pressable, LayoutAnimation, Platform, UIManager } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Brain, Dices, Ticket, Zap, ChevronDown } from 'lucide-react-native';
-import type { LucideIcon } from 'lucide-react-native';
+import { Image } from 'expo-image';
 
 import { lu } from '@/theme/lu-brand';
 import { useAppLanguage } from '@/localization/useAppLanguage';
@@ -11,66 +10,74 @@ import { useGamePresenceCounts } from '@/hooks/useGamePresence';
 import { useConfig } from '@/contexts/ConfigContext';
 import { isSectionVisible, type GameSectionId } from '@/utils/gamesVisibility';
 import type { GameCategory } from '@/services/firebase/gamePresence';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+import { getWeekTicketStats, getCurrentLotteryWeekId } from '@/services/firebase/weeklyLotterySystem';
 
 type GameCardDef = {
   id: string;
-  icon: LucideIcon;
+  image: number;
   titleKey: string;
   subKey: string;
-  grad: readonly [string, string];
   route: string;
+  glow: string;
+  tag?: string;
 };
 
 const GAME_CARDS: GameCardDef[] = [
   {
     id: 'challenges',
-    icon: Zap,
+    image: require('../../../assets/images/hub_challenges.png'),
     titleKey: 'home.gameChallenges',
     subKey: 'home.gameChallengesSub',
-    grad: ['#FF2D2D', '#B00E0E'],
     route: '/games/challenges',
+    glow: '#FF4A2E',
   },
   {
     id: 'intelligence',
-    icon: Brain,
+    image: require('../../../assets/images/hub_brain.png'),
     titleKey: 'home.gameBrain',
     subKey: 'home.gameBrainSub',
-    grad: ['#FF5C5C', '#C40E1E'],
     route: '/games/intelligence',
+    glow: '#FF2E6B',
+    tag: '20x',
   },
   {
     id: 'casino',
-    icon: Dices,
+    image: require('../../../assets/images/hub_casino.png'),
     titleKey: 'home.gameCasino',
     subKey: 'home.gameCasinoSub',
-    grad: ['#B00E0E', '#3A0A0A'],
     route: '/games/casino',
+    glow: '#FF2E4C',
   },
   {
     id: 'lottery',
-    icon: Ticket,
+    image: require('../../../assets/images/hub_lottery.png'),
     titleKey: 'home.gameLottery',
     subKey: 'home.gameLotterySub',
-    grad: ['#FBBF24', '#EA580C'],
     route: '/lottery',
+    glow: '#FF9A2E',
   },
 ];
 
 type Props = {
   pad: number;
   onNavigate: (route: string) => void;
+  dark?: boolean;
 };
 
-export function HomeGamesHub({ pad, onNavigate }: Props) {
+export function HomeGamesHub({ pad, onNavigate, dark = true }: Props) {
   const { t, isRTL: isRtl } = useAppLanguage();
   const { games: gamesConfig, gamesGlobal } = useConfig();
   const ROW = 'row';
-  const [expanded, setExpanded] = useState(false);
   const presence = useGamePresenceCounts();
+  const [ticketsSold, setTicketsSold] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    getWeekTicketStats(getCurrentLotteryWeekId())
+      .then(({ totalTickets }) => { if (!cancelled) setTicketsSold(totalTickets); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const visibleCards = useMemo(
     () =>
@@ -82,117 +89,79 @@ export function HomeGamesHub({ pad, onNavigate }: Props) {
 
   if (visibleCards.length === 0) return null;
 
-  const totalOnline = visibleCards.reduce(
-    (sum, c) => sum + (presence[c.id as GameCategory] ?? 0),
-    0,
-  );
   const fmt = (n: number) => n.toLocaleString(isRtl ? 'ar-EG' : 'en-US');
 
-  const toggle = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded((v) => !v);
-  };
-
   return (
-    <View style={{ paddingHorizontal: pad, marginTop: 4 }}>
+    <View style={{ paddingHorizontal: pad, marginTop: 22 }}>
       <View style={[styles.sectionHead, { flexDirection: ROW }]}>
-        <Text style={styles.sectionTitle}>{t('home.gamesSection')}</Text>
-        <Pressable onPress={toggle} hitSlop={8}>
-          <Text style={styles.viewAll}>{expanded ? t('home.gamesCollapse') : t('home.gamesExpand')}</Text>
+        <Text style={[styles.sectionTitle, !dark && { color: '#15151A' }]}>{t('home.gamesSection')}</Text>
+        <Pressable onPress={() => onNavigate('/games')} hitSlop={8}>
+          <Text style={[styles.viewAll, !dark && { color: '#E11414' }]}>{t('home.viewAll')}</Text>
         </Pressable>
       </View>
 
-      <Pressable
-        onPress={toggle}
-        style={({ pressed }) => [styles.hubBanner, { opacity: pressed ? 0.94 : 1 }]}
-      >
-        <LinearGradient
-          colors={['#FF2D2D', '#B00E0E']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <View style={[styles.hubRow, { flexDirection: ROW }]}>
-          <View style={styles.hubIconBox}>
-            <Dices size={26} color="#FFD700" strokeWidth={2} />
-          </View>
-          <View style={styles.hubBody}>
-            <Text style={styles.hubTitle}>{t('home.gamesHubTitle')}</Text>
-            {totalOnline > 0 ? (
-              <View style={[styles.hubLivePill, { flexDirection: ROW }]}>
-                <View style={styles.liveDot} />
-                <Text style={styles.hubLiveText} numberOfLines={1}>
-                  {t('home.gamesOnlineNow', { n: fmt(totalOnline) })}
-                </Text>
-              </View>
-            ) : (
-              <Text style={styles.hubSub} numberOfLines={2}>
-                {t('home.gamesHubSubtitle')}
-              </Text>
-            )}
-          </View>
-          <View style={[styles.hubRight, { flexDirection: ROW }]}>
-            <View style={styles.hubCountBadge}>
-              <Text style={styles.hubCountText}>{visibleCards.length}</Text>
-            </View>
-            <ChevronDown
-              size={18}
-              color="#fff"
-              strokeWidth={2.5}
-              style={{ transform: [{ rotate: expanded ? '180deg' : '0deg' }] }}
-            />
-          </View>
-        </View>
-      </Pressable>
-
-      {expanded ? (
-        <View style={styles.gameList}>
+      <View style={[styles.cardGrid, { flexDirection: ROW }]}>
           {visibleCards.map((g) => {
-            const GIcon = g.icon;
             const playing = presence[g.id as GameCategory] ?? 0;
             return (
               <Pressable
                 key={g.id}
                 onPress={() => onNavigate(g.route)}
-                style={({ pressed }) => [styles.gameRow, { opacity: pressed ? 0.92 : 1 }]}
+                style={({ pressed }) => [
+                  styles.gameCard,
+                  !dark && styles.gameCardLight,
+                  { transform: [{ scale: pressed ? 0.96 : 1 }] },
+                ]}
               >
                 <LinearGradient
-                  colors={[...g.grad]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
+                  colors={dark ? ['#2A1216', '#170B0E'] : ['#FFFFFF', '#FBF1F1']}
+                  start={{ x: 0.5, y: 0 }}
+                  end={{ x: 0.5, y: 1 }}
                   style={StyleSheet.absoluteFillObject}
                 />
-                <View style={[styles.gameRowInner, { flexDirection: ROW }]}>
-                  <View style={styles.gameIconBox}>
-                    <GIcon size={22} color="#fff" strokeWidth={2} />
+                <View>
+                  <View style={[styles.coin, { shadowColor: g.glow }]}>
+                    <Image source={g.image} style={styles.coinImg} contentFit="cover" />
                   </View>
-                  <View style={styles.gameBody}>
-                    <Text style={styles.gameTitle}>{t(g.titleKey)}</Text>
-                    {playing > 0 ? (
-                      <View style={[styles.gameLiveRow, { flexDirection: ROW }]}>
-                        <View style={styles.liveDot} />
-                        <Text style={styles.gameLiveText} numberOfLines={1}>
-                          {t('home.gamePlayingNow', { n: fmt(playing) })}
-                        </Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.gameSub} numberOfLines={1}>{t(g.subKey)}</Text>
-                    )}
+                  {g.tag ? (
+                    <LinearGradient
+                      colors={['#FFC53D', '#FF7A2E']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.coinTag}
+                    >
+                      <Text style={styles.coinTagText}>{g.tag}</Text>
+                    </LinearGradient>
+                  ) : null}
+                </View>
+                <Text style={[styles.cardTitle, !dark && { color: '#15151A' }]} numberOfLines={1}>{t(g.titleKey)}</Text>
+                {(g.id === 'lottery' ? ticketsSold : playing) > 0 ? (
+                  <View style={[styles.cardLiveRow, { flexDirection: ROW }]}>
+                    <View style={[styles.liveDot, g.id === 'lottery' && styles.liveDotGold]} />
+                    <Text
+                      style={[
+                        styles.cardLiveText,
+                        g.id === 'lottery' && styles.cardLiveTextGold,
+                        !dark && { color: g.id === 'lottery' ? '#B8860B' : '#0E9F55' },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {g.id === 'lottery'
+                        ? t('home.gameTicketsSold', { n: fmt(ticketsSold) })
+                        : t('home.gamePlayingNow', { n: fmt(playing) })}
+                    </Text>
                   </View>
-                  <View style={[styles.gameCta, { flexDirection: ROW }]}>
-                    <Text style={styles.gameCtaText}>{t('home.gameOpen')}</Text>
-                    <ChevronRight size={12} color="#15151A" />
-                  </View>
+                ) : (
+                  <Text style={[styles.cardSub, !dark && { color: '#6B7280' }]} numberOfLines={1}>{t(g.subKey)}</Text>
+                )}
+                <View style={[styles.playBtn, !dark && styles.playBtnLight, { flexDirection: ROW }]}>
+                  <Text style={[styles.playText, !dark && { color: '#B00E0E' }]}>{t('home.gameOpen')}</Text>
+                  <ChevronRight size={11} color={dark ? '#FF8090' : '#B00E0E'} />
                 </View>
               </Pressable>
             );
           })}
-          <Pressable onPress={() => onNavigate('/games')} style={styles.allGamesLink}>
-            <Text style={styles.allGamesText}>{t('home.viewAll')}</Text>
-            <ChevronRight size={14} color="#E11414" />
-          </Pressable>
-        </View>
-      ) : null}
+      </View>
     </View>
   );
 }
@@ -206,171 +175,144 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '900',
-    color: '#15151A',
+    color: lu.colors.nightInk,
     fontFamily: lu.fonts.bodyHeavy,
   },
   viewAll: {
     fontSize: 12.5,
     fontWeight: '700',
-    color: '#E11414',
+    color: '#FF5C5C',
     fontFamily: lu.fonts.bodyBold,
-  },
-  hubBanner: {
-    borderRadius: lu.radius.base,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.9)',
-    shadowColor: '#E11414',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  hubRow: {
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 10,
-  },
-  hubIconBox: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
-  },
-  hubBody: { flex: 1, minWidth: 0 },
-  hubTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#fff',
-    fontFamily: lu.fonts.bodyHeavy,
-  },
-  hubSub: {
-    fontSize: 11.5,
-    color: 'rgba(255, 255, 255, 0.88)',
-    marginTop: 2,
-    lineHeight: 15,
-    fontFamily: lu.fonts.body,
-  },
-  hubLivePill: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 5,
-    marginTop: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0, 0, 0, 0.22)',
-  },
-  hubLiveText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#fff',
-    fontFamily: lu.fonts.bodyHeavy,
   },
   liveDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#22E06B',
   },
-  hubRight: { alignItems: 'center', gap: 8 },
-  hubCountBadge: {
-    minWidth: 28,
-    height: 28,
-    borderRadius: 14,
-    paddingHorizontal: 8,
+  cardGrid: {
+    gap: 8,
+    alignItems: 'stretch',
+  },
+  gameCard: {
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
-  },
-  hubCountText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '800',
-    fontFamily: lu.fonts.bodyHeavy,
-  },
-  gameList: { marginTop: 10, gap: 8 },
-  gameRow: {
-    borderRadius: lu.radius.base,
+    borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.55)',
+    borderColor: 'rgba(255,70,80,0.22)',
+    paddingTop: 14,
+    paddingBottom: 12,
+    paddingHorizontal: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  gameCardLight: {
+    borderColor: 'rgba(225,20,20,0.14)',
     shadowColor: '#9A1414',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOpacity: 0.12,
   },
-  gameRowInner: {
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    gap: 10,
-  },
-  gameIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
+  coin: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    overflow: 'hidden',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+    elevation: 8,
   },
-  gameBody: { flex: 1, minWidth: 0 },
-  gameTitle: {
-    fontSize: 14,
+  coinImg: {
+    width: 74,
+    height: 74,
+  },
+  coinTag: {
+    position: 'absolute',
+    top: -5,
+    end: -9,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 99,
+    borderWidth: 1.2,
+    borderColor: '#170B0E',
+    shadowColor: '#FF9A2E',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+    elevation: 5,
+  },
+  coinTagText: {
+    color: '#3A1600',
+    fontSize: 9.5,
+    fontWeight: '900',
+    fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
+  },
+  cardTitle: {
+    marginTop: 9,
+    fontSize: 12,
     fontWeight: '800',
     color: '#fff',
     fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
+    textAlign: 'center',
   },
-  gameSub: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.88)',
+  cardSub: {
     marginTop: 2,
+    minHeight: 16,
+    fontSize: 9.5,
+    color: 'rgba(255,255,255,0.6)',
     fontFamily: lu.fonts.body,
+    includeFontPadding: false,
+    textAlign: 'center',
+    textAlignVertical: 'center',
   },
-  gameLiveRow: {
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 3,
-  },
-  gameLiveText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    fontFamily: lu.fonts.bodyHeavy,
-  },
-  gameCta: {
+  cardLiveRow: {
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    marginTop: 2,
+    minHeight: 16,
   },
-  gameCtaText: {
-    fontSize: 10.5,
+  cardLiveText: {
+    color: '#7CF2AB',
+    fontSize: 9.5,
     fontWeight: '800',
-    color: '#15151A',
     fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
   },
-  allGamesLink: {
-    flexDirection: 'row',
+  cardLiveTextGold: {
+    color: '#FFD86F',
+  },
+  liveDotGold: {
+    backgroundColor: '#FFC53D',
+  },
+  playBtn: {
+    marginTop: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 8,
+    gap: 3,
+    paddingVertical: 6,
+    paddingHorizontal: 13,
+    borderRadius: 10,
+    backgroundColor: 'rgba(160,20,40,0.38)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,80,100,0.3)',
   },
-  allGamesText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#E11414',
-    fontFamily: lu.fonts.bodyBold,
+  playBtnLight: {
+    backgroundColor: '#FDECEC',
+    borderColor: 'rgba(225,20,20,0.25)',
+  },
+  playText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#fff',
+    fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
   },
 });

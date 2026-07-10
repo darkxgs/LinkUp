@@ -28,6 +28,17 @@ export const luColors = {
   room1: '#35202880',
   room2: '#4A2830',
 
+  // Night (dark browsing surfaces — home dashboard)
+  night0: '#0C0809',
+  night1: '#171013',
+  nightCard: '#1D1317',
+  nightCard2: '#251820',
+  nightLine: 'rgba(255,255,255,0.08)',
+  nightLine2: 'rgba(255,255,255,0.14)',
+  nightInk: '#FFFFFF',
+  nightInk2: 'rgba(255,255,255,0.72)',
+  nightMuted: 'rgba(255,255,255,0.45)',
+
   // Ink (text) — حبر أسود من اللوجو
   ink: '#15151A',
   ink2: '#56565F',
@@ -76,6 +87,7 @@ export const luGradients = {
 
   // Page backgrounds — محايد أنيق
   pageHome: ['#FDECEC', '#F8F6F7'] as const,
+  pageHomeNight: ['#2B1118', '#1A0E12', '#0C0809'] as const,
   pageRooms: ['#FDECEC', '#F8F6F7'] as const,
   pageChat: ['#FBEAEA', '#FBF1F1', '#F8F6F7'] as const,
   pageProfile: ['#FBEAEA', '#F8F6F7'] as const,

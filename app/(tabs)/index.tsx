@@ -16,15 +16,29 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
+import Animated, {
+  FadeInDown,
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  withSpring,
+  Easing,
+} from 'react-native-reanimated';
 import {
   Check,
-  Bell, Search, Video, Phone,
+  Bell, Search,
   SlidersHorizontal,
   MapPin,
+  ShieldCheck,
+  BadgeCheck,
+  MessageCircleHeart,
 } from 'lucide-react-native';
 import { ArrowRight } from '@/components/ui/RtlIcons';
 
 import { lu } from '@/theme/lu-brand';
+import { useThemeMode } from '@/stores/themeStore';
 import { useAppLanguage } from '@/localization/useAppLanguage';
 import { useAuth } from '@/hooks/useAuth';
 import { useDiscoverUsers } from '@/hooks/useUsers';
@@ -70,16 +84,13 @@ const BODY = lu.fonts.body;
 type MatchMode = 'video' | 'voice';
 type DsTab = 'all' | 'nearby' | 'list';
 
-const MATCH_HERO_BG = {
-  video: require('../../assets/images/video_match_bg.png'),
-  voice: require('../../assets/images/voice_match_bg.png'),
-} as const;
 
 export default function DiscoverScreen() {
   const { t, isRTL: isRtl } = useAppLanguage();
   const L = (ar: string, en: string) => (isRtl ? ar : en);
   const ROW = 'row';
 
+  const { isDark } = useThemeMode();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: W } = useWindowDimensions();
@@ -89,8 +100,8 @@ export default function DiscoverScreen() {
   const GAP = 13;
   const cardW = Math.floor((W - PAD * 2 - GAP) / 2);
 
-  const [matchMode, setMatchMode] = useState<MatchMode>('video');
-  const matchQueueCount = useMatchQueueOnlineCount(matchMode);
+  const videoQueueCount = useMatchQueueOnlineCount('video');
+  const voiceQueueCount = useMatchQueueOnlineCount('voice');
   const [dsTab, setDsTab] = useState<DsTab>('all');
   const [discoverFilter, setDiscoverFilter] = useState<DiscoverUserFilter>(DEFAULT_DISCOVER_USER_FILTER);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
@@ -236,21 +247,93 @@ export default function DiscoverScreen() {
     }
   }, [refresh, dsTab, fetchNearbyUsers]);
 
-  const isVid = matchMode === 'video';
-  const heroW = W - PAD * 2;
-  const heroH = Math.round(heroW * 0.42);
-  const heroOverlay = isVid
-  ? (['rgba(180,14,14,0.84)', 'rgba(225,20,20,0.52)', 'rgba(255,45,45,0.08)'] as const)
-  : (['rgba(216, 29, 29, 0.84)', 'rgba(234, 38, 38, 0.52)', 'rgba(237, 68, 68, 0.08)'] as const);
-  const heroTitle = isVid ? t('home.videoMatch') : t('home.voiceMatch');
-  const heroSub = isVid ? t('home.videoMatchDesc') : t('home.voiceMatchDesc');
-  const heroOnline = `${matchQueueCount.toLocaleString(isRtl ? 'ar-EG' : 'en-US')} ${L('متصل', 'online')}`;
-  const heroCta = t('home.matchStart');
-  const heroCtaColor = isVid ? '#E11414' : '#EA2626';
-  const vidBg = isVid ? '#fff' : 'rgba(255,255,255,0.18)';
-  const vidCol = isVid ? '#E11414' : '#fff';
-  const voiBg = !isVid ? '#fff' : 'rgba(255,255,255,0.18)';
-  const voiCol = !isVid ? '#EA2626' : '#fff';
+  // بطاقتا المطابقة (فيديو/صوت) — جنباً إلى جنب بدون تمرير.
+  const ticketW = Math.floor((W - PAD * 2 - 10) / 2);
+  const ticketH = Math.round(ticketW * 0.72);
+  const onlineLabel = (n: number) => `${n.toLocaleString(isRtl ? 'ar-EG' : 'en-US')} ${L('متصل', 'online')}`;
+  // آخر كلمة من الوصف تُبرز بالأحمر — مثل "instantly" في التصميم المرجعي.
+  const splitAccent = (s: string): [string, string] => {
+    const words = s.trim().split(/\s+/);
+    return [words.slice(0, -1).join(' '), words[words.length - 1] ?? ''];
+  };
+  // لوحة ألوان الصفحة حسب الوضع (داكن/فاتح).
+  const pal = isDark
+    ? {
+        pageGrad: [...lu.gradients.pageHomeNight] as [string, string, ...string[]],
+        sectionTitle: lu.colors.nightInk,
+        pillInactiveBg: lu.colors.nightCard,
+        pillBorder: lu.colors.nightLine,
+        pillInactiveText: 'rgba(255,255,255,0.62)',
+        filterBg: lu.colors.nightCard,
+        filterIcon: 'rgba(255,255,255,0.62)',
+        filterDotBorder: lu.colors.night0,
+        emptyText: lu.colors.nightInk2,
+        emptySubText: lu.colors.nightMuted,
+        headerIcon: '#fff',
+      }
+    : {
+        pageGrad: ['#FBEAEA', '#FBF1F1', '#F8F6F7'] as [string, string, ...string[]],
+        sectionTitle: '#15151A',
+        pillInactiveBg: '#FFFFFF',
+        pillBorder: '#EEE7E8',
+        pillInactiveText: '#6B7280',
+        filterBg: '#FFFFFF',
+        filterIcon: '#6B7280',
+        filterDotBorder: '#FFFFFF',
+        emptyText: lu.colors.ink2,
+        emptySubText: '#9CA3AF',
+        headerIcon: lu.colors.ink,
+      };
+
+  const matchTickets = [
+    {
+      id: 'video' as MatchMode,
+      girl: require('../../assets/images/hero_video_girl.png'),
+      icon: require('../../assets/images/hero_video_icon.png'),
+      title: t('home.videoMatch'),
+      sub: t('home.videoMatchDesc'),
+      online: onlineLabel(videoQueueCount),
+      bg: ['#A8163E', '#5E0E26', '#2A0812'] as const,
+      border: 'rgba(255,90,130,0.4)',
+      cta: ['#FF4D66', '#E1142E'] as const,
+      glow: '#FF2D55',
+      waves: false,
+    },
+    {
+      id: 'voice' as MatchMode,
+      girl: require('../../assets/images/hero_voice_girl.png'),
+      icon: require('../../assets/images/hero_voice_icon.png'),
+      title: t('home.voiceMatch'),
+      sub: t('home.voiceMatchDesc'),
+      online: onlineLabel(voiceQueueCount),
+      bg: ['#5B1E9E', '#38115F', '#190930'] as const,
+      border: 'rgba(178,120,255,0.4)',
+      cta: ['#9B5CFF', '#6C2BD9'] as const,
+      glow: '#8B5CF6',
+      waves: true,
+    },
+  ];
+  const WAVE_HEIGHTS = [10, 22, 14, 30, 18, 38, 24, 44, 20, 34, 15, 26, 12, 20, 9];
+
+  // نبض زر البدء + توهجه — لمسة حيّة على البطاقة الرئيسية.
+  const ctaGlow = useSharedValue(0);
+  const ctaPress = useSharedValue(1);
+  useEffect(() => {
+    ctaGlow.value = withRepeat(
+      withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
+  }, []);
+  const ctaAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: ctaPress.value * (1 + ctaGlow.value * 0.02) }],
+    shadowOpacity: 0.35 + ctaGlow.value * 0.3,
+  }));
+
+  const heroDotGlow = useAnimatedStyle(() => ({
+    opacity: 0.55 + ctaGlow.value * 0.45,
+    transform: [{ scale: 0.9 + ctaGlow.value * 0.35 }],
+  }));
 
   const dsTabs: { id: DsTab; label: string }[] = [
     { id: 'all', label: t('home.filterAll') },
@@ -261,6 +344,7 @@ export default function DiscoverScreen() {
     ({ item }: { item: UserDoc }) => (
       <ExploreUserCard
         user={item}
+        dark={isDark}
         width={cardW}
         currentUid={myUid}
         presenceTs={presenceMap[item.uid]}
@@ -269,86 +353,124 @@ export default function DiscoverScreen() {
         onPress={() => router.push(`/profile/${item.uid}` as any)}
       />
     ),
-    [cardW, myUid, presenceMap, presenceNow, router, nearbyDistanceMap],
+    [cardW, myUid, presenceMap, presenceNow, router, nearbyDistanceMap, isDark],
   );
 
   const ListHeader = (
     <View>
       <View style={{ paddingTop: insets.top + 8 }}>
-        <TabScreenHeader pad={PAD} subtitle={t('rooms.homeSubtitle')}>
-          <HeaderIconButton onPress={() => router.push('/search' as any)}>
-            <Search size={headerMetrics.iconSize} color={lu.colors.ink} strokeWidth={2.2} />
+        <TabScreenHeader dark={isDark} pad={PAD} subtitle={t('rooms.homeSubtitle')}>
+          <HeaderIconButton dark={isDark} onPress={() => router.push('/search' as any)}>
+            <Search size={headerMetrics.iconSize} color={pal.headerIcon} strokeWidth={2.2} />
           </HeaderIconButton>
-          <HeaderIconButton badge onPress={() => router.push('/notifications' as any)}>
-            <Bell size={headerMetrics.iconSize} color={lu.colors.ink} strokeWidth={2.2} />
+          <HeaderIconButton dark={isDark} badge onPress={() => router.push('/notifications' as any)}>
+            <Bell size={headerMetrics.iconSize} color={pal.headerIcon} strokeWidth={2.2} />
           </HeaderIconButton>
         </TabScreenHeader>
       </View>
 
-      <View style={{ paddingHorizontal: PAD, marginTop: 4 }}>
-        <View style={[styles.hero, { height: heroH }]}>
-          <Image
-            source={isVid ? MATCH_HERO_BG.video : MATCH_HERO_BG.voice}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            pointerEvents="none"
-          />
-          <LinearGradient
-            colors={heroOverlay}
-            start={{ x: isRtl ? 1 : 0, y: 0.5 }}
-            end={{ x: isRtl ? 0 : 1, y: 0.5 }}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
-          <View style={styles.heroInner}>
-            <View style={[styles.heroTopRow, { flexDirection: ROW }]}>
-              <View style={[styles.heroToggle, { flexDirection: ROW }]}>
-                <Pressable onPress={() => setMatchMode('video')} style={[styles.toggleBtn, { backgroundColor: vidBg, flexDirection: ROW }]}>
-                  <Video size={13} color={vidCol} strokeWidth={2} />
-                  <Text style={[styles.toggleText, { color: vidCol }]}>{t('home.matchVideo')}</Text>
-                </Pressable>
-                <Pressable onPress={() => setMatchMode('voice')} style={[styles.toggleBtn, { backgroundColor: voiBg, flexDirection: ROW }]}>
-                  <Phone size={13} color={voiCol} strokeWidth={2} />
-                  <Text style={[styles.toggleText, { color: voiCol }]}>{t('home.matchVoice')}</Text>
-                </Pressable>
+      <Animated.View entering={FadeInDown.duration(500)} style={{ flexDirection: ROW, gap: 10, paddingHorizontal: PAD, marginTop: 4 }}>
+        {matchTickets.map((tk) => (
+          <Animated.View key={tk.id} style={[ctaAnimStyle, { flex: 1 }]}>
+            <Pressable
+              onPressIn={() => { ctaPress.value = withTiming(0.96, { duration: 90 }); }}
+              onPressOut={() => { ctaPress.value = withSpring(1); }}
+              onPress={() => router.push(`/match/${tk.id}` as any)}
+              style={[styles.ticket, { height: ticketH, borderColor: tk.border, shadowColor: tk.glow }]}
+            >
+              <LinearGradient
+                colors={[...tk.bg]}
+                start={{ x: 0.1, y: 0 }}
+                end={{ x: 0.9, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+              {tk.waves ? (
+                <View style={[styles.waveRow, { flexDirection: ROW }]} pointerEvents="none">
+                  {WAVE_HEIGHTS.map((h, i) => (
+                    <View key={i} style={[styles.waveBar, { height: h }]} />
+                  ))}
+                </View>
+              ) : null}
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.girlArc,
+                  {
+                    width: ticketH * 1.55,
+                    height: ticketH * 1.55,
+                    borderRadius: ticketH * 0.78,
+                    top: -ticketH * 0.18,
+                  },
+                  isRtl ? { left: -ticketH * 0.45 } : { right: -ticketH * 0.45 },
+                ]}
+              />
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.girlArcInner,
+                  {
+                    width: ticketH * 1.15,
+                    height: ticketH * 1.15,
+                    borderRadius: ticketH * 0.58,
+                    top: 0,
+                  },
+                  isRtl ? { left: -ticketH * 0.3 } : { right: -ticketH * 0.3 },
+                ]}
+              />
+              <Image
+                source={tk.girl}
+                style={[styles.ticketGirl, isRtl ? { left: -6 } : { right: -6 }]}
+                contentFit="cover"
+              />
+              <LinearGradient
+                colors={[tk.bg[1], `${tk.bg[1]}00`]}
+                start={{ x: isRtl ? 1 : 0, y: 0.5 }}
+                end={{ x: isRtl ? 0.4 : 0.6, y: 0.5 }}
+                style={StyleSheet.absoluteFillObject}
+                pointerEvents="none"
+              />
+              <View style={styles.ticketContent}>
+                <Image source={tk.icon} style={styles.ticketIcon} contentFit="contain" />
+                <View style={[styles.heroTitleRow, { flexDirection: ROW }]}>
+                  <Image source={require('../../assets/images/heart-glow.png')} style={styles.heroHeart} contentFit="contain" />
+                  <Text style={styles.ticketTitle} numberOfLines={1}>{tk.title}</Text>
+                </View>
+                <Text style={[styles.ticketSub, { textAlign: isRtl ? 'right' : 'left' }]} numberOfLines={2}>
+                  {splitAccent(tk.sub)[0]}{splitAccent(tk.sub)[0] ? ' ' : ''}
+                  <Text style={styles.ticketSubAccent}>{splitAccent(tk.sub)[1]}</Text>
+                </Text>
               </View>
-              <View style={[styles.onlinePill, { flexDirection: ROW }]}>
-                <View style={styles.onlineDot} />
-                <Text style={styles.onlineText}>{heroOnline}</Text>
-              </View>
-            </View>
-            <View style={styles.heroBody}>
-              <Text style={[styles.heroTitle, { textAlign: isRtl ? 'right' : 'left' }]}>{heroTitle}</Text>
-              <Text style={[styles.heroSub, { textAlign: isRtl ? 'right' : 'left' }]} numberOfLines={2}>{heroSub}</Text>
-            </View>
-            <Pressable style={[styles.heroCta, { flexDirection: ROW }]} onPress={() => router.push(`/match/${matchMode}` as any)}>
-              <Text style={[styles.heroCtaText, { color: heroCtaColor }]}>{heroCta}</Text>
-              <ArrowRight size={15} color={heroCtaColor} />
             </Pressable>
-          </View>
-        </View>
-      </View>
-
-      <View style={[styles.trust, { marginHorizontal: PAD, flexDirection: ROW }]}>
-        {[
-          t('home.trustModerated'),
-          t('home.trustVerified'),
-          t('home.trustSafeChat'),
-        ].map((label, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <View style={styles.trustDot} />}
-            <View style={[styles.trustItem, { flexDirection: ROW }]}>
-              <Check size={13} color="#36C98B" strokeWidth={3} />
-              <Text style={styles.trustText}>{label}</Text>
-            </View>
-          </React.Fragment>
+          </Animated.View>
         ))}
-      </View>
+      </Animated.View>
 
-      <HomeGamesHub pad={PAD} onNavigate={(route) => router.push(route as any)} />
+      {/* شرائح الثقة — معطلة مؤقتاً
+      <Animated.View entering={FadeInDown.delay(80).duration(500)} style={[styles.trust, { marginHorizontal: PAD, flexDirection: ROW }]}>
+        {([
+          [t('home.trustModerated'), ShieldCheck],
+          [t('home.trustVerified'), BadgeCheck],
+          [t('home.trustSafeChat'), MessageCircleHeart],
+        ] as const).map(([label, TrustIcon], i) => (
+          <View key={i} style={[styles.trustItem, { flexDirection: ROW }]}>
+            <View style={styles.trustIconWrap}>
+              <TrustIcon size={19} color="#FF6B7A" strokeWidth={2.1} />
+              <View style={styles.trustCheck}>
+                <Check size={7.5} color="#fff" strokeWidth={4} />
+              </View>
+            </View>
+            <Text style={styles.trustText} numberOfLines={2}>{label}</Text>
+          </View>
+        ))}
+      </Animated.View>
+      */}
 
-      <View style={[styles.sectionHead, { marginHorizontal: PAD, flexDirection: ROW, marginTop: 22 }]}>
-        <Text style={styles.sectionTitle}>{t('home.suggestedPeople')}</Text>
+      <Animated.View entering={FadeInDown.delay(160).duration(500)}>
+        <HomeGamesHub pad={PAD} dark={isDark} onNavigate={(route) => router.push(route as any)} />
+      </Animated.View>
+
+      <Animated.View entering={FadeInDown.delay(240).duration(500)} style={[styles.sectionHead, { marginHorizontal: PAD, flexDirection: ROW, marginTop: 22 }]}>
+        <Text style={[styles.sectionTitle, { color: pal.sectionTitle }]}>{t('home.suggestedPeople')}</Text>
         <View style={[styles.sectionActions, { flexDirection: ROW }]}>
           {dsTabs.map((tb) => {
             const active = dsTab === tb.id;
@@ -359,8 +481,8 @@ export default function DiscoverScreen() {
                     <Text style={[styles.pillText, { color: '#fff' }]}>{tb.label}</Text>
                   </LinearGradient>
                 ) : (
-                  <View style={styles.pillInactive}>
-                    <Text style={[styles.pillText, { color: '#6B7280' }]}>{tb.label}</Text>
+                  <View style={[styles.pillInactive, { backgroundColor: pal.pillInactiveBg, borderColor: pal.pillBorder }]}>
+                    <Text style={[styles.pillText, { color: pal.pillInactiveText }]}>{tb.label}</Text>
                   </View>
                 )}
               </Pressable>
@@ -368,20 +490,21 @@ export default function DiscoverScreen() {
           })}
           <Pressable
             onPress={() => setFilterModalOpen(true)}
-            style={[styles.filterBtn, filterActive && styles.filterBtnActive]}
+            style={[styles.filterBtn, { backgroundColor: pal.filterBg, borderColor: pal.pillBorder }, filterActive && styles.filterBtnActive]}
             accessibilityLabel={t('home.filterTitle')}
           >
-            <SlidersHorizontal size={16} color={filterActive ? '#E11414' : '#6B7280'} strokeWidth={2.4} />
-            {filterActive ? <View style={styles.filterDot} /> : null}
+            <SlidersHorizontal size={16} color={filterActive ? '#FF5C5C' : pal.filterIcon} strokeWidth={2.4} />
+            <View style={[styles.filterDot, { borderColor: pal.filterDotBorder }]} />
           </Pressable>
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
 
   return (
     <>
-    <LinearGradient colors={['#FBEAEA', '#FBF1F1', '#F8F6F7']} locations={[0, 0.14, 0.3]} style={styles.root}>
+    <StatusBar style={isDark ? 'light' : 'dark'} />
+    <LinearGradient colors={pal.pageGrad} locations={[0, 0.2, 0.45]} style={styles.root}>
       <FlatList
         data={displayedUsers}
         keyExtractor={(u) => u.uid}
@@ -417,7 +540,7 @@ export default function DiscoverScreen() {
             )
             : (
               <View style={styles.empty}>
-                <Text style={styles.emptyText}>
+                <Text style={[styles.emptyText, { color: pal.emptyText }]}>
                   {emptyFilter
                     ? t('home.noUsersFilter')
                     : isNearby
@@ -425,9 +548,9 @@ export default function DiscoverScreen() {
                       : t('home.noPeople')}
                 </Text>
                 {emptyFilter ? (
-                  <Text style={styles.emptySubText}>{t('home.noUsersFilterDesc')}</Text>
+                  <Text style={[styles.emptySubText, { color: pal.emptySubText }]}>{t('home.noUsersFilterDesc')}</Text>
                 ) : isNearby ? (
-                  <Text style={styles.emptySubText}>{t('home.noNearbyPeopleDesc')}</Text>
+                  <Text style={[styles.emptySubText, { color: pal.emptySubText }]}>{t('home.noNearbyPeopleDesc')}</Text>
                 ) : null}
               </View>
             )
@@ -448,36 +571,72 @@ export default function DiscoverScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
 
-  hero: {
-    borderRadius: 22, overflow: 'hidden',
-    shadowColor: '#7A1414', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.38, shadowRadius: 20, elevation: 6,
+  ticket: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 18,
+    elevation: 10,
   },
-  heroInner: {
-    flex: 1,
-    padding: 12,
-    justifyContent: 'space-between',
+  ticketGirl: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: '50%',
   },
-  heroBody: {
+  ticketContent: {
     flex: 1,
+    width: '64%',
+    paddingHorizontal: 11,
+    paddingVertical: 10,
     justifyContent: 'center',
-    paddingVertical: 2,
+    alignItems: 'flex-start',
+    gap: 3,
   },
-  heroTopRow: {
+  ticketIcon: {
+    width: 34,
+    height: 34,
+    marginBottom: 2,
+  },
+  ticketTitle: {
+    color: '#fff', fontSize: 13, fontWeight: '800', fontFamily: DISP, flexShrink: 1,
+    includeFontPadding: false,
+    textShadowColor: 'rgba(0,0,0,0.45)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
+  },
+  ticketSub: {
+    color: 'rgba(255,255,255,0.85)', fontSize: 10, lineHeight: 14, fontFamily: BODY,
+    includeFontPadding: false,
+  },
+  ticketSubAccent: {
+    color: '#FF4D5E', fontStyle: 'italic', fontWeight: '800', fontFamily: HEAVY,
+  },
+  waveRow: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    justifyContent: 'space-evenly',
+    paddingHorizontal: 10,
   },
-  heroToggle: {
-    alignItems: 'center', gap: 3, flexShrink: 1,
-    backgroundColor: 'rgba(0,0,0,0.2)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)', padding: 3, borderRadius: 99,
+  waveBar: {
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(200,150,255,0.3)',
   },
-  toggleBtn: { alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 11, borderRadius: 99 },
-  toggleText: { fontFamily: HEAVY, fontSize: 11.5, fontWeight: '800' },
-  heroTitle: {
-    color: '#fff', fontSize: 19, fontWeight: '800', fontFamily: DISP,
-    textShadowColor: 'rgba(0,0,0,0.35)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
+  girlArc: {
+    position: 'absolute',
+    backgroundColor: 'rgba(255,255,255,0.07)',
   },
-  heroSub: { color: 'rgba(255,255,255,0.92)', fontSize: 11.5, marginTop: 3, lineHeight: 16, maxWidth: '68%', fontFamily: BODY },
+  girlArcInner: {
+    position: 'absolute',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  heroTitleRow: {
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: '100%',
+  },
+  heroHeart: { width: 13, height: 13 },
   onlinePill: {
     alignItems: 'center', gap: 5, flexShrink: 0,
     backgroundColor: 'rgba(0,0,0,0.38)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99,
@@ -485,28 +644,40 @@ const styles = StyleSheet.create({
   },
   onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#36E07A', shadowColor: '#36E07A', shadowOpacity: 0.9, shadowRadius: 5 },
   onlineText: { color: '#fff', fontSize: 11, fontWeight: '700', fontFamily: lu.fonts.bodyBold },
-  heroCta: {
-    alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#fff',
-    borderRadius: 12, paddingVertical: 9,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.14, shadowRadius: 10, elevation: 3,
-  },
-  heroCtaText: { fontSize: 13, fontWeight: '800', fontFamily: HEAVY },
 
-  trust: { alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 10 },
-  trustDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#E0D6D6' },
-  trustItem: { alignItems: 'center', gap: 5 },
-  trustText: { fontSize: 11, color: '#7C7C85', fontWeight: '600', fontFamily: SEMI },
+  trust: { alignItems: 'stretch', justifyContent: 'center', gap: 8, marginTop: 12 },
+  trustItem: {
+    flex: 1, alignItems: 'center', gap: 8,
+    backgroundColor: lu.colors.nightCard, borderWidth: 1, borderColor: lu.colors.nightLine2,
+    borderRadius: 16, paddingVertical: 10, paddingHorizontal: 9,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 3,
+  },
+  trustIconWrap: {
+    width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,45,60,0.12)',
+    shadowColor: '#FF3C4C', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 8, elevation: 4,
+  },
+  trustCheck: {
+    position: 'absolute', bottom: -2, end: -3,
+    width: 13, height: 13, borderRadius: 7, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#22C55E',
+    borderWidth: 1.4, borderColor: lu.colors.nightCard,
+  },
+  trustText: {
+    fontSize: 11, color: lu.colors.nightInk, fontWeight: '600', fontFamily: SEMI, flexShrink: 1,
+    includeFontPadding: false, textAlignVertical: 'center',
+  },
 
   sectionHead: { alignItems: 'center', justifyContent: 'space-between', marginTop: 22, marginBottom: 12 },
-  sectionTitle: { fontSize: 18, fontWeight: '900', color: '#15151A', fontFamily: HEAVY },
+  sectionTitle: { fontSize: 18, fontWeight: '900', color: lu.colors.nightInk, fontFamily: HEAVY },
 
   pillActive: {
     paddingHorizontal: 13, paddingVertical: 6, borderRadius: 99,
-    shadowColor: '#E11414', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 3,
+    shadowColor: '#E11414', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 10, elevation: 3,
   },
   pillInactive: {
-    paddingHorizontal: 13, paddingVertical: 6, borderRadius: 99, backgroundColor: '#fff',
-    shadowColor: '#9A1414', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 2,
+    paddingHorizontal: 13, paddingVertical: 6, borderRadius: 99,
+    backgroundColor: lu.colors.nightCard, borderWidth: 1, borderColor: lu.colors.nightLine,
   },
   pillText: { fontFamily: HEAVY, fontSize: 12.5, fontWeight: '800' },
 
@@ -515,19 +686,15 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#fff',
+    backgroundColor: lu.colors.nightCard,
+    borderWidth: 1,
+    borderColor: lu.colors.nightLine,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#9A1414',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.07,
-    shadowRadius: 8,
-    elevation: 2,
   },
   filterBtnActive: {
-    borderWidth: 1.5,
-    borderColor: 'rgba(225, 20, 20, 0.35)',
-    backgroundColor: '#FDECEC',
+    borderColor: 'rgba(255, 60, 60, 0.5)',
+    backgroundColor: 'rgba(225, 20, 20, 0.16)',
   },
   filterDot: {
     position: 'absolute',
@@ -536,17 +703,17 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: '#E11414',
+    backgroundColor: '#FF3D3D',
     borderWidth: 1.5,
-    borderColor: '#fff',
+    borderColor: lu.colors.night0,
   },
 
   gridRow: { marginBottom: 13, marginTop: 8 },
   empty: { paddingVertical: 48, alignItems: 'center', paddingHorizontal: 24 },
-  emptyText: { fontSize: 15, color: lu.colors.ink2, fontFamily: lu.fonts.bodyBold, textAlign: 'center' },
+  emptyText: { fontSize: 15, color: lu.colors.nightInk2, fontFamily: lu.fonts.bodyBold, textAlign: 'center' },
   emptySubText: {
     fontSize: 13,
-    color: '#9CA3AF',
+    color: lu.colors.nightMuted,
     fontFamily: BODY,
     marginTop: 6,
     textAlign: 'center',

@@ -88,11 +88,13 @@ export function HeaderIconButton({
   onPress,
   size,
   badge,
+  dark,
 }: {
   children: React.ReactNode;
   onPress: () => void;
   size?: number;
   badge?: boolean;
+  dark?: boolean;
 }) {
   const metrics = useTabHeaderMetrics();
   const btnSize = size ?? metrics.iconBtnSize;
@@ -103,12 +105,13 @@ export function HeaderIconButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.iconBtn,
+        dark && styles.iconBtnDark,
         { width: btnSize, height: btnSize, borderRadius: radius },
         pressed && { opacity: 0.88 },
       ]}
     >
       {children}
-      {badge ? <View style={styles.circBadge} /> : null}
+      {badge ? <View style={[styles.circBadge, dark && styles.circBadgeDark]} /> : null}
     </Pressable>
   );
 }
@@ -118,6 +121,7 @@ type TabScreenHeaderProps = {
   subtitle?: string;
   children: React.ReactNode;
   style?: ViewStyle;
+  dark?: boolean;
 };
 
 export function TabScreenHeader({
@@ -125,6 +129,7 @@ export function TabScreenHeader({
   subtitle,
   children,
   style,
+  dark,
 }: TabScreenHeaderProps) {
   const rightActionCount = React.Children.count(children);
   const metrics = useTabHeaderMetrics(undefined, {
@@ -136,10 +141,17 @@ export function TabScreenHeader({
   return (
     <View style={[styles.headerRow, { paddingHorizontal: pad, gap: rowGap }, style]}>
       <View style={styles.headerLeft}>
-        <View style={[styles.headerTitleColumn, { maxWidth: logoWidth }]}>
-          <LuLogo width={logoWidth} height={logoHeight} />
+        <View style={[styles.headerTitleColumn, dark ? null : { maxWidth: logoWidth }]}>
+          <LuLogo width={logoWidth} height={logoHeight} light={dark} />
           {showSubtitle && subtitle ? (
-            <Text style={styles.headerSubtitle} numberOfLines={1}>
+            <Text
+              style={[
+                styles.headerSubtitle,
+                dark && styles.headerSubtitleDark,
+                dark && { paddingStart: Math.round(logoHeight * 1.06) + 8 },
+              ]}
+              numberOfLines={1}
+            >
               {subtitle}
             </Text>
           ) : null}
@@ -173,6 +185,12 @@ const styles = StyleSheet.create({
     fontFamily: lu.fonts.body,
     marginTop: 1,
   },
+  headerSubtitleDark: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 10,
+    letterSpacing: 0.5,
+    marginTop: -1,
+  },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -198,5 +216,15 @@ const styles = StyleSheet.create({
     backgroundColor: lu.colors.live,
     borderWidth: 1.2,
     borderColor: '#fff',
+  },
+  iconBtnDark: {
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+  },
+  circBadgeDark: {
+    borderColor: '#1D1317',
   },
 });

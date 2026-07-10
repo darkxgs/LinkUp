@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { useTranslation } from 'react-i18next';
-import { Bell, Lock, Globe, Eye, ShieldAlert, HelpCircle, FileText, Star, LogOut, Heart, Gift, Megaphone, Phone, Languages, Smartphone, MapPin } from 'lucide-react-native';
+import { Bell, Lock, Globe, Eye, ShieldAlert, HelpCircle, FileText, Star, LogOut, Heart, Gift, Megaphone, Phone, Languages, Smartphone, MapPin, Moon } from 'lucide-react-native';
 import { ChevronLeft, ChevronRight } from '@/components/ui/RtlIcons';
 
 import { Text, Card } from '@/components/ui';
@@ -29,6 +29,7 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { firestore } from '@/services/firebase';
 import { getDisplayAccountId } from '@/services/userIdentifier';
 import { resolveUserDocAvatar } from '@/utils/userAvatar';
+import { useThemeMode } from '@/stores/themeStore';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -36,6 +37,7 @@ export default function SettingsScreen() {
   const { signOut, user } = useAuth();
   const { t, lang } = useAppLanguage();
   const [showLangSheet, setShowLangSheet] = React.useState(false);
+  const { isDark, setMode } = useThemeMode();
 
   const [notifSettings, setNotifSettings] = React.useState<NotificationSettings | null>(null);
   const [hideOnline, setHideOnline] = React.useState(false);
@@ -307,6 +309,14 @@ export default function SettingsScreen() {
         {/* Preferences */}
         <SectionTitle>{t('settings.preferences')}</SectionTitle>
         <View style={styles.sectionCard}>
+          <ToggleRow
+            icon={Moon}
+            iconColor="#7C3AED"
+            label={t('settings.darkMode')}
+            value={isDark}
+            onValueChange={(v) => setMode(v ? 'dark' : 'light')}
+          />
+          <Divider />
           <NavRow
             icon={Languages}
             iconColor="#F59E0B"

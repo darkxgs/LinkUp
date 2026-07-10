@@ -45,9 +45,48 @@ type LuLogoProps = {
 };
 
 // ============ Compact Logo (full wordmark image) ============
-export function LuLogo({ width, height, size = 42 }: LuLogoProps) {
+export function LuLogo({ width, height, size = 42, light }: LuLogoProps) {
   const resolvedWidth = width ?? size * 0.82 * FULL_LOGO_ASPECT;
   const resolvedHeight = height ?? resolvedWidth / FULL_LOGO_ASPECT;
+
+  // على الخلفية الداكنة: نص الشعار الأسود لا يظهر — بلاطة فاتحة للأيقونة + كلمة بيضاء/حمراء.
+  if (light) {
+    const tile = Math.round(resolvedHeight * 1.06);
+    const fontSize = Math.round(resolvedHeight * 0.82);
+    return (
+      <View style={[styles.logoRow, { gap: 8, maxWidth: '100%' }]}>
+        <View style={[styles.logoTile, { width: tile, height: tile, borderRadius: Math.round(tile * 0.3) }]}>
+          <LinearGradient
+            colors={['#3A141C', '#1B0C10']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <Image
+            source={require('../../../assets/images/linkup-icon-standalone.png')}
+            style={{ width: '68%', height: '68%' }}
+            contentFit="contain"
+          />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={[styles.logoLightText, { fontSize, color: '#FFFFFF' }]}>Link</Text>
+          <MaskedView
+            maskElement={
+              <Text style={[styles.logoLightText, { fontSize, color: '#000' }]}>Up</Text>
+            }
+          >
+            <LinearGradient
+              colors={['#FF4D4D', '#E11414']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Text style={[styles.logoLightText, { fontSize, opacity: 0 }]}>Up</Text>
+            </LinearGradient>
+          </MaskedView>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.logoRow, { width: resolvedWidth, maxWidth: '100%' }]}>
@@ -133,5 +172,23 @@ const styles = StyleSheet.create({
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  logoTile: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 1.2,
+    borderColor: 'rgba(255,77,94,0.4)',
+    shadowColor: '#FF2D3E',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.55,
+    shadowRadius: 9,
+    elevation: 6,
+  },
+  logoLightText: {
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    fontFamily: lu.fonts.displayHeavy,
+    includeFontPadding: false,
   },
 });
