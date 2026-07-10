@@ -56,6 +56,12 @@ export function categorizeNotification(notif: Notification): NotificationFilterT
 
   const effectiveType = resolveNotificationEffectiveType(notif);
 
+  // دعوات المايك/الغرف دعوات تفاعلية من أشخاص — ليست «رسائل نظام»
+  // (كانت تُكتب بنوع system فتظهر خطأً في تبويب النظام)
+  if (effectiveType === 'mic_invite' || effectiveType === 'room_invite') {
+    return 'messages';
+  }
+
   if (SYSTEM_NOTIF_TYPES.has(notif.type)) return 'system';
   if (SYSTEM_DATA_TYPES.has(effectiveType)) return 'system';
 
@@ -74,10 +80,21 @@ export function filterNotificationsByTab(
   items: Notification[],
   tab: NotificationFilterTab,
 ): Notification[] {
-  return items.filter((n) => {
+  const filtered = items.filter((n) => {
     if (categorizeNotification(n) !== tab) return false;
     // رسائل شات مقروءة — لا تُعرض في تبويب الرسائل
     if (tab === 'messages' && n.type === 'message' && n.isRead) return false;
+    return true;
+  });
+  if (tab !== 'follow') return filtered;
+  // إزالة تكرار «بدأ متابعتك» من نفس الشخص (سجلات قديمة قبل منع التكرار)
+  const seenFollowFrom = new Set<string>();
+  return filtered.filter((n) => {
+    if (n.type !== 'follow') return true;
+    const from = String(n.fromUid ?? n.data?.fromUid ?? n.fromName ?? '');
+    if (!from) return true;
+    if (seenFollowFrom.has(from)) return false;
+    seenFollowFrom.add(from);
     return true;
   });
 }

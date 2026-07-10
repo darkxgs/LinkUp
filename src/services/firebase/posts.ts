@@ -609,6 +609,9 @@ export const createPost = async (
   if (!trimmed && (!localImageUris?.length) && (!remoteImageUrls?.length)) {
     throw new Error('اكتب نصاً أو أضف صورة');
   }
+  // رقابة برمجية — منع نشر الألفاظ المسيئة
+  const { assertCleanText } = await import('@/utils/textModeration');
+  assertCleanText(trimmed);
 
   let uploadedUrls: string[] = remoteImageUrls ?? [];
   if (localImageUris && localImageUris.length > 0) {
@@ -765,6 +768,9 @@ export const addComment = async (
   const trimmed = text.trim();
   const imageUrl = options.imageUrl?.trim();
   if (!trimmed && !imageUrl) throw new Error('أضف رسالة أو صورة');
+  // رقابة برمجية — منع التعليقات المسيئة
+  const { assertCleanText } = await import('@/utils/textModeration');
+  assertCleanText(trimmed);
 
   const postSnap = await getDoc(doc(firestore, 'posts', postId));
   if (!postSnap.exists()) throw new Error('المنشور غير موجود');

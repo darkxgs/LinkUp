@@ -333,11 +333,15 @@ export const RoomSeat = memo(
             weight="semibold"
             align="center"
             numberOfLines={1}
+            ellipsizeMode="tail"
             style={{
               fontSize: size === 'large' ? 11 : 10,
               lineHeight: size === 'large' ? 14 : 13,
               marginTop: showCoins ? 5 : 8,
-              maxWidth: wrapWidth + 4,
+              // عرض ثابت بدل maxWidth — القياس المرن مع أسماء مختلطة الاتجاه
+              // كان يطويها إلى «...» بلا أي حرف على أندرويد
+              width: wrapWidth + 12,
+              textAlign: 'center',
               textShadowColor: 'rgba(0,0,0,0.8)',
               textShadowOffset: { width: 0, height: 1 },
               textShadowRadius: 3,

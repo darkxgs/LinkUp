@@ -421,6 +421,12 @@ class CallSessionManager {
       this.duration = 0;
       this.emit();
 
+      // تعليق صوت الروم المثبّت أثناء المكالمة — كان يختلط صوت الغرفة بالمكالمة
+      try {
+        const { roomAudioSession } = await import('@/services/roomAudioSession');
+        roomAudioSession.suspendForCall();
+      } catch { /* ignore */ }
+
       const permType = isVideo ? 'both' : 'audio';
       const [tokenResult, granted] = await Promise.all([
         getLiveKitToken(channelName, true, peerUid),
@@ -663,6 +669,12 @@ class CallSessionManager {
     this.channelName = '';
     this.micMutedPreference = null;
     this.emit();
+
+    // استعادة صوت الروم المثبّت بعد انتهاء المكالمة
+    try {
+      const { roomAudioSession } = await import('@/services/roomAudioSession');
+      roomAudioSession.resumeAfterCall();
+    } catch { /* ignore */ }
 
     if (reportEnd && duration > 0 && channel) {
       try {

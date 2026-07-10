@@ -341,14 +341,18 @@ export default function ProfileScreen() {
                 )}
               </LinearGradient>
             )}
-            <View
-              style={[
-                styles.onlineDot,
-                equippedFrameUrl && styles.onlineDotFramed,
-                isRtl && !equippedFrameUrl ? { right: undefined, left: 6 } : undefined,
-                isRtl && equippedFrameUrl ? { right: undefined, left: frameBox * 0.22 } : undefined,
-              ]}
-            />
+            {/* النقطة الخضراء تختفي عند تفعيل «إخفاء حالة الاتصال» — حتى في ملفك */}
+            {!((user as any)?.privacyHideOnline === true ||
+              (user as any)?.privacySettings?.hideOnline === true) ? (
+              <View
+                style={[
+                  styles.onlineDot,
+                  equippedFrameUrl && styles.onlineDotFramed,
+                  isRtl && !equippedFrameUrl ? { right: undefined, left: 6 } : undefined,
+                  isRtl && equippedFrameUrl ? { right: undefined, left: frameBox * 0.22 } : undefined,
+                ]}
+              />
+            ) : null}
             <View style={[styles.crownBadge, equippedFrameUrl && styles.crownBadgeFramed]}>
               <Crown size={12} color="#FFD700" fill="#FFD700" />
             </View>
@@ -399,8 +403,8 @@ export default function ProfileScreen() {
               <View style={[styles.walletBalRow, { flexDirection: ROW }]}>
                 <Image source={require('../../assets/masa.png')} style={styles.coinImg} contentFit="contain" />
                 <View style={{ flex: 1, alignItems: isRtl ? 'flex-end' : 'flex-start' }}>
-                  <Text style={styles.walletVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
-                    {formatCompact(stats.pearls ?? 0)}
+                  <Text style={styles.walletVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
+                    {formatExact(stats.pearls ?? 0)}
                   </Text>
                   <Text style={styles.walletLabel}>{t('profile.myPearls')}</Text>
                 </View>
@@ -417,8 +421,9 @@ export default function ProfileScreen() {
               <View style={[styles.walletBalRow, { flexDirection: ROW }]}>
                 <Image source={COIN_CURRENCY_ICON} style={styles.coinImg} contentFit="contain" />
                 <View style={{ flex: 1, alignItems: isRtl ? 'flex-end' : 'flex-start' }}>
-                  <Text style={styles.walletVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
-                    {formatCompact(stats.coins ?? 0)}
+                  {/* الرقم الدقيق — التقريب المضغوط (4.7M) كان يوحي برصيد مختلف عن شاشة الشحن */}
+                  <Text style={styles.walletVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
+                    {formatExact(stats.coins ?? 0)}
                   </Text>
                   <Text style={styles.walletLabel}>{t('profile.myCoins')}</Text>
                 </View>

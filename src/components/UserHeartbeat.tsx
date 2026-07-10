@@ -12,6 +12,8 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { AppState } from 'react-native';
 import { firestore } from '@/services/firebase/index';
 import { pingUserPresence } from '@/services/firebase/presence';
+import { cleanupStaleRoomPresence } from '@/services/firebase/rooms';
+import { useRoomSessionStore } from '@/stores/roomSessionStore';
 import { useAuth } from '@/hooks/useAuth';
 
 const HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000; // كل دقيقتين
@@ -47,13 +49,26 @@ export function UserHeartbeat() {
       }, delay);
     };
 
+    // تنظيف حضور شبح من جلسة سابقة — بعد مهلة قصيرة حتى تستقر حالة الروم النشط
+    const cleanupGhostPresence = () => {
+      setTimeout(() => {
+        if (!mounted) return;
+        const s = useRoomSessionStore.getState();
+        void cleanupStaleRoomPresence(s.audioPinned ? s.roomId : null).catch(() => {});
+      }, 4000);
+    };
+
     // ping أول (مؤجّل بـ jitter) ثم دوري
     pingJittered();
+    cleanupGhostPresence();
     const iv = setInterval(ping, HEARTBEAT_INTERVAL_MS);
 
     // ping عند رجوع التطبيق من الخلفية (مؤجّل بـ jitter أيضاً)
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') pingJittered();
+      if (state === 'active') {
+        pingJittered();
+        cleanupGhostPresence();
+      }
     });
 
     return () => {

@@ -204,22 +204,16 @@ export async function updatePrivacySettings(
   uid: string,
   patch: Partial<PrivacySettings>,
 ): Promise<void> {
-  const current = await getPrivacySettings(uid);
-  const next = { ...current, ...patch };
-  await updateDoc(doc(firestore, 'users', uid), {
-    privacySettings: {
-      visitAnonymously: next.visitAnonymously,
-      hideGiftHistory: next.hideGiftHistory,
-      hideFromRanking: next.hideFromRanking,
-      hideInRoom: next.hideInRoom,
-      hideSvipIdentity: next.hideSvipIdentity,
-      profileUnsearchable: next.profileUnsearchable,
-      hideWealthLevel: next.hideWealthLevel,
-    },
-    privacyHideOnline: next.hideOnline,
-    privacyHideVisitors: next.hideVisitors,
-    updatedAt: Date.now(),
-  });
+  // تحديث الحقول المتغيّرة فقط بمسارات نقطية — القراءة ثم إعادة كتابة الخريطة كاملة
+  // كانت تُرجِع التبديلات السريعة المتتالية لقيم قديمة (سباق read-modify-write)
+  const updatePayload: Record<string, boolean | number> = { updatedAt: Date.now() };
+  for (const [key, value] of Object.entries(patch)) {
+    if (typeof value !== 'boolean') continue;
+    if (key === 'hideOnline') updatePayload.privacyHideOnline = value;
+    else if (key === 'hideVisitors') updatePayload.privacyHideVisitors = value;
+    else updatePayload[`privacySettings.${key}`] = value;
+  }
+  await updateDoc(doc(firestore, 'users', uid), updatePayload);
 }
 
 export function subscribePrivacySettings(

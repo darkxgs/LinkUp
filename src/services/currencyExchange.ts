@@ -192,23 +192,53 @@ export const exchangeCurrency = async (
   const { source, target, txType } = balanceKeyForRoute(route);
   const meRef = doc(firestore, 'users', me.uid);
 
-  await runTransaction(firestore, async (tx) => {
-    const meSnap = await tx.get(meRef);
-    if (!meSnap.exists()) throw new Error('حسابك غير موجود');
+  // وثيقة المستخدم «ساخنة» (XP دقيقة/هدايا/حضور) — تعارض النسخ يُفشل المحاولة
+  // الأولى أحياناً برسالة خام "stored version does not match required base version".
+  // نعيد المحاولة بمهلة متزايدة ونترجم الخطأ لرسالة مفهومة.
+  const runExchangeTx = () =>
+    runTransaction(firestore, async (tx) => {
+      const meSnap = await tx.get(meRef);
+      if (!meSnap.exists()) throw new Error('حسابك غير موجود');
 
-    const stats = statsFromFirestoreDoc(meSnap.data() as Record<string, unknown>);
-    const balance = isCasinoRoute
-      ? stats.casinoCoins
-      : stats[source];
-    if (balance < debitAmount) {
-      throw new Error(`رصيدك من الـ${sourceLabel} غير كافٍ`);
-    }
+      const stats = statsFromFirestoreDoc(meSnap.data() as Record<string, unknown>);
+      const balance = isCasinoRoute
+        ? stats.casinoCoins
+        : stats[source];
+      if (balance < debitAmount) {
+        throw new Error(`رصيدك من الـ${sourceLabel} غير كافٍ`);
+      }
 
-    tx.update(meRef, {
-      ...buildBalanceIncrementPatch(source, -debitAmount),
-      ...buildBalanceIncrementPatch(target, received),
+      tx.update(meRef, {
+        ...buildBalanceIncrementPatch(source, -debitAmount),
+        ...buildBalanceIncrementPatch(target, received),
+      });
     });
-  });
+
+  const isVersionConflict = (e: unknown): boolean => {
+    const msg = e instanceof Error ? e.message : String(e ?? '');
+    return (
+      msg.includes('does not match the required base version') ||
+      msg.includes('failed-precondition') ||
+      msg.includes('aborted')
+    );
+  };
+
+  let lastErr: unknown = null;
+  let done = false;
+  for (let attempt = 0; attempt < 3 && !done; attempt++) {
+    try {
+      await runExchangeTx();
+      done = true;
+    } catch (e) {
+      lastErr = e;
+      if (!isVersionConflict(e)) throw e;
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  if (!done) {
+    throw new Error('تعذّر إتمام التحويل بسبب ازدحام مؤقت على حسابك — أعد المحاولة بعد لحظات');
+  }
+  void lastErr;
 
   await addDoc(collection(firestore, 'transactions'), {
     uid: me.uid,

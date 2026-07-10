@@ -156,6 +156,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     paddingVertical: 6,
     paddingHorizontal: 8,
+    // حد أدنى للعرض — بدونه رسالة قصيرة («كيفك») تعصر الاقتباس
+    // فيلتف النص المقتبس حرفاً حرفاً بشكل عمودي مشوّه
+    minWidth: 176,
   },
   quoteRtl: {
     flexDirection: 'row-reverse',

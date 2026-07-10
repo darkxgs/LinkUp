@@ -57,6 +57,23 @@ export function computeVisitorStatsFromVisits(visits: ProfileVisit[]): ProfileVi
 
 /** عدّاد دقيق من Firestore + مزامنة stats.visitors على وثيقة المستخدم */
 export async function reconcileVisitorCount(uid: string): Promise<number> {
+  // أولاً: تنظيف السيرفر — يدمج وثائق الزيارات المكررة القديمة (معرّفات عشوائية
+  // لنفس الزائر) ويعيد العدد الفريد الصحيح. إن لم تكن الدالة منشورة بعد نكمل
+  // بالعدّ المحلي كما كان.
+  try {
+    const fn = httpsCallable<Record<string, never>, { ok?: boolean; total?: number }>(
+      functions,
+      'reconcileProfileVisitors',
+    );
+    const res = await fn({});
+    const serverTotal = Number(res.data?.total);
+    if (res.data?.ok && Number.isFinite(serverTotal)) {
+      patchLocalSocialStats(uid, { visitors: serverTotal });
+      return serverTotal;
+    }
+  } catch {
+    // الدالة غير متاحة — نكمل بالعدّ المحلي
+  }
   try {
     const countSnap = await getCountFromServer(visitsCollection(uid));
     const total = countSnap.data().count;

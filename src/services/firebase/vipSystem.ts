@@ -679,9 +679,16 @@ export const maintainVipLevel = async (uid: string): Promise<void> => {
     );
   }
 
+  // مرة واحدة لكل شهر — الضغط المتكرر كان يمدّد الصلاحية بلا حدود
+  const currentMonthKey = new Date().toISOString().slice(0, 7);
+  if (String(data.vipMaintainedMonthKey ?? '') === currentMonthKey) {
+    throw new Error('تم الحفاظ على مستواك هذا الشهر بالفعل — عد الشهر القادم');
+  }
+
   const expires = defaultVipExpiry(config);
   await updateDoc(doc(firestore, 'users', uid), {
     vipExpiresAt: expires,
+    vipMaintainedMonthKey: currentMonthKey,
     updatedAt: Date.now(),
   });
 
@@ -696,8 +703,10 @@ export const maintainVipLevel = async (uid: string): Promise<void> => {
   });
 
   try {
-    const { notifyVipRechargeSuccess } = await import('./vipNotifications');
-    await notifyVipRechargeSuccess(uid, def.label);
+    // إشعار «تمديد/حفاظ» — كان يُرسَل إشعار «تم شحن الباقة بنجاح» فيبدو
+    // وكأن الزر أعاد شحن الباقة مجاناً
+    const { notifyVipMaintainSuccess } = await import('./vipNotifications');
+    await notifyVipMaintainSuccess(uid, def.label);
   } catch { /* non-blocking */ }
 };
 

@@ -139,11 +139,17 @@ async function uploadKycBase64Image(base64: string, kind: KycFileKind): Promise<
   return uploadKycAsset(dest, kind);
 }
 
-/** تحقق سريع بالوجه — verifyGenderFace Cloud Function */
+/**
+ * تحقق سريع بالوجه — verifyGenderFace Cloud Function.
+ * `framesBase64`: حتى 3 إطارات تُلتقط تلقائياً أثناء إيماءة بسيطة (تحقق حيوية) —
+ * اختيارية؛ بدونها يعمل بإطار واحد كالسابق.
+ */
 export async function submitKycFaceVerification(
   imageBase64: string,
   fullName: string,
   displayName: string,
+  framesBase64?: string[],
+  gesture?: string,
 ): Promise<KycSubmitResult> {
   const user = auth.currentUser;
   if (!user) throw new Error('يجب تسجيل الدخول');
@@ -170,6 +176,8 @@ export async function submitKycFaceVerification(
   const fn = httpsCallable<
     {
       imageBase64: string;
+      framesBase64?: string[];
+      gesture?: string;
       personal: { fullName: string; displayName: string };
     },
     KycSubmitResult
@@ -177,6 +185,8 @@ export async function submitKycFaceVerification(
 
   const res = await fn({
     imageBase64,
+    ...(framesBase64 && framesBase64.length > 1 ? { framesBase64 } : {}),
+    ...(gesture ? { gesture } : {}),
     personal: {
       fullName: trimmedName,
       displayName: displayName.trim() || trimmedName,

@@ -84,11 +84,15 @@ export async function resolveMentionEntry(token: string): Promise<RoomMentionEnt
   }
 }
 
-/** رمز المنشن: المعرف العام أولاً، وإلا الاسم بدون مسافات */
+/**
+ * رمز المنشن: الاسم أولاً — كان يُدرج المعرف العام (@98699728) فيظهر
+ * رقم بدل الاسم في الشات. المعرف يبقى فولباك للأسماء الفارغة فقط،
+ * والتحويل إلى UID يتم عبر فهرس الروم بالاسم.
+ */
 export function resolveMentionToken(displayName: string, publicAccountId?: string): string {
-  const id = publicAccountId?.trim();
-  if (id) return id;
-  return displayName.trim().replace(/\s+/g, '_');
+  const name = displayName.trim().replace(/\s+/g, '_');
+  if (name) return name;
+  return publicAccountId?.trim() ?? '';
 }
 
 /** إدراج منشن في حقل الكتابة مع عزل اتجاه النص لدعم العربية */

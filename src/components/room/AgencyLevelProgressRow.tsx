@@ -9,6 +9,7 @@ import { HelpCircle } from 'lucide-react-native';
 import { Text } from '@/components/ui';
 import {
   getAgencyLevelProgress,
+  getSupportTargetForLevel,
   type AgencyLevelsRuntimeConfig,
 } from '@/services/agencyLevels';
 import { radius, spacing } from '@/theme';
@@ -44,6 +45,19 @@ export function AgencyLevelProgressRow({
     if (manual && manualLevel && manualLevel >= 1) {
       return { ...base, level: manualLevel };
     }
+    if (base.level < 1) {
+      // الوكالة تبدأ دائماً من LV.1 — لا يوجد «مستوى صفر» في الواجهة
+      // (نفس الحد الأدنى المعروض في بطاقة «مستوى الوكالة»)
+      const nextTarget = getSupportTargetForLevel(2, levelsConfig) || base.nextTarget || 1;
+      return {
+        ...base,
+        level: 1,
+        nextLevel: 2,
+        nextTarget,
+        progressRatio: Math.min(1, Math.max(0, base.supportCoins / nextTarget)),
+        remainingCoins: Math.max(0, nextTarget - base.supportCoins),
+      };
+    }
     return base;
   }, [supportCoins, manualLevel, manual, levelsConfig]);
 
@@ -54,8 +68,9 @@ export function AgencyLevelProgressRow({
   const muted = isDark ? '#FCA5A5' : '#9CA3AF';
   const labelColor = isDark ? '#FECACA' : '#6B7280';
   const trackBg = isDark ? 'rgba(255,255,255,0.12)' : '#E5E7EB';
+  // المحصَّل أولاً ثم الهدف (كانت معكوسة فتظهر «1.00m/0» بدل «0/1.00m»)
   const valuesText = progress.nextTarget != null
-    ? `${formatLevelCoins(progress.nextTarget)}/${formatLevelCoins(progress.supportCoins)}`
+    ? `${formatLevelCoins(progress.supportCoins)}/${formatLevelCoins(progress.nextTarget)}`
     : formatLevelCoins(progress.supportCoins);
 
   const showHelp = () => {

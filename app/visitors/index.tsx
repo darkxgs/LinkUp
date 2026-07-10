@@ -243,6 +243,22 @@ export default function VisitorsScreen() {
           initialNumToRender={12}
           maxToRenderPerBatch={12}
           windowSize={9}
+          ListFooterComponent={
+            !canSeeAllVisitors && visitors.length > VISITORS_FREE_LIMIT ? (
+              <Pressable
+                onPress={() => router.push('/vip' as any)}
+                style={styles.moreVisitorsHint}
+              >
+                <Lock size={14} color="#9CA3AF" strokeWidth={2} />
+                <Text variant="caption" color="#6B7280">
+                  {t('visitors.moreLocked', {
+                    count: visitors.length - VISITORS_FREE_LIMIT,
+                    defaultValue: `+${visitors.length - VISITORS_FREE_LIMIT} زائر إضافي — فعّل امتياز «سجل الزوار» لعرض القائمة كاملة`,
+                  })}
+                </Text>
+              </Pressable>
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <EyeOff size={64} color="#D1D5DB" strokeWidth={1.5} />
@@ -368,6 +384,18 @@ const styles = StyleSheet.create({
 
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyState: { alignItems: 'center', padding: spacing.xl * 2, gap: 8 },
+  moreVisitorsHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 4,
+    borderRadius: radius.lg,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
 
   visitorCard: {
     flexDirection: 'row',

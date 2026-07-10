@@ -151,9 +151,11 @@ export function RoomToolsSheet({
     event?: GestureResponderEvent,
   ) => {
     event?.stopPropagation?.();
-    onAction(action, payload);
-    // أغلق بعد تنفيذ الإجراء لتجنّب تسريب اللمسة للشاشة (خصوصاً المقاعد خلف المودال).
-    setTimeout(onClose, 0);
+    // أغلق المودال أولاً ثم نفّذ الإجراء — تنفيذ ملاحة (الإعدادات مثلاً) أو فتح
+    // منتقي الصور والمودال ما زال معروضاً كان يترك نافذته «شبحاً» عالقاً فوق
+    // الشاشات التالية على أندرويد بلا استجابة للمس.
+    onClose();
+    setTimeout(() => onAction(action, payload), 60);
   };
 
   const basicTools = showSettings

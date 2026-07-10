@@ -105,7 +105,9 @@ export function VoiceMicPanel({
 
       <View style={styles.optionsRow}>
         <MicOptionButton
-          label={micMuted ? t('room.micUnmute', 'فتح المايك') : t('room.micOn', 'المايك')}
+          // تسمية تصف الحالة بوضوح: مكتوم → «المايك مغلق»، مفتوح → «كتم المايك»
+          // (كانت «فتح المايك/المايك» فلا يُعرف هل المايك مفتوح أم مغلق)
+          label={micMuted ? t('room.micClosed', 'المايك مغلق') : t('room.micMute', 'كتم المايك')}
           active={micMuted}
           disabled={!canMic}
           activeColor={lu.colors.live}

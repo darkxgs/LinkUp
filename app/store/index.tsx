@@ -42,7 +42,7 @@ import { ChevronLeft } from '@/components/ui/RtlIcons';
 import { Text } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import type { User } from '@/stores/authStore';
-import { purchaseStoreItem, purchaseAndSendStoreItem, type StoreItem } from '@/services/firebase/shop';
+import { purchaseStoreItem, purchaseAndSendStoreItem, getUserInventory, type StoreItem } from '@/services/firebase/shop';
 import { getFollowing } from '@/services/firebase/follow';
 import { getUser } from '@/services/firebase/users';
 import {
@@ -176,9 +176,27 @@ export default function StoreScreen() {
   const cols = screenW >= 520 ? 3 : 2;
   const cardWidth = (screenW - H_PAD * 2 - GRID_GAP * (cols - 1)) / cols;
 
+  // العناصر المشتراة (دخولية/فقاعة/…) — كانت «شراء» تبقى ظاهرة بعد الشراء لأن
+  // isOwned كانت تفحص الإطارات فقط
+  const [ownedItemIds, setOwnedItemIds] = useState<Set<string>>(new Set());
+
   const refreshOwned = useCallback(() => {
     getOwnedFrames().then(setOwnedFrameIds);
-  }, []);
+    if (user?.uid) {
+      getUserInventory(user.uid)
+        .then((inv) => {
+          const now = Date.now();
+          setOwnedItemIds(
+            new Set(
+              inv
+                .filter((i) => !i.expiresAt || i.expiresAt > now)
+                .map((i) => i.itemId),
+            ),
+          );
+        })
+        .catch(() => {});
+    }
+  }, [user?.uid]);
 
   useEffect(() => {
     const unsubFrames = subscribeToRoomFrames((frames) => {
@@ -241,7 +259,9 @@ export default function StoreScreen() {
   }, [activeCategory, adminFrameItems, catalogItems]);
 
   const isOwned = (item: StoreDisplayItem) =>
-    item.isRoomFrame === true && ownedFrameIds.includes(item.id);
+    item.isRoomFrame === true
+      ? ownedFrameIds.includes(item.id)
+      : ownedItemIds.has(item.id);
 
   const openSendPicker = useCallback(async (item: StoreDisplayItem) => {
     if (!user?.uid) return;
@@ -425,6 +445,8 @@ export default function StoreScreen() {
         ]);
       } else {
         await purchaseStoreItem(selectedItem);
+        // انعكاس فوري: الزر يتحول «تم الشراء» بدون انتظار إعادة جلب المخزون
+        setOwnedItemIds((prev) => new Set(prev).add(selectedItem.id));
         await updateUserData({
           stats: {
             ...user.stats,

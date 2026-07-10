@@ -168,7 +168,9 @@ export default function OnboardingScreen() {
     }
     if (provider === 'google') {
       if (!googleReady) {
-        Alert.alert(t('common.error'), t('auth.text613'));
+        // لا نترك المستخدم أمام رسالة خطأ صمّاء — نفتح إدخال البريد الإلكتروني
+        // ليدخل على حسابه السابق (بريد + كلمة مرور)
+        router.push('/(auth)/login' as any);
         return;
       }
       setGoogleBusy(true);
@@ -179,7 +181,14 @@ export default function OnboardingScreen() {
         } catch (e: any) {
           const msg = e?.message ?? t('auth.loginFailed');
           if (msg !== 'ألغى المستخدم تسجيل الدخول') {
-            Alert.alert(t('auth.loginFailed'), msg);
+            // فشل الدخول عبر جوجل — نعرض بديل إدخال البريد الإلكتروني مباشرة
+            Alert.alert(t('auth.loginFailed'), msg, [
+              { text: t('common.cancel'), style: 'cancel' },
+              {
+                text: t('auth.emailLabel', 'البريد الإلكتروني'),
+                onPress: () => router.push('/(auth)/login' as any),
+              },
+            ]);
           }
         } finally {
           setGoogleBusy(false);

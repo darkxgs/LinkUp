@@ -111,9 +111,14 @@ async function assertHostCanStart(roomId: string): Promise<void> {
   if (!user) throw new Error('يجب تسجيل الدخول');
   const snap = await get(ref(realtimeDb, `rooms/${roomId}`));
   if (!snap.exists()) throw new Error('الغرفة غير موجودة');
-  const hostUid = String(snap.val()?.hostUid ?? '');
-  if (hostUid !== user.uid) {
-    throw new Error('فقط مضيف الغرفة يمكنه بدء التحدي');
+  const roomData = snap.val() ?? {};
+  const hostUid = String(roomData.hostUid ?? '');
+  // المضيف أو مشرف الإشراف (الأصفر) — طلب العميل: الإشراف يبدأ التحدي أيضاً
+  const isYellowSupervisor =
+    (roomData.memberRoles as Record<string, string> | undefined)?.[user.uid] ===
+    'yellow_supervisor';
+  if (hostUid !== user.uid && !isYellowSupervisor) {
+    throw new Error('تحدي PK للمضيف أو مشرفي الإشراف فقط');
   }
   const pkSnap = await get(pkRef(roomId));
   const pk = normalizePkState(pkSnap.val());
@@ -324,9 +329,14 @@ export async function endRoomPK(roomId: string, force = false): Promise<RoomPkSt
   if (pk.status !== 'active' && !force) return null;
 
   const roomSnap = await get(ref(realtimeDb, `rooms/${roomId}`));
-  const hostUid = roomSnap.val()?.hostUid;
-  if (user && hostUid !== user.uid && !force) {
-    throw new Error('فقط المضيف يمكنه إنهاء التحدي');
+  const roomVal = roomSnap.val() ?? {};
+  const hostUid = roomVal.hostUid;
+  const isYellowSupervisor =
+    user != null &&
+    (roomVal.memberRoles as Record<string, string> | undefined)?.[user.uid] ===
+      'yellow_supervisor';
+  if (user && hostUid !== user.uid && !isYellowSupervisor && !force) {
+    throw new Error('تحدي PK للمضيف أو مشرفي الإشراف فقط');
   }
 
   let winner: RoomPkState['winner'] = 'draw';

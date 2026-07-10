@@ -78,10 +78,14 @@ export function MusicShareModal({ visible, onClose, roomId }: Props) {
 
   const handlePick = async () => {
     try {
-      const res = await DocumentPicker.getDocumentAsync({
-        type: 'audio/*',
-        copyToCacheDirectory: true,
-      });
+      // الحارس يمنع إفراغ المقعد أثناء فتح منتقي الملفات (التطبيق يذهب للخلفية)
+      const { withRoomMediaPickerGuard } = await import('@/utils/roomMediaPickerGuard');
+      const res = await withRoomMediaPickerGuard(() =>
+        DocumentPicker.getDocumentAsync({
+          type: 'audio/*',
+          copyToCacheDirectory: true,
+        }),
+      );
       if (res.canceled || !res.assets?.[0]) return;
       const file = res.assets[0];
       setPicked(file);

@@ -455,13 +455,8 @@ export default function PostDetailScreen() {
               </View>
             ) : null}
             <View style={styles.composerRow}>
-              <Pressable
-                onPress={handlePickCommentImage}
-                disabled={isBusy}
-                style={[styles.attachBtn, isBusy && { opacity: 0.5 }]}
-              >
-                <ImageIcon size={20} color={lu.colors.purple} />
-              </Pressable>
+              {/* أُزيل زر إدراج الصور في التعليقات — كان باباً للصور المسيئة
+                  التي لا يمكن مراقبتها (طلب المالك). الردود نصية فقط. */}
               <TextInput
                 style={styles.commentInput}
                 placeholder={replyingTo ? t('post.replyPlaceholder') : t('post.commentPlaceholder')}

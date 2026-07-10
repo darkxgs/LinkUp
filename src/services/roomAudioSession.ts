@@ -101,6 +101,9 @@ async function enableMicrophoneWithRetry(
 
 let lkModule: typeof import('livekit-client') | null = null;
 
+/** آخر رفض لإذن الميكروفون — تهدئة تمنع إعادة الطلب في حلقة (وميض التنبيه) */
+let micPermissionDeniedAt = 0;
+
 const TOKEN_CACHE_TTL_MS = 4 * 60 * 1000;
 const prefetchedTokens = new Map<
   string,
@@ -534,6 +537,15 @@ class RoomAudioSessionManager {
       this.error = null;
       this.emit();
 
+      // تهدئة طلب إذن الميكروفون — الرفض كان يُعاد طلبه بحلقة إعادة الاتصال
+      // فيرمش التنبيه بسرعة ولا يلحق المستخدم يضغط شيئاً
+      if (canPublish && Date.now() - micPermissionDeniedAt < 15_000) {
+        this.error = 'يجب السماح بالميكروفون للتحدّث — فعِّله من إعدادات الجهاز ثم أعد المحاولة';
+        this.connectionState = 'error';
+        this.emit();
+        return;
+      }
+
       const tokenPromise = resolveLiveKitToken(roomName, canPublish, peerUid);
       const [{ lk, nativeAudio }, micGranted] = await Promise.all([
         loadLiveKitModules(),
@@ -547,7 +559,8 @@ class RoomAudioSessionManager {
       }
 
       if (canPublish && !micGranted) {
-        this.error = 'يجب السماح بالميكروفون للتحدّث';
+        micPermissionDeniedAt = Date.now();
+        this.error = 'يجب السماح بالميكروفون للتحدّث — فعِّله من إعدادات الجهاز ثم أعد المحاولة';
         this.connectionState = 'error';
         this.emit();
         return;
@@ -645,12 +658,31 @@ class RoomAudioSessionManager {
         .on(RoomEvent.ParticipantDisconnected, refresh)
         .on(RoomEvent.ActiveSpeakersChanged, refresh)
         .on(RoomEvent.TrackMuted, refresh)
-        .on(RoomEvent.TrackUnmuted, () => {
+        .on(RoomEvent.TrackUnmuted, (pub: any, participant: any) => {
+          // حارس الكتم: لو انفتح مسار مايكنا (إعادة نشر تلقائية بعد انقطاع)
+          // بينما حالتنا «مكتوم» — نعيد تعطيله فوراً حتى لا يُسمَع المكتوم
+          if (
+            this.room === room &&
+            this.isMuted &&
+            participant?.isLocal === true &&
+            pub?.kind === 'audio'
+          ) {
+            void enableMicrophoneWithRetry(room, false, 2).catch(() => {});
+          }
           this.applyRemoteAudioVolume();
           this.scheduleRemoteVolumeResync();
           refresh();
         })
         .on(RoomEvent.LocalTrackPublished, refresh)
+        // مسار صوت يُشترك بعد كتم صوت الروم كان يبدأ بمستوى كامل — يُعاد ضبطه فوراً
+        .on(RoomEvent.TrackSubscribed, (_track: any, pub: any) => {
+          if (this.room !== room) return;
+          if (pub?.kind === 'audio') {
+            this.applyRemoteAudioVolume();
+            this.scheduleRemoteVolumeResync();
+          }
+          refresh();
+        })
         .on(RoomEvent.Reconnecting, () => {
           if (this.room !== room) return;
           this.connectionState = 'connecting';
@@ -792,7 +824,10 @@ class RoomAudioSessionManager {
       this.emit();
       return;
     }
-    if (this.isMuted === muted) return;
+    // بلا اختصار على الحالة المحلية — كانت العلامة تُضبط تفاؤلياً عند تعثّر
+    // الشبكة دون تعطيل مسار الصوت فعلياً، فتتخطى المحاولاتُ اللاحقة التنفيذ
+    // ويبقى الصوت مبثوثاً رغم أن الواجهة تقول «مكتوم» (سماع المكتومين).
+    // استدعاء LiveKit آمن التكرار (idempotent) فلا كلفة لإعادة التطبيق.
     await enableMicrophoneWithRetry(room, !muted);
     this.isMuted = muted;
     this.participants = mapParticipants(room);
@@ -837,6 +872,32 @@ class RoomAudioSessionManager {
   resyncRemoteAudio(): void {
     this.applyRemoteAudioVolume();
     this.scheduleRemoteVolumeResync();
+  }
+
+  // ==== تعليق صوت الروم أثناء مكالمة 1:1 ====
+  // كان صوت الروم المثبّت يختلط بالمكالمة (تسمع الغرفة وأنت تتكلم مع الطرف الآخر)
+  private callSuspendState: { remoteMuted: boolean; micMuted: boolean } | null = null;
+
+  suspendForCall(): void {
+    if (this.callSuspendState) return;
+    this.callSuspendState = {
+      remoteMuted: this.remoteAudioMuted,
+      micMuted: this.isMuted,
+    };
+    this.setRemoteAudioMuted(true);
+    if (this.canPublish && !this.isMuted) {
+      void this.applyMicMuted(true).catch(() => {});
+    }
+  }
+
+  resumeAfterCall(): void {
+    const prev = this.callSuspendState;
+    if (!prev) return;
+    this.callSuspendState = null;
+    this.setRemoteAudioMuted(prev.remoteMuted);
+    if (this.canPublish && !prev.micMuted && !this.seatAdminMuted) {
+      void this.applyMicMuted(false).catch(() => {});
+    }
   }
 }
 

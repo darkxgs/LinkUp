@@ -125,6 +125,10 @@ export interface User {
   staffAgencyId?: string | null;
   staffActive?: boolean;
   firstRechargeBonusClaimed?: boolean;
+  /** إعدادات الخصوصية — النقطة الخضراء وحالة الاتصال */
+  privacyHideOnline?: boolean;
+  privacyHideVisitors?: boolean;
+  privacySettings?: Record<string, boolean>;
   /** حقول جذر قديمة (legacy) قد توجد في وثائق حسابات سابقة — تُقرأ كاحتياط بعد profile */
   country?: string;
   phoneNumber?: string;
@@ -269,6 +273,10 @@ function startUserDocListener(
         data.equippedFrameId != null ? String(data.equippedFrameId) : current.equippedFrameId,
       frameInventory: (data.frameInventory as Record<string, number>) ?? current.frameInventory,
       firstRechargeBonusClaimed: data.firstRechargeBonusClaimed === true,
+      // إعدادات الخصوصية — النقطة الخضراء بالبروفايل تعتمد عليها وكانت غير مُمرَّرة للستور
+      privacyHideOnline: data.privacyHideOnline === true,
+      privacyHideVisitors: data.privacyHideVisitors === true,
+      privacySettings: (data.privacySettings as Record<string, boolean> | undefined) ?? undefined,
     };
     void AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(updated));
     set({ user: updated });

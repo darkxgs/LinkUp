@@ -160,7 +160,7 @@ export default function VideoCallScreen() {
     if (canPin) {
       useCallSessionStore.getState().minimize({
         peerUid: id,
-        peerName: peer?.displayName ?? t('rooms.userFallback'),
+        peerName: ((peer as any)?.profile?.displayName || peer?.displayName) ?? t('rooms.userFallback'),
         peerAvatar: peer?.avatar,
         channelName,
         isVideo: true,
@@ -258,7 +258,7 @@ export default function VideoCallScreen() {
               <View>
                 <View style={styles.nameRow}>
                   <Text variant="body" weight="semibold" color={colors.white}>
-                    {peer?.displayName ?? t('rooms.userFallback')}
+                    {((peer as any)?.profile?.displayName || peer?.displayName) ?? t('rooms.userFallback')}
                   </Text>
                   <RealCountryFlag countryCode={peer?.country ?? 'PS'} size={16} />
                   {isRemoteMuted && (

@@ -39,13 +39,20 @@ type VolumeDragSliderProps = {
 };
 
 function VolumeDragSlider({ value, onChange }: VolumeDragSliderProps) {
-  const trackWidth = useRef(0);
+  // سلايدر عمودي: أعلى = أقوى — يلغي انعكاس الاتجاه في واجهة RTL نهائياً
+  // (الأفقي كان «بقوّيه بيضعف»). السحب يعتمد إحداثيات النافذة (pageY) بدل
+  // locationX التي تقفز عشوائياً حين يخرج الإصبع عن الشريط (سبب الخشونة).
+  const trackRef = useRef<View>(null);
+  const trackTop = useRef(0);
+  const trackH = useRef(1);
 
-  const setFromX = useCallback(
-    (x: number) => {
-      if (trackWidth.current <= 0) return;
-      const next = Math.max(0, Math.min(1, x / trackWidth.current));
-      onChange(Math.round(next * 20) / 20);
+  const setFromPageY = useCallback(
+    (pageY: number) => {
+      const h = trackH.current;
+      if (h <= 0) return;
+      const ratio = 1 - (pageY - trackTop.current) / h;
+      const next = Math.max(0, Math.min(1, ratio));
+      onChange(Math.round(next * 100) / 100);
     },
     [onChange],
   );
@@ -54,60 +61,88 @@ function VolumeDragSlider({ value, onChange }: VolumeDragSliderProps) {
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => setFromX(evt.nativeEvent.locationX),
-      onPanResponderMove: (evt) => setFromX(evt.nativeEvent.locationX),
+      onPanResponderGrant: (evt) => {
+        const pageY = evt.nativeEvent.pageY;
+        trackRef.current?.measureInWindow((_x, y, _w, h) => {
+          trackTop.current = y;
+          if (h > 0) trackH.current = h;
+          setFromPageY(pageY);
+        });
+      },
+      onPanResponderMove: (evt) => setFromPageY(evt.nativeEvent.pageY),
     }),
   ).current;
 
   const onLayout = (e: LayoutChangeEvent) => {
-    trackWidth.current = e.nativeEvent.layout.width;
+    if (e.nativeEvent.layout.height > 0) trackH.current = e.nativeEvent.layout.height;
   };
 
   const progress = Math.round(value * 100);
 
   return (
     <View style={volStyles.wrap}>
+      <Text variant="caption" color="rgba(255,255,255,0.55)" style={volStyles.pct}>
+        {progress}%
+      </Text>
+      <View
+        ref={trackRef}
+        collapsable={false}
+        onLayout={onLayout}
+        style={volStyles.vTouch}
+        {...pan.panHandlers}
+      >
+        <View style={volStyles.vTrack}>
+          <View style={[volStyles.vFill, { height: `${progress}%` }]} />
+          <View style={[volStyles.vThumb, { bottom: `${progress}%` }]} />
+        </View>
+      </View>
       {value < 0.05 ? (
         <VolumeX size={18} color="rgba(255,255,255,0.65)" />
       ) : (
         <Volume2 size={18} color="rgba(255,255,255,0.85)" />
       )}
-      <View
-        style={volStyles.track}
-        onLayout={onLayout}
-        {...pan.panHandlers}
-      >
-        <View style={[volStyles.fill, { width: `${progress}%` }]} />
-        <View style={[volStyles.thumb, { left: `${progress}%` }]} />
-      </View>
-      <Text variant="caption" color="rgba(255,255,255,0.55)" style={volStyles.pct}>
-        {progress}%
-      </Text>
     </View>
   );
 }
 
 const volStyles = StyleSheet.create({
   wrap: {
-    flexDirection: 'row',
+    alignSelf: 'center',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     marginTop: 12,
     paddingHorizontal: 4,
   },
-  track: {
-    flex: 1,
-    height: 28,
+  vTouch: {
+    width: 44,
+    height: 110,
+    alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.12)',
   },
-  fill: {
+  vTrack: {
+    width: 6,
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    overflow: 'visible',
+    alignItems: 'center',
+  },
+  vFill: {
     position: 'absolute',
-    left: 0,
-    height: 4,
-    borderRadius: 2,
+    bottom: 0,
+    width: 6,
+    borderRadius: 3,
     backgroundColor: '#FF6B35',
+  },
+  vThumb: {
+    position: 'absolute',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    marginBottom: -8,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#FF6B35',
   },
   thumb: {
     position: 'absolute',

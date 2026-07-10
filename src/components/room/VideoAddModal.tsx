@@ -165,6 +165,22 @@ export function VideoAddModal({ visible, onClose, roomId, canPublishDirectly = f
 
       setUploadProgress(80);
       const downloadUrl = await getDownloadURL(fileRef);
+
+      // صورة معاينة للمشرف — يشاهد محتوى الفيديو قبل الموافقة
+      let thumbnailUrl: string | undefined;
+      try {
+        const VideoThumbnails = await import('expo-video-thumbnails');
+        const thumb = await VideoThumbnails.getThumbnailAsync(pickedVideo.uri, {
+          time: 1000,
+          quality: 0.6,
+        });
+        const thumbBlob = await (await fetch(thumb.uri)).blob();
+        const thumbRef = storageRef(storage, `room_videos/${roomId}/${user.uid}_${Date.now()}_thumb.jpg`);
+        await uploadBytes(thumbRef, thumbBlob, { contentType: 'image/jpeg' });
+        thumbnailUrl = await getDownloadURL(thumbRef);
+      } catch {
+        // المعاينة اختيارية — فشلها لا يمنع الطلب
+      }
       setUploadProgress(100);
 
       if (canPublishDirectly) {
@@ -175,7 +191,7 @@ export function VideoAddModal({ visible, onClose, roomId, canPublishDirectly = f
           message: 'تم عرض الفيديو في الروم الآن',
         });
       } else {
-        await submitRoomVideoRequest(roomId, downloadUrl, title || 'فيديو من الجهاز');
+        await submitRoomVideoRequest(roomId, downloadUrl, title || 'فيديو من الجهاز', thumbnailUrl);
         showAlert({
           type: 'success',
           title: 'تم الإرسال',

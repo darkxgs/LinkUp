@@ -95,6 +95,12 @@ export interface RewardsDailyStats {
   femaleMessageCounts: Record<string, number>;
   partnerChatRounds: Record<string, number>;
   gameBets: number;
+  /** دقائق التواجد في الغرف اليوم — لمهمة «البقاء في غرفة» بمستوى الثروة */
+  roomMinutes: number;
+  /** دقائق التحدث على المايك اليوم — لمهمة «وقت المايك» */
+  micMinutes: number;
+  /** عدد الهدايا المرسلة اليوم — لمهمة «إرسال هدايا» */
+  giftsSent: number;
 }
 
 export interface RewardsProgress {
@@ -256,6 +262,9 @@ const EMPTY_STATS: RewardsDailyStats = {
   femaleMessageCounts: {},
   partnerChatRounds: {},
   gameBets: 0,
+  roomMinutes: 0,
+  micMinutes: 0,
+  giftsSent: 0,
 };
 
 export function readRewardsProgress(
@@ -295,6 +304,9 @@ export function readRewardsProgress(
         femaleMessageCounts: { ...(raw.daily.stats?.femaleMessageCounts ?? {}) },
         partnerChatRounds: { ...(raw.daily.stats?.partnerChatRounds ?? {}) },
         gameBets: Number(raw.daily.stats?.gameBets ?? 0),
+        roomMinutes: Number(raw.daily.stats?.roomMinutes ?? 0),
+        micMinutes: Number(raw.daily.stats?.micMinutes ?? 0),
+        giftsSent: Number(raw.daily.stats?.giftsSent ?? 0),
       },
     };
   }
@@ -503,6 +515,66 @@ export const trackRewardsGameBet = async (): Promise<void> => {
 
     const progress = readRewardsProgress(snap.data() as Record<string, unknown>);
     const stats = { ...progress.daily.stats, gameBets: progress.daily.stats.gameBets + 1 };
+
+    tx.update(userRef, {
+      rewardsProgress: {
+        ...progress,
+        daily: { dateKey: today, claimedTaskIds: progress.daily.claimedTaskIds, stats },
+      },
+      updatedAt: Date.now(),
+    });
+  });
+};
+
+/** دقائق الغرفة/المايك اليومية — تغذّي مهام مستوى الثروة (البقاء في غرفة/وقت المايك) */
+export const trackRewardsRoomMinutes = async (
+  minutes: number,
+  micMinutes = 0,
+): Promise<void> => {
+  const me = auth.currentUser;
+  if (!me || (minutes < 1 && micMinutes < 1)) return;
+
+  const userRef = doc(firestore, 'users', me.uid);
+  const today = todayDateKey();
+
+  await runTransaction(firestore, async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists()) return;
+
+    const progress = readRewardsProgress(snap.data() as Record<string, unknown>);
+    const stats = {
+      ...progress.daily.stats,
+      roomMinutes: progress.daily.stats.roomMinutes + Math.max(0, Math.floor(minutes)),
+      micMinutes: progress.daily.stats.micMinutes + Math.max(0, Math.floor(micMinutes)),
+    };
+
+    tx.update(userRef, {
+      rewardsProgress: {
+        ...progress,
+        daily: { dateKey: today, claimedTaskIds: progress.daily.claimedTaskIds, stats },
+      },
+      updatedAt: Date.now(),
+    });
+  });
+};
+
+/** هدية مُرسلة — تغذّي مهمة «إرسال هدايا» بمستوى الثروة */
+export const trackRewardsGiftSent = async (count = 1): Promise<void> => {
+  const me = auth.currentUser;
+  if (!me || count < 1) return;
+
+  const userRef = doc(firestore, 'users', me.uid);
+  const today = todayDateKey();
+
+  await runTransaction(firestore, async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists()) return;
+
+    const progress = readRewardsProgress(snap.data() as Record<string, unknown>);
+    const stats = {
+      ...progress.daily.stats,
+      giftsSent: progress.daily.stats.giftsSent + Math.floor(count),
+    };
 
     tx.update(userRef, {
       rewardsProgress: {

@@ -1,5 +1,8 @@
 /**
- * التحقق السريع بالوجه — كاميرا فقط
+ * التحقق السريع بالوجه — كاميرا فقط.
+ * تحقق حيوية بسيط: عند الضغط تُلتقط 3 صور تلقائياً خلال ~3 ثوانٍ مع إيماءة
+ * عشوائية سهلة (ابتسامة/التفاتة خفيفة) — بلا أي خطوات إضافية على المستخدمة.
+ * السيرفر يقارن الإطارات: اتفاقها يرفع الدقة، وصورة ثابتة مُعادة تُرفض تلقائياً.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
@@ -26,6 +29,10 @@ type PickedPhoto = {
   base64: string;
 };
 
+type CaptureStage = 'idle' | 'hold' | 'gesture' | 'final' | 'uploading';
+
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Props) {
   const { t } = useTranslation();
   const cameraRef = useRef<CameraView>(null);
@@ -34,6 +41,16 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<PickedPhoto | null>(null);
   const [useCamera, setUseCamera] = useState(true);
+  const [stage, setStage] = useState<CaptureStage>('idle');
+  const [gestureText, setGestureText] = useState('');
+
+  // إيماءات بسيطة جداً — واحدة عشوائياً لكل محاولة
+  const gestures = [
+    { id: 'smile', label: t('kyc.gestureSmile', 'ابتسمي ابتسامة خفيفة 🙂') },
+    { id: 'turn_right', label: t('kyc.gestureTurnRight', 'حرّكي رأسك يميناً قليلاً') },
+    { id: 'turn_left', label: t('kyc.gestureTurnLeft', 'حرّكي رأسك يساراً قليلاً') },
+    { id: 'closer', label: t('kyc.gestureCloser', 'اقتربي قليلاً من الكاميرا') },
+  ];
 
   useEffect(() => {
     if (!useCamera || picked) return;
@@ -42,18 +59,20 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
     }
   }, [permission, requestPermission, useCamera, picked]);
 
-  const submitBase64 = useCallback(
-    async (base64: string) => {
+  const submitFrames = useCallback(
+    async (frames: string[], gestureId?: string) => {
       const name = fullName.trim();
       if (name.length < 2) return;
 
-      setBusy(true);
+      setStage('uploading');
       setError(null);
       try {
         const result = await submitKycFaceVerification(
-          base64,
+          frames[0]!,
           name,
           displayName?.trim() || name,
+          frames.length > 1 ? frames : undefined,
+          gestureId,
         );
         onResult(result);
       } catch (e: unknown) {
@@ -61,16 +80,33 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
         setError(msg);
       } finally {
         setBusy(false);
+        setStage('idle');
+        setGestureText('');
       }
     },
     [displayName, fullName, onResult, t],
   );
 
+  const snapFrame = useCallback(async (): Promise<string | null> => {
+    if (!cameraRef.current) return null;
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        base64: true,
+        quality: 0.6,
+        skipProcessing: true,
+      });
+      return photo?.base64 ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const captureAndVerify = useCallback(async () => {
     if (busy || disabled) return;
 
     if (picked?.base64) {
-      await submitBase64(picked.base64);
+      setBusy(true);
+      await submitFrames([picked.base64]);
       return;
     }
 
@@ -78,21 +114,42 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
     setBusy(true);
     setError(null);
     try {
-      const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        quality: 0.75,
-        skipProcessing: false,
-      });
-      if (!photo?.base64) {
+      const gesture = gestures[Math.floor(Math.random() * gestures.length)]!;
+      const frames: string[] = [];
+
+      // 1) لقطة البداية — ثبات
+      setStage('hold');
+      setGestureText(t('kyc.gestureHold', 'ثبّتي وجهك داخل الإطار'));
+      await wait(700);
+      const f1 = await snapFrame();
+      if (f1) frames.push(f1);
+
+      // 2) الإيماءة البسيطة — لقطة أثناءها
+      setStage('gesture');
+      setGestureText(gesture.label);
+      await wait(1400);
+      const f2 = await snapFrame();
+      if (f2) frames.push(f2);
+
+      // 3) لقطة الختام
+      setStage('final');
+      setGestureText(t('kyc.gestureFinal', 'ممتاز! ثبات للحظة…'));
+      await wait(800);
+      const f3 = await snapFrame();
+      if (f3) frames.push(f3);
+
+      if (!frames.length) {
         throw new Error(t('kyc.faceCaptureFailed'));
       }
-      await submitBase64(photo.base64);
+      await submitFrames(frames, gesture.id);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t('kyc.faceVerifyFailed');
       setError(msg);
       setBusy(false);
+      setStage('idle');
+      setGestureText('');
     }
-  }, [busy, disabled, picked, submitBase64, t]);
+  }, [busy, disabled, picked, submitFrames, snapFrame, gestures, t]);
 
   const resetPhoto = useCallback(() => {
     setPicked(null);
@@ -101,6 +158,7 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
   }, []);
 
   const showCamera = useCamera && !picked;
+  const capturing = stage === 'hold' || stage === 'gesture' || stage === 'final';
 
   if (showCamera && !permission) {
     return (
@@ -137,12 +195,36 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
           <>
             <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" />
             <View style={styles.faceOval} pointerEvents="none" />
+            {capturing ? (
+              <View style={styles.gestureOverlay} pointerEvents="none">
+                <View style={styles.gestureBanner}>
+                  <Text variant="body" weight="bold" color="#fff" align="center">
+                    {gestureText}
+                  </Text>
+                  <View style={styles.dotsRow}>
+                    {(['hold', 'gesture', 'final'] as const).map((s, i) => {
+                      const activeIdx = stage === 'hold' ? 0 : stage === 'gesture' ? 1 : 2;
+                      return (
+                        <View
+                          key={s}
+                          style={[styles.dot, i <= activeIdx && styles.dotActive]}
+                        />
+                      );
+                    })}
+                  </View>
+                </View>
+              </View>
+            ) : null}
           </>
         ) : null}
       </View>
 
       <Text variant="caption" color="rgba(255,255,255,0.65)" align="center" style={styles.hint}>
-        {picked ? t('kyc.faceGalleryPreviewHint') : t('kyc.faceHint')}
+        {picked
+          ? t('kyc.faceGalleryPreviewHint')
+          : capturing
+            ? t('kyc.faceLivenessHint', 'التقاط تلقائي — اتبعي التعليمة فقط')
+            : t('kyc.faceHint')}
       </Text>
 
       {error ? (
@@ -227,6 +309,32 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.55)',
+  },
+  gestureOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    padding: 12,
+  },
+  gestureBanner: {
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    borderRadius: radius.lg,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  dotActive: {
+    backgroundColor: '#FF3340',
   },
   hint: { lineHeight: 18, paddingHorizontal: 8 },
   verifyBtn: {

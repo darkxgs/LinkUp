@@ -152,8 +152,13 @@ export const hasCallPermissions = async (type: PermissionType): Promise<boolean>
 
 export async function hasPromptedAppPermissions(uid: string): Promise<boolean> {
   try {
-    const value = await AsyncStorage.getItem(`${PERMISSIONS_PROMPT_KEY}:${uid}`);
-    return value === '1';
+    // علامة على مستوى الجهاز أيضاً — الصلاحيات نفسها على مستوى الجهاز،
+    // فتبديل الحسابات أو إعادة تسجيل الدخول كان يعيد النافذة كل مرة
+    const [perUid, device] = await Promise.all([
+      AsyncStorage.getItem(`${PERMISSIONS_PROMPT_KEY}:${uid}`),
+      AsyncStorage.getItem(`${PERMISSIONS_PROMPT_KEY}:device`),
+    ]);
+    return perUid === '1' || device === '1';
   } catch {
     return false;
   }
@@ -161,7 +166,10 @@ export async function hasPromptedAppPermissions(uid: string): Promise<boolean> {
 
 export async function markAppPermissionsPrompted(uid: string): Promise<void> {
   try {
-    await AsyncStorage.setItem(`${PERMISSIONS_PROMPT_KEY}:${uid}`, '1');
+    await Promise.all([
+      AsyncStorage.setItem(`${PERMISSIONS_PROMPT_KEY}:${uid}`, '1'),
+      AsyncStorage.setItem(`${PERMISSIONS_PROMPT_KEY}:device`, '1'),
+    ]);
   } catch {
     /* ignore */
   }

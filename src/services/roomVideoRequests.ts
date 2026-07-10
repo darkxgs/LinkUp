@@ -25,6 +25,8 @@ export interface RoomVideoRequest {
   sourceType: VideoSourceType;
   youtubeId?: string;
   title?: string;
+  /** صورة معاينة للمشرف قبل الموافقة (تُولَّد من الفيديو أو من يوتيوب) */
+  thumbnailUrl?: string;
   requestedBy: string;
   requestedByName: string;
   requestedByAvatar?: string;
@@ -93,6 +95,7 @@ export async function submitRoomVideoRequest(
   roomId: string,
   url: string,
   title?: string,
+  thumbnailUrl?: string,
 ): Promise<string> {
   const user = auth.currentUser;
   if (!user) throw new Error('يجب تسجيل الدخول');
@@ -106,6 +109,11 @@ export async function submitRoomVideoRequest(
     throw new Error(parsed.error ?? 'رابط غير صالح');
   }
 
+  // معاينة تلقائية لروابط يوتيوب — صورة الفيديو الرسمية
+  const resolvedThumbnail =
+    thumbnailUrl?.trim() ||
+    (parsed.youtubeId ? `https://img.youtube.com/vi/${parsed.youtubeId}/hqdefault.jpg` : undefined);
+
   const { userName, userAvatar } = await loadUserProfile(user.uid);
   const requestsRef = ref(realtimeDb, `rooms/${roomId}/videoRequests`);
   const newRef = push(requestsRef);
@@ -115,6 +123,7 @@ export async function submitRoomVideoRequest(
     sourceType: parsed.type === 'unknown' ? 'mp4' : parsed.type,
     youtubeId: parsed.youtubeId,
     title: title?.trim() || undefined,
+    thumbnailUrl: resolvedThumbnail,
     requestedBy: user.uid,
     requestedByName: userName,
     requestedByAvatar: userAvatar,

@@ -190,7 +190,15 @@ export function RoomInformationModal({
         .map((s) => s?.uid)
         .filter((uid): uid is string => !!uid),
     );
-    return agencyMembers.map((m) => {
+    // وثائق عضوية مكررة لنفس المستخدم (انضمام متكرر) كانت تعرض المضيفة
+    // نفسها 4-5 مرات في تبويبي «الكل» و«الإشراف» — نُبقي وثيقة واحدة لكل uid
+    const seenUids = new Set<string>();
+    const uniqueMembers = agencyMembers.filter((m) => {
+      if (!m.uid || seenUids.has(m.uid)) return false;
+      seenUids.add(m.uid);
+      return true;
+    });
+    return uniqueMembers.map((m) => {
       const p = profiles[m.uid];
       return {
         uid: m.uid,

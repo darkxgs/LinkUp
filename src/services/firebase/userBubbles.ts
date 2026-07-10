@@ -123,10 +123,14 @@ async function fetchChatUserMeta(
 
       const stats = userData.stats as Record<string, unknown> | undefined;
       const level = Number(userData.level ?? stats?.level ?? 0) || 0;
-      const vipLevel = getEffectiveVipLevel(userData);
+      // «إخفاء هوية SVIP» من إعدادات الخصوصية — يخفي الشارة والمستوى عن الجميع
+      const hideSvip =
+        (userData.privacySettings as { hideSvipIdentity?: boolean } | undefined)
+          ?.hideSvipIdentity === true;
+      const vipLevel = hideSvip ? 0 : getEffectiveVipLevel(userData);
 
       let vipBadgeUrl: string | undefined;
-      if (vipSystem && hasVipPrivilege(userData, 'vipBadge', vipSystem.privileges)) {
+      if (!hideSvip && vipSystem && hasVipPrivilege(userData, 'vipBadge', vipSystem.privileges)) {
         vipBadgeUrl = resolveVipPrivilegeAsset(vipLevel, 'vipBadge', vipSystem)?.imageUrl;
       }
 

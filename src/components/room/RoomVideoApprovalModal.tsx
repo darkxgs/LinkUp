@@ -39,10 +39,12 @@ export function RoomVideoApprovalModal({ visible, request, onClose, roomId }: Pr
 
   if (!request) return null;
 
+  // معاينة الطلب — الصورة المولَّدة من الفيديو المرفوع أو صورة يوتيوب
   const thumbUri =
-    request.sourceType === 'youtube' && request.youtubeId
+    request.thumbnailUrl?.trim() ||
+    (request.sourceType === 'youtube' && request.youtubeId
       ? `https://img.youtube.com/vi/${request.youtubeId}/hqdefault.jpg`
-      : null;
+      : null);
 
   const handleApprove = async () => {
     setBusy('approve');

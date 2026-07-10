@@ -620,6 +620,14 @@ async function chargeForChatMessage(
     return 0;
   }
 
+  // عضوا وكالة واحدة (مضيفة⇄مضيفة أو وكيل⇄مضيفة) — الدردشة بينهما مجانية
+  const senderAgencyId = String((senderData as { agencyId?: unknown } | undefined)?.agencyId ?? '').trim();
+  const recipientAgencyId = String((recipientData as { agencyId?: unknown } | undefined)?.agencyId ?? '').trim();
+  if (senderAgencyId && senderAgencyId === recipientAgencyId) {
+    chargeExemptCache.set(exemptKey, Date.now());
+    return 0;
+  }
+
   if (canFemaleSendFreeText(senderData as Parameters<typeof canFemaleSendFreeText>[0])) {
     chargeExemptCache.set(exemptKey, Date.now());
     return 0;
@@ -686,12 +694,15 @@ export const sendChatMessage = async (
 ): Promise<void> => {
   const user = auth.currentUser;
   if (!user) throw new Error('غير مسجل');
+  // رقابة برمجية — منع الألفاظ المسيئة قبل أي خصم أو إرسال
+  const { assertCleanText } = await import('@/utils/textModeration');
+  assertCleanText(text);
   // ⚡ الفحصان مكاشان — بعد أول رسالة يصيران فوريين بلا رحلات شبكية
   // (الحظر قبل الرسوم حتى لا يُخصم من مرسل محظور)
   if (await isBlockedBetweenCached(user.uid, toUid)) {
     throw new Error('BLOCKED');
   }
-  const charged = await chargeForChatMessage(toUid, 'text');
+  await chargeForChatMessage(toUid, 'text');
 
   await addDoc(collection(firestore, 'messages'), {
     conversationId,
@@ -700,6 +711,8 @@ export const sendChatMessage = async (
     text,
     type: 'text',
     createdAt: Date.now(),
+    // ساعة الخادم — الترتيب بساعة الجهاز كان يخلط الرسائل عند اختلاف ساعات الطرفين
+    serverAt: serverTimestamp(),
     isRead: false,
     ...(replyTo ? { replyTo } : {}),
   });
@@ -734,20 +747,8 @@ export const sendChatMessage = async (
       const isFemale = recipient?.gender === 'female';
       const hadReply = await hadIncomingReplyBeforeSend(conversationId, user.uid);
       await trackRewardsMessageSent(toUid, isFemale, hadReply);
-      const {
-        isHostessUser,
-        shouldCountMessageForHostTasks,
-        trackHostMessageReceived,
-      } = await import('./hostTasks');
-      const { canEarnHostTasks } = await import('@/utils/genderAccess');
-      const sender = await getUser(user.uid);
-      if (
-        charged > 0
-        && canEarnHostTasks(recipient)
-        && shouldCountMessageForHostTasks(sender)
-      ) {
-        await trackHostMessageReceived(toUid, true);
-      }
+      // عدّ «الرسائل الواردة» لمهام المضيفة يتم في السيرفر
+      // (trigger: countHostTaskMessageOnCreate) — لا يعتمد على جهاز المرسل
     } catch { /* non-blocking */ }
   })();
 };
@@ -824,6 +825,7 @@ export async function sendLikeWelcomeChatMessage(
     text,
     type: 'text',
     createdAt: now,
+    serverAt: serverTimestamp(),
     isRead: false,
   });
   batch.update(doc(firestore, 'conversations', convId), {
@@ -861,7 +863,7 @@ export const sendImageMessage = async (
     throw new Error('BLOCKED');
   }
 
-  const charged = await chargeForChatMessage(toUid, 'image');
+  await chargeForChatMessage(toUid, 'image');
 
   const { storage } = await import('./index');
   const { ref: storageRef, uploadBytes, getDownloadURL } = await import('firebase/storage');
@@ -888,6 +890,7 @@ export const sendImageMessage = async (
     type: 'image',
     imageUrl,
     createdAt: Date.now(),
+    serverAt: serverTimestamp(),
     isRead: false,
   };
   if (dimensions) {
@@ -906,25 +909,7 @@ export const sendImageMessage = async (
 
   const { notifyChatMessage } = await import('./activityNotifications');
   void notifyChatMessage(toUid, conversationId, '📷 صورة');
-
-  void (async () => {
-    try {
-      const {
-        shouldCountMessageForHostTasks,
-        trackHostMessageReceived,
-      } = await import('./hostTasks');
-      const { canEarnHostTasks } = await import('@/utils/genderAccess');
-      const recipient = await getUser(toUid);
-      const sender = await getUser(user.uid);
-      if (
-        charged > 0
-        && canEarnHostTasks(recipient)
-        && shouldCountMessageForHostTasks(sender)
-      ) {
-        await trackHostMessageReceived(toUid, true);
-      }
-    } catch { /* non-blocking */ }
-  })();
+  // عدّ مهام المضيفة يتم في السيرفر (countHostTaskMessageOnCreate)
 };
 
 /**
@@ -943,7 +928,7 @@ export const sendVoiceMessage = async (
     throw new Error('BLOCKED');
   }
 
-  const charged = await chargeForChatMessage(toUid, 'voice');
+  await chargeForChatMessage(toUid, 'voice');
 
   const { storage } = await import('./index');
   const { ref: storageRef, uploadBytes, getDownloadURL } = await import('firebase/storage');
@@ -971,6 +956,7 @@ export const sendVoiceMessage = async (
     voiceUrl,
     voiceDuration: Math.round(durationSeconds),
     createdAt: Date.now(),
+    serverAt: serverTimestamp(),
     isRead: false,
   });
 
@@ -983,25 +969,7 @@ export const sendVoiceMessage = async (
 
   const { notifyChatMessage } = await import('./activityNotifications');
   void notifyChatMessage(toUid, conversationId, '🎤 رسالة صوتية');
-
-  void (async () => {
-    try {
-      const {
-        shouldCountMessageForHostTasks,
-        trackHostMessageReceived,
-      } = await import('./hostTasks');
-      const { canEarnHostTasks } = await import('@/utils/genderAccess');
-      const recipient = await getUser(toUid);
-      const sender = await getUser(user.uid);
-      if (
-        charged > 0
-        && canEarnHostTasks(recipient)
-        && shouldCountMessageForHostTasks(sender)
-      ) {
-        await trackHostMessageReceived(toUid, true);
-      }
-    } catch { /* non-blocking */ }
-  })();
+  // عدّ مهام المضيفة يتم في السيرفر (countHostTaskMessageOnCreate)
 };
 
 const MAX_CHAT_FILE_BYTES = 15 * 1024 * 1024;
@@ -1051,6 +1019,7 @@ export const sendFileMessage = async (
     fileMime: mimeType || blob.type,
     fileSize: blob.size,
     createdAt: Date.now(),
+    serverAt: serverTimestamp(),
     isRead: false,
   });
 
@@ -1161,7 +1130,8 @@ export const hideConversationForUser = async (conversationId: string): Promise<v
   }
 };
 
-export type QuickClearDays = 4 | 14 | 21 | 90;
+/** 0 = مسح الكل (بما فيها رسائل اليوم) */
+export type QuickClearDays = 0 | 4 | 14 | 21 | 90;
 
 function isImportantChatMessage(m: ChatMessage): boolean {
   if (m.type === 'gift') return true;
@@ -1172,11 +1142,13 @@ function isImportantChatMessage(m: ChatMessage): boolean {
   return false;
 }
 
-/** مسح سريع — إخفاء الرسائل القديمة غير الهامة للمستخدم الحالي */
+/** مسح سريع — إخفاء الرسائل القديمة غير الهامة للمستخدم الحالي.
+ *  olderThanDays = 0 ⇒ مسح شامل لكل الرسائل (حتى الهامة والحديثة). */
 export async function quickClearOldChatMessages(olderThanDays: QuickClearDays): Promise<number> {
   const user = auth.currentUser;
   if (!user) throw new Error('غير مسجل');
 
+  const clearAll = olderThanDays === 0;
   const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
 
   const convSnap = await getDocs(
@@ -1204,8 +1176,8 @@ export async function quickClearOldChatMessages(olderThanDays: QuickClearDays): 
       const m = { id: msgDoc.id, ...msgDoc.data() } as ChatMessage;
       if (m.deleted) continue;
       if (m.hiddenFor?.[user.uid]) continue;
-      if ((m.createdAt ?? 0) >= cutoff) continue;
-      if (isImportantChatMessage(m)) continue;
+      if (!clearAll && (m.createdAt ?? 0) >= cutoff) continue;
+      if (!clearAll && isImportantChatMessage(m)) continue;
 
       batch.update(msgDoc.ref, { [`hiddenFor.${user.uid}`]: true });
       batchCount += 1;
@@ -1258,13 +1230,22 @@ export const subscribeToMessages = (
     q,
     (snap) => {
       const msgs = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }) as ChatMessage)
+        .map((d) => {
+          // ترتيب بساعة الخادم — ساعة جهاز المرسل قد تكون منحرفة فتختلط الرسائل
+          const data = d.data({ serverTimestamps: 'estimate' }) as Record<string, unknown>;
+          const serverAt = data.serverAt as { toMillis?: () => number } | undefined;
+          const sortAt =
+            typeof serverAt?.toMillis === 'function'
+              ? serverAt.toMillis()
+              : Number(data.createdAt ?? 0);
+          return { id: d.id, ...data, sortAt } as ChatMessage & { sortAt: number };
+        })
         .filter((m) => {
           if (m.deleted) return false;
           if (user && m.hiddenFor?.[user.uid]) return false;
           return true;
         });
-      msgs.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+      msgs.sort((a, b) => (a.sortAt || a.createdAt || 0) - (b.sortAt || b.createdAt || 0));
       callback(msgs);
     },
     (err) => {

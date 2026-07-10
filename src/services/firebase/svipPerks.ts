@@ -70,26 +70,24 @@ export async function setCustomAccountId(rawId: string): Promise<SetAccountIdRes
  */
 export function isOnlineHidden(
   userData: Record<string, unknown> | null | undefined,
-  vipSystem: Pick<VipSystemConfig, 'privileges'> | null | undefined,
+  _vipSystem: Pick<VipSystemConfig, 'privileges'> | null | undefined,
 ): boolean {
   if (!userData) return false;
   const nested = userData.privacySettings as Record<string, unknown> | undefined;
-  const toggled = userData.privacyHideOnline === true || nested?.hideOnline === true;
-  if (!toggled) return false;
-  return userHasVipFeature(userData, 'hideOnline', vipSystem ?? null);
+  // المفعّل للإعداد يُحترم دائماً — الأهلية (SVIP) تُفرض عند التفعيل في شاشة
+  // الخصوصية نفسها. فحص الامتياز هنا أيضاً كان يجعل الإعداد «لا يعمل» عند أي
+  // اختلاف بين إعدادات VIP الحية والافتراضية رغم أن المستخدم فعّله بنجاح.
+  return userData.privacyHideOnline === true || nested?.hideOnline === true;
 }
 
-/** فحص دقيق (async) لإخفاء Online — يقرأ إعداد VIP الحقيقي من الأدمن */
+/** فحص دقيق (async) لإخفاء Online — التفعيل وحده كافٍ (الأهلية تُفرض عند التفعيل) */
 export async function isOnlineHiddenStrict(uid: string): Promise<boolean> {
   try {
     const snap = await getDoc(doc(firestore, 'users', uid));
     if (!snap.exists()) return false;
     const data = snap.data() as Record<string, unknown>;
     const nested = data.privacySettings as Record<string, unknown> | undefined;
-    const toggled = data.privacyHideOnline === true || nested?.hideOnline === true;
-    if (!toggled) return false;
-    const cfg = await getVipSystemCached();
-    return userHasVipFeature(data, 'hideOnline', cfg);
+    return data.privacyHideOnline === true || nested?.hideOnline === true;
   } catch {
     return false;
   }

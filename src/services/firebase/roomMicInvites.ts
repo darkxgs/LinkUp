@@ -50,6 +50,13 @@ export async function sendRoomMicInvite(input: {
   if (!user) throw new Error('يجب تسجيل الدخول');
   if (user.uid === input.targetUid) throw new Error('لا يمكن دعوة نفسك');
 
+  // لا دعوة لمن هو على المايك أصلاً
+  const seatsSnap = await get(ref(realtimeDb, `rooms/${input.roomId}/seats`));
+  const seats = (seatsSnap.val() ?? {}) as Record<string, { uid?: string }>;
+  if (Object.values(seats).some((s) => s?.uid === input.targetUid)) {
+    throw new Error('هذا العضو على المايك بالفعل');
+  }
+
   const inviteRef = push(ref(realtimeDb, `roomMicInvites/${input.targetUid}`));
   const id = inviteRef.key!;
   const now = Date.now();
@@ -72,10 +79,20 @@ export async function sendRoomMicInvite(input: {
 
   await set(inviteRef, invite);
 
+  // المدعو داخل الغرفة نفسها الآن؟ يكفيه مودال القبول/الرفض داخل الروم —
+  // لا نُنشئ إشعاراً/رسالة إضافية (كانت تصل رسالة مزعجة وهو يرى الدعوة أمامه)
+  try {
+    const audSnap = await get(ref(realtimeDb, `roomAudience/${input.roomId}/${input.targetUid}`));
+    if (audSnap.exists()) return invite;
+  } catch {
+    // تعذّر الفحص — نُرسل الإشعار كالمعتاد
+  }
+
   const { createNotification } = await import('@/services/firebase/notifications');
   await createNotification({
     uid: input.targetUid,
-    type: 'system',
+    // دعوة تفاعلية — تُصنَّف مع الرسائل/الدعوات لا مع رسائل النظام
+    type: 'room_invite',
     fromUid: user.uid,
     fromName: invite.inviterName,
     fromAvatar: input.inviterAvatar,
@@ -114,8 +131,18 @@ export function subscribePendingRoomMicInvites(
   const r = ref(realtimeDb, `roomMicInvites/${targetUid}`);
   const handler = (snap: DataSnapshot) => {
     const now = Date.now();
-    const invites: RoomMicInvite[] = Object.entries(snap.val() ?? {})
-      .map(([id, raw]) => ({ id, ...(raw as Omit<RoomMicInvite, 'id'>) }))
+    const all = Object.entries(snap.val() ?? {}).map(([id, raw]) => ({
+      id,
+      ...(raw as Omit<RoomMicInvite, 'id'>),
+    }));
+    // تنظيف ذاتي: السجلات المنتهية/المستهلكة كانت تتراكم وتظهر كدعوات
+    // «شبح» فور دخول الغرفة رغم أن أحداً لم يرسل شيئاً
+    for (const stale of all.filter(
+      (i) => i.status !== 'pending' || i.expiresAt <= now,
+    )) {
+      void remove(ref(realtimeDb, `roomMicInvites/${targetUid}/${stale.id}`)).catch(() => {});
+    }
+    const invites: RoomMicInvite[] = all
       .filter((i) => i.status === 'pending' && i.expiresAt > now)
       .sort((a, b) => b.createdAt - a.createdAt);
     cb(invites);
@@ -149,7 +176,9 @@ export async function acceptRoomMicInvite(invite: RoomMicInvite): Promise<number
     includeMembership: invite.includeMembership,
   });
 
-  await resolveRoomMicInvite(invite.targetUid, invite.id, 'accepted');
-  await clearRoomMicInvite(invite.targetUid, invite.id);
+  // حذف مباشر — تشغيل التحديث والحذف بالتوازي كان سباقاً على العقدة نفسها:
+  // إذا سبق الحذفُ التحديثَ صار التحديث «إنشاء» ترفضه القواعد (PERMISSION_DENIED)
+  // فيبدو القبول فاشلاً رغم نجاح الجلوس ولا يُفعَّل المايك
+  await clearRoomMicInvite(invite.targetUid, invite.id).catch(() => {});
   return seatIdx;
 }

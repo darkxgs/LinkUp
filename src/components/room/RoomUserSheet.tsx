@@ -93,6 +93,8 @@ interface Props {
   isChatMuted?: boolean;
   onToggleMicMute?: (uid: string) => void;
   onToggleChatMute?: (uid: string) => void;
+  /** إدارة دور العضو (عضوية/إشراف) — يظهر الزر عند تمريرها */
+  onManageRole?: (uid: string, name?: string) => void;
 }
 
 function ageFromBirthYear(y?: number): number | null {
@@ -125,6 +127,7 @@ export function RoomUserSheet({
   isChatMuted,
   onToggleMicMute,
   onToggleChatMute,
+  onManageRole,
 }: Props) {
   const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -349,7 +352,7 @@ export function RoomUserSheet({
               ) : null}
             </View>
 
-            {!isSelf && (canAdmin || showAgencyInvite) ? (
+            {!isSelf && (canAdmin || showAgencyInvite || onManageRole) ? (
               <View style={styles.adminSection}>
                 <View style={styles.adminActions}>
                   {canAdmin && onKick ? (
@@ -394,6 +397,13 @@ export function RoomUserSheet({
                       icon={<Building2 size={20} color="#fff" strokeWidth={2.4} />}
                       label={t('room.inviteAgency')}
                       onPress={() => onInviteAgency(user.uid, name)}
+                    />
+                  ) : null}
+                  {onManageRole ? (
+                    <ActionButton
+                      icon={<Users size={20} color="#fff" strokeWidth={2.4} />}
+                      label={t('room.memberRole', 'عضوية / إشراف')}
+                      onPress={() => onManageRole(user.uid, name)}
                     />
                   ) : null}
                   {canAdmin && onToggleChatMute ? (

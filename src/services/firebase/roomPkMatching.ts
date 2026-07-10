@@ -117,8 +117,11 @@ export async function startPkAgencyMatchSearch(
   if (!roomSnap.exists()) throw new Error('الغرفة غير موجودة');
   const room = roomSnap.val() as Record<string, unknown>;
   const hostUid = String(room.hostUid ?? '');
-  if (hostUid !== user.uid) {
-    throw new Error('فقط مدير الوكالة يمكنه بدء المطابقة');
+  const isYellowSupervisor =
+    (room.memberRoles as Record<string, string> | undefined)?.[user.uid] ===
+    'yellow_supervisor';
+  if (hostUid !== user.uid && !isYellowSupervisor) {
+    throw new Error('بدء المطابقة لمدير الوكالة أو مشرفي الإشراف فقط');
   }
   if (!isAgencyLiveRoom({ isAgencyRoom: room.isAgencyRoom === true, agencyId: room.agencyId as string })) {
     throw new Error('المطابقة بين الوكالات متاحة لغرف الوكالات فقط');

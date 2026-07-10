@@ -180,15 +180,29 @@ export default function WealthLevelScreen() {
 
   const tasksWithProgress = useMemo(() => {
     if (!user) return DAILY_TASK_DEFS.map((task) => ({ ...task, current: 0 }));
+    // كل المهام تُقرأ من إحصاءات «اليوم» (rewardsProgress.daily.stats) —
+    // القراءة القديمة من stats.totalRoomMinutes/totalGiftsSent كانت حقولاً
+    // لا يكتبها أي كود إطلاقاً فبقيت المهام الثلاث مجمدة على 0 للأبد.
+    const daily = (user.rewardsProgress?.daily?.stats ?? {}) as Record<string, number>;
     return DAILY_TASK_DEFS.map((task) => {
-      if (task.id === 'game-bet') {
-        const raw = user.rewardsProgress?.daily?.stats?.gameBets ?? 0;
-        return { ...task, current: Math.min(raw, task.max) };
+      let raw = 0;
+      switch (task.id) {
+        case 'game-bet':
+          raw = Number(daily.gameBets ?? 0);
+          break;
+        case 'stay-room':
+          raw = Math.floor(Number(daily.roomMinutes ?? 0) / (task.divisor ?? 5));
+          break;
+        case 'mic-time':
+          raw = Math.floor(Number(daily.micMinutes ?? 0) / (task.divisor ?? 10));
+          break;
+        case 'send-gifts':
+          raw = Number(daily.giftsSent ?? 0);
+          break;
+        default:
+          raw = 0;
       }
-      if (!task.statsKey) return { ...task, current: 0 };
-      const raw = (user.stats as unknown as Record<string, number>)[task.statsKey] ?? 0;
-      const current = Math.min(task.divisor ? Math.floor(raw / task.divisor) : raw, task.max);
-      return { ...task, current };
+      return { ...task, current: Math.min(raw, task.max) };
     });
   }, [user]);
 
@@ -301,7 +315,20 @@ export default function WealthLevelScreen() {
           </Text>
           <View style={styles.headerTitleDivider} />
         </View>
-        <Pressable style={styles.headBtn} hitSlop={10}>
+        <Pressable
+          style={styles.headBtn}
+          hitSlop={10}
+          onPress={() =>
+            Alert.alert(
+              t('profile.wealthLevel', 'مستوى الثروة'),
+              t(
+                'wealth.helpBody',
+                'مستوى الثروة يرتفع بجمع نقاط الخبرة (XP):\n\n• إرسال الهدايا والشحن يمنحانك XP تلقائياً\n• أكمل المهام اليومية (البقاء في غرفة، وقت المايك…) لكسب XP إضافي\n• يمكنك الترقية الفورية بالكوينز عبر زر «ترقية»\n\nكلما ارتفع مستواك انفتحت مزايا أكثر: وسام الشرف، إشعار الدخول، الهدية المجانية وغيرها.',
+              ),
+              [{ text: t('common.ok', 'حسناً') }],
+            )
+          }
+        >
           <WlQuestionIcon size={20} />
         </Pressable>
       </View>

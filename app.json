@@ -170,7 +170,7 @@
         "iosClientId": "521319798732-o5lejfk4u80738rnea5ut82fjlmjcicp.apps.googleusercontent.com"
       },
       "eas": {
-        "projectId": "9acaa4ef-dba2-4d67-b482-c481a38d2c61"
+        "projectId": "a381b9e0-1b11-4a00-b9c1-00033128d0c6"
       }
     },
     "icon": "./assets/icon.png",
@@ -183,6 +183,6 @@
       }
     },
     "jsEngine": "hermes",
-    "owner": "gsdark"
+    "owner": "yanalek516"
   }
 }

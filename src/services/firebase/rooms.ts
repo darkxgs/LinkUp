@@ -57,6 +57,13 @@ import {
 } from './roomMemberRoles';
 import { isUidAgencyMember } from '@/services/agencyService';
 import { checkUserHasVipFeature, getEffectiveVipLevel } from './vipSystem';
+import {
+  getPrivacyConfigOnce,
+  resolvePrivacyFeatures,
+  canUsePrivacyFeature,
+  type PrivacyFeatureKey,
+} from './privacySettings';
+import { readAristocracyState, isAristocracyActive } from './aristocracySystem';
 import type { UserDoc } from './users';
 import {
   ALLOWED_SEAT_COUNTS,
@@ -1371,8 +1378,26 @@ export const joinSeat = async (
   const roomCountry = resolveRoomCountry(roomData, agencyCountry);
   await assertStaffCanEnterRoom(roomId, user.uid);
   const managedMicLock = await getManagedMicSeatLock(roomId, user.uid);
-  if (managedMicLock) {
+  // المدير والمشرفون (أزرق/أصفر) لا يخضعون لقيد «الإضافة من المدير» إطلاقاً —
+  // كان مشرف معه إشراف يُمنع من أخذ المايك بسبب قفل قديم من دعوة سابقة
+  const myMemberRoleForLock = String(
+    (roomData as Record<string, any>)?.memberRoles?.[user.uid] ?? '',
+  );
+  const exemptFromManagedLock =
+    canJoinHostSeat(roomData, user.uid) ||
+    myMemberRoleForLock === 'blue_supervisor' ||
+    myMemberRoleForLock === 'yellow_supervisor';
+  // القفل يقيّد فقط وهو نشط (مثبّت على مقعد بإضافة المدير) — سجلّ قديم غير نشط
+  // (نزل من المايك سابقاً) كان يمنع المضيفة من أخذ أي مايك مرة أخرى للأبد
+  if (
+    !exemptFromManagedLock &&
+    managedMicLock?.active &&
+    managedMicLock.seatIdx !== seatIdx
+  ) {
     throw new Error('لا يمكنك الصعود للمايك إلا بإضافة من مدير الوكالة');
+  }
+  if (managedMicLock && (!managedMicLock.active || exemptFromManagedLock)) {
+    void set(ref(realtimeDb, `rooms/${roomId}/managedMicLocks/${user.uid}`), null).catch(() => {});
   }
 
   // فحص أن المقعد المطلوب فارغ + أن المستخدم ليس على مقعد آخر (من نفس القراءة)
@@ -1554,13 +1579,20 @@ export const changeSeat = async (
   if (!currentSeatKey) throw new Error('أنت لست على مقعد');
   const currentSeatIdx = parseInt(String(currentSeatKey).replace('seat_', ''), 10);
   const managedMicLock = await getManagedMicSeatLock(roomId, user.uid);
-  if (managedMicLock) {
-    if (!managedMicLock.active) {
-      throw new Error('لا يمكنك الصعود للمايك إلا بإضافة من مدير الوكالة');
-    }
+  const roomDataForLock = (roomSnap.val() ?? {}) as Record<string, any>;
+  const myRoleForLock = String(roomDataForLock?.memberRoles?.[user.uid] ?? '');
+  const exemptFromManagedLock =
+    canJoinHostSeat(roomDataForLock, user.uid) ||
+    myRoleForLock === 'blue_supervisor' ||
+    myRoleForLock === 'yellow_supervisor';
+  if (managedMicLock?.active && !exemptFromManagedLock) {
+    // مثبّت على مقعد بإضافة المدير — لا يغيّر مقعده بنفسه
     if (toSeatIdx !== managedMicLock.seatIdx || toSeatIdx !== currentSeatIdx) {
       throw new Error('لا يمكنك تغيير مقعدك — فقط إدارة الغرفة تستطيع نقلك');
     }
+  } else if (managedMicLock && (!managedMicLock.active || exemptFromManagedLock)) {
+    // سجلّ قفل قديم غير نشط أو صاحبه مشرف/مدير — يُنظَّف ولا يقيّد
+    void set(ref(realtimeDb, `rooms/${roomId}/managedMicLocks/${user.uid}`), null).catch(() => {});
   }
 
   const roomData = roomSnap.val() ?? {};
@@ -1599,7 +1631,7 @@ export const changeSeat = async (
   }
 
   const seatsRef = ref(realtimeDb, `rooms/${roomId}/seats`);
-  const tx = await runTransaction(seatsRef, (current) => {
+  const tx = await runSeatsTransactionWithRetry(seatsRef, (current) => {
     const map = (current ?? {}) as SeatMap;
     const toKeyTx = `seat_${toSeatIdx}`;
     let source: SeatMap[string] | null = null;
@@ -1734,9 +1766,19 @@ export const toggleMute = async (
     newValue = !(seat.isMuted === true);
   }
 
-  // كتم إداري (mutedBy) — المكتوم لا يفكّ كتم نفسه؛ يفكّه من كتمه أو الإدارة
+  // كتم إداري (mutedBy) — المكتوم لا يفكّ كتم نفسه؛ يفكّه من كتمه أو الإدارة.
+  // استثناء: المدير والمشرفون (حسابات غير عادية) يفكّون كتم أنفسهم دائماً.
   if (newValue === false && seat.mutedBy && seatUid && seatUid === me && seat.mutedBy !== me) {
-    throw new Error('كتمك أحد المشرفين — لا يمكنك فتح المايك بنفسك');
+    const roomForMuteSnap = await get(ref(realtimeDb, `rooms/${roomId}`));
+    const roomForMute = (roomForMuteSnap.val() ?? {}) as Record<string, any>;
+    const myRole = String(roomForMute?.memberRoles?.[me] ?? '');
+    const privileged =
+      canJoinHostSeat(roomForMute, me) ||
+      myRole === 'blue_supervisor' ||
+      myRole === 'yellow_supervisor';
+    if (!privileged) {
+      throw new Error('كتمك أحد المشرفين — لا يمكنك فتح المايك بنفسك');
+    }
   }
 
   // امتياز SVIP «ضد التصميت»: لا يمكن كتم عضو يملكه (إلا كتم النفس)
@@ -1777,6 +1819,7 @@ export type RoomAudienceMember = {
   isVIP?: boolean;
   level?: number;
   vipLevel?: number;
+  hiddenInRoom?: boolean;
 };
 
 /** مفاتيح حضور حقيقية فقط — uid واحد = مستخدم واحد */
@@ -1795,6 +1838,7 @@ function parseRoomAudienceSnapshot(snap: DataSnapshot): RoomAudienceMember[] {
       joinedAt: typeof row?.joinedAt === 'number' ? row.joinedAt : undefined,
       isVIP: row?.isVIP === true,
       level: typeof row?.level === 'number' ? row.level : undefined,
+      hiddenInRoom: row?.hiddenInRoom === true,
     });
   }
   return Array.from(byUid.values());
@@ -1892,6 +1936,29 @@ async function vacateSeatsForUid(roomId: string, uid: string): Promise<void> {
 
 type SeatMap = Record<string, { uid?: string; joinedAt?: number; isMuted?: boolean; [k: string]: unknown }>;
 
+/**
+ * معاملة مقاعد مع إعادة محاولة — عقدة المقاعد تتغير كثيراً في الغرف المزدحمة
+ * فيرمي SDK خطأ «maxretry» الخام بعد استنفاد محاولاته الداخلية.
+ * نعيد المحاولة بمهلة متزايدة، وإن فشلت كلها نعرض رسالة عربية مفهومة.
+ */
+async function runSeatsTransactionWithRetry(
+  seatsRef: ReturnType<typeof ref>,
+  updater: (current: any) => any,
+  attempts = 3,
+): Promise<{ committed: boolean }> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await runTransaction(seatsRef, updater);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e).toLowerCase();
+      if (!msg.includes('maxretry')) throw e;
+      if (i === attempts - 1) break;
+      await new Promise((r) => setTimeout(r, 250 + i * 350));
+    }
+  }
+  throw new Error('الغرفة مزدحمة حالياً — حاول مرة أخرى بعد لحظات');
+}
+
 function seatMapHasDuplicateUids(map: SeatMap): boolean {
   const seen = new Set<string>();
   for (const s of Object.values(map)) {
@@ -1942,7 +2009,7 @@ async function transactionAssignSeat(
 ): Promise<void> {
   const toKey = `seat_${seatIdx}`;
   const seatsRef = ref(realtimeDb, `rooms/${roomId}/seats`);
-  const tx = await runTransaction(seatsRef, (current) => {
+  const tx = await runSeatsTransactionWithRetry(seatsRef, (current) => {
     const map = (current ?? {}) as SeatMap;
     const target = map[toKey];
     if (target?.uid && target.uid !== '' && target.uid !== uid) {
@@ -2127,6 +2194,26 @@ export function subscribeToRoomAudienceUids(
 // ==================== JOIN AUDIENCE ====================
 // ⚡ الحضور في مسار جذري منفصل roomAudience/{roomId}/{uid} — مفتاح واحد لكل مستخدم
 
+/** هل يستوفي المستخدم شرط ميزة خصوصية حسب إعداد الأدمن (config/privacy)؟ */
+async function userMeetsPrivacyRequirement(
+  userData: Record<string, unknown> | null | undefined,
+  key: PrivacyFeatureKey,
+): Promise<boolean> {
+  if (!userData) return false;
+  try {
+    const cfg = await getPrivacyConfigOnce();
+    const feature = resolvePrivacyFeatures(cfg).find((f) => f.key === key);
+    if (!feature) return false;
+    const aristo = readAristocracyState(userData);
+    return canUsePrivacyFeature(feature, {
+      vipLevel: getEffectiveVipLevel(userData),
+      aristocracyLevel: isAristocracyActive(aristo) ? aristo.level : 0,
+    });
+  } catch {
+    return false;
+  }
+}
+
 async function enrichAudienceAfterJoin(
   roomId: string,
   uid: string,
@@ -2141,7 +2228,10 @@ async function enrichAudienceAfterJoin(
     const privacy = (me as unknown as { privacySettings?: Record<string, unknown> } | null)
       ?.privacySettings;
     const hideInRoom = privacy?.hideInRoom === true;
-    if (hideInRoom && (await checkUserHasVipFeature(uid, 'hiddenPresence'))) {
+    // البوابة نفسها التي تفتح المفتاح في شاشة الخصوصية (config/privacy) —
+    // كانت تُفحص هنا بامتياز hiddenPresence (يُفتح عند SVIP12) فلا يعمل الإخفاء
+    // لمن فعّله بمستوى أدنى سمحت به إعدادات الأدمن
+    if (hideInRoom && (await userMeetsPrivacyRequirement(me as unknown as Record<string, unknown>, 'hideInRoom'))) {
       const seatIdx = await findMySeatInRoom(roomId);
       if (seatIdx !== null) {
         await update(ref(realtimeDb, `rooms/${roomId}/seats/seat_${seatIdx}`), {
@@ -2170,16 +2260,13 @@ async function enrichAudienceAfterJoin(
     await update(audienceRef, { name: displayName, avatar }).catch(() => {});
 
     if (!isFirstJoin) return;
-    const roomSnap = await get(ref(realtimeDb, `rooms/${roomId}`));
-    const roomData = roomSnap.val() ?? {};
-    const isAgencyRoom = roomData.isAgencyRoom === true || !!roomData.agencyId;
-    if (isAgencyRoom) {
-      await sendAgencyRoomEntryWelcome(roomId, {
-        uid,
-        name: displayName,
-        avatar,
-      }).catch(() => {});
-    }
+    // سطر «انضم للغرفة» لكل الغرف — كان مقصوراً على غرف الوكالات، فمالك
+    // الغرفة الشخصية لا يعرف أن أحداً دخل حتى يكتب رسالة
+    await sendAgencyRoomEntryWelcome(roomId, {
+      uid,
+      name: displayName,
+      avatar,
+    }).catch(() => {});
   } catch {
     // ignore — الحضور الأساسي مسجّل مسبقاً
   }
@@ -2208,6 +2295,10 @@ export const joinAudience = async (roomId: string): Promise<void> => {
 
   if (existingAudience.exists()) {
     onDisconnect(audienceRef).remove();
+    void set(ref(realtimeDb, `userCurrentRoom/${user.uid}`), {
+      roomId,
+      at: Date.now(),
+    }).catch(() => {});
     scheduleReconcileAudienceCount(roomId);
     void enrichAudienceAfterJoin(
       roomId,
@@ -2227,6 +2318,11 @@ export const joinAudience = async (roomId: string): Promise<void> => {
     joinedAt: Date.now(),
   });
   onDisconnect(audienceRef).remove();
+  // مؤشر «رومي الحالي» — يسمح بتنظيف حضور شبح من جلسة سابقة عند فتح التطبيق
+  void set(ref(realtimeDb, `userCurrentRoom/${user.uid}`), {
+    roomId,
+    at: Date.now(),
+  }).catch(() => {});
   scheduleReconcileAudienceCount(roomId);
 
   void enrichAudienceAfterJoin(
@@ -2297,8 +2393,39 @@ export const leaveAudience = async (roomId: string): Promise<void> => {
 
   await remove(audienceRef);
   await vacateSeatsForUid(roomId, user.uid);
+  // امسح مؤشر «رومي الحالي» إن كان يشير لهذه الغرفة
+  void (async () => {
+    const pointerRef = ref(realtimeDb, `userCurrentRoom/${user.uid}`);
+    const pointer = await get(pointerRef);
+    if (String((pointer.val() as { roomId?: string } | null)?.roomId ?? '') === roomId) {
+      await remove(pointerRef);
+    }
+  })().catch(() => {});
   scheduleReconcileAudienceCount(roomId);
 };
+
+/**
+ * تنظيف حضور «شبح» من جلسة سابقة — بطاقات الغرف تعرض صورة المستخدم كأنه
+ * ما زال داخل الغرفة إذا قُتل التطبيق قبل تسجيل onDisconnect على السيرفر.
+ * تُستدعى عند فتح/استئناف التطبيق: لو مؤشر «رومي الحالي» يشير لغرفة لست فيها
+ * فعلاً الآن، نزيل حضورنا (جمهور + مقاعد) منها.
+ */
+export async function cleanupStaleRoomPresence(
+  activeRoomId?: string | null,
+): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) return;
+  const pointerRef = ref(realtimeDb, `userCurrentRoom/${user.uid}`);
+  const snap = await get(pointerRef).catch(() => null);
+  const val = (snap?.val() ?? null) as { roomId?: string; at?: number } | null;
+  const staleRoomId = String(val?.roomId ?? '');
+  if (!staleRoomId) return;
+  if (activeRoomId && staleRoomId === activeRoomId) return;
+  // انضمام حديث جداً — غالباً جلسة دخول حية الآن (deep link)؛ onDisconnect يغطيها
+  if (Date.now() - (Number(val?.at) || 0) < 90_000) return;
+  await leaveAudience(staleRoomId).catch(() => {});
+  await remove(pointerRef).catch(() => {});
+}
 
 // الاشتراك في الحضور — قائمة فريدة حسب uid (بدون حد = الكل فوراً)
 export const subscribeToAudience = (
@@ -2329,6 +2456,9 @@ export const sendMessage = async (
 ): Promise<void> => {
   const user = auth.currentUser;
   if (!user) throw new Error('يجب تسجيل الدخول');
+  // رقابة برمجية — منع الألفاظ المسيئة في دردشة الغرفة
+  const { assertCleanText } = await import('@/utils/textModeration');
+  assertCleanText(text);
   await assertUserCanSendRoomChat(roomId, user.uid);
 
   const { name: displayName, avatar } = await resolveSenderProfile(sender);
@@ -3331,7 +3461,12 @@ export const acceptInvitedMicSeat = async (
   const user = auth.currentUser;
   if (!user) throw new Error('يجب تسجيل الدخول');
 
-  const roomSnap = await get(ref(realtimeDb, `rooms/${roomId}`));
+  // قراءات متوازية — كانت متسلسلة فيطول قبول الدعوة كثيراً على الشبكات البطيئة
+  const [roomSnap, roleSnap, userSnap] = await Promise.all([
+    get(ref(realtimeDb, `rooms/${roomId}`)),
+    get(ref(realtimeDb, `rooms/${roomId}/memberRoles/${user.uid}`)),
+    getDoc(doc(firestore, 'users', user.uid)),
+  ]);
   if (!roomSnap.exists()) throw new Error('الغرفة غير موجودة');
   const roomData = roomSnap.val() as Record<string, unknown>;
   const seats = (roomData.seats ?? {}) as Record<string, { uid?: string }>;
@@ -3345,7 +3480,6 @@ export const acceptInvitedMicSeat = async (
   }
 
   const includeMembership = options?.includeMembership === true;
-  const roleSnap = await get(ref(realtimeDb, `rooms/${roomId}/memberRoles/${user.uid}`));
   const existingRole = roleSnap.val();
   if (existingRole === 'cancelled') {
     throw new Error('عضويتك ملغاة في هذه الغرفة — لا يمكن قبول دعوة المايك');
@@ -3397,7 +3531,6 @@ export const acceptInvitedMicSeat = async (
     }
   }
 
-  const userSnap = await getDoc(doc(firestore, 'users', user.uid));
   if (!userSnap.exists()) throw new Error('المستخدم غير موجود');
   const userData = userSnap.data();
 

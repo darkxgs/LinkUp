@@ -83,6 +83,27 @@ export async function notifyVipRechargeSuccess(uid: string, levelLabel: string):
   });
 }
 
+/** إشعار «الحفاظ على المستوى» — تمديد صلاحية، ليس عملية شحن/شراء */
+export async function notifyVipMaintainSuccess(uid: string, levelLabel: string): Promise<void> {
+  const title = i18n.t('vipNotify.maintainSuccessTitle', 'تم الحفاظ على مستواك ✨');
+  const body = i18n.t('vipNotify.maintainSuccessBody', {
+    level: levelLabel,
+    defaultValue: `تم تمديد صلاحية ${levelLabel} — واصل جمع النقاط للحفاظ عليه الشهر القادم.`,
+  });
+  await createNotification({
+    uid,
+    type: 'system',
+    message: `${title}\n${body}`,
+    data: {
+      type: 'vip_status',
+      scenario: 'maintain_success',
+      title,
+      body,
+      route: '/vip',
+    },
+  });
+}
+
 export type VipReminderState = {
   show: boolean;
   daysLeft: number | null;

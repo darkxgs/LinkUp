@@ -3,7 +3,7 @@
  * تُكتب في Firestore ثم Cloud Function يرسل Push تلقائياً.
  */
 
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, query, where, limit } from 'firebase/firestore';
 import { firestore, auth } from './index';
 import { createNotification, type NotificationType } from './notifications';
 import { resolveDisplayName } from '@/utils/displayName';
@@ -138,6 +138,26 @@ export async function notifyCommentReply(
 export async function notifyNewFollower(followedUid: string): Promise<void> {
   const sender = await getSenderProfile();
   if (!sender || followedUid === sender.uid) return;
+
+  // منع التكرار — متابعة/إلغاء/متابعة مجدداً كانت تولّد إشعاراً جديداً كل مرة
+  try {
+    const dupSnap = await getDocs(
+      query(
+        collection(firestore, 'notifications'),
+        where('uid', '==', followedUid),
+        where('type', '==', 'follow'),
+        where('fromUid', '==', sender.uid),
+        limit(3),
+      ),
+    );
+    const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000;
+    for (const d of dupSnap.docs) {
+      const at = Number(d.data().createdAt ?? 0);
+      if (at >= threeDaysAgo) return;
+    }
+  } catch {
+    // تعذّر الفحص — نُرسل كالمعتاد
+  }
 
   const title = i18n.t('notifications.pushTitle');
   const body = i18n.t('notifications.followMessage', { name: sender.name });

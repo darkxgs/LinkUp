@@ -46,6 +46,7 @@ import {
   ChevronRight,
   BadgeCheck,
   Pencil,
+  Trash2,
 } from 'lucide-react-native';
 import i18n from '@/localization/i18n';
 
@@ -94,7 +95,7 @@ import { resolveAristocracyBadgeUrl } from '@/services/firebase/aristocracySyste
 import { isOnlineHidden } from '@/services/firebase/svipPerks';
 import { ChatGiftPickerModal } from '@/components/chat/ChatGiftPickerModal';
 import { buyAndSendGift, type Gift as GiftType } from '@/services/firebase/shop';
-import { getPostsByUser, type Post } from '@/services/firebase/posts';
+import { getPostsByUser, deletePost, toggleLike, type Post } from '@/services/firebase/posts';
 import { useEquippedFrameUrl } from '@/hooks/useEquippedFrameUrl';
 import { FramedAvatar, getFramedAvatarContainerSize } from '@/components/ui/FramedAvatar';
 import { AgencyRoomTrackingAvatar } from '@/components/chat/AgencyRoomTrackingAvatar';
@@ -741,12 +742,81 @@ export default function UserProfileScreen() {
               <Text style={styles.empty}>{t('profileMe.noPosts')}</Text>
             ) : (
               posts.map((p) => (
-                <View key={p.id} style={styles.postCard}>
+                <Pressable
+                  key={p.id}
+                  style={styles.postCard}
+                  onPress={() => router.push(`/post/${p.id}` as any)}
+                >
                   <Text style={styles.postText} numberOfLines={4}>{p.text}</Text>
                   {p.images?.[0] ? (
                     <Image source={{ uri: p.images[0] }} style={styles.postImg} contentFit="cover" />
                   ) : null}
-                </View>
+                  {/* إعجاب مباشر + تعليقات + حذف (لصاحب المنشور) — الضغط يفتح المنشور */}
+                  <View style={[styles.postMetaRow, flipRow]}>
+                    <Pressable
+                      hitSlop={8}
+                      style={[styles.postMetaItem, flipRow]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        void toggleLike(p.id)
+                          .then((liked) => {
+                            setPosts((prev) =>
+                              prev.map((x) =>
+                                x.id === p.id
+                                  ? { ...x, likes: Math.max(0, (x.likes ?? 0) + (liked ? 1 : -1)) }
+                                  : x,
+                              ),
+                            );
+                          })
+                          .catch(() => {});
+                      }}
+                    >
+                      <Heart size={15} color={lu.colors.pink} strokeWidth={2.2} />
+                      <Text style={styles.postMetaText}>{p.likes ?? 0}</Text>
+                    </Pressable>
+                    <Pressable
+                      hitSlop={8}
+                      style={[styles.postMetaItem, flipRow]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        router.push(`/post/${p.id}` as any);
+                      }}
+                    >
+                      <MessageCircle size={15} color="#6B7280" strokeWidth={2.2} />
+                      <Text style={styles.postMetaText}>{p.comments ?? 0}</Text>
+                    </Pressable>
+                    <View style={{ flex: 1 }} />
+                    {isSelf ? (
+                      <Pressable
+                        hitSlop={10}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          Alert.alert(
+                            t('feed.deletePostTitle', 'حذف المنشور'),
+                            t('feed.deletePostConfirm', 'هل تريد حذف هذا المنشور نهائياً؟'),
+                            [
+                              { text: t('common.cancel'), style: 'cancel' },
+                              {
+                                text: t('common.delete', 'حذف'),
+                                style: 'destructive',
+                                onPress: async () => {
+                                  try {
+                                    await deletePost(p.id);
+                                    setPosts((prev) => prev.filter((x) => x.id !== p.id));
+                                  } catch (err: any) {
+                                    Alert.alert(t('common.error'), err?.message ?? '');
+                                  }
+                                },
+                              },
+                            ],
+                          );
+                        }}
+                      >
+                        <Trash2 size={16} color="#EF4444" strokeWidth={2.2} />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </Pressable>
               ))
             )}
           </View>
@@ -1282,6 +1352,9 @@ const styles = StyleSheet.create({
   postCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#F3F4F6', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8 },
   postText: { fontSize: 15, color: '#111827', lineHeight: 24 },
   postImg: { width: '100%', height: 200, borderRadius: 12, marginTop: 12 },
+  postMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F3F4F6' },
+  postMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  postMetaText: { fontSize: 12.5, color: '#6B7280', fontFamily: lu.fonts.bodyBold },
   honorBlock: { marginBottom: 26 },
   honorHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   honorTitle: { fontSize: 16, fontFamily: lu.fonts.bodyBold, color: '#111827' },

@@ -73,11 +73,20 @@ export function AppPermissionsPrompt() {
   const handleAllowAll = useCallback(async () => {
     if (!uid || requesting) return;
     setRequesting(true);
+    // مهلة لكل خطوة — على بعض الأجهزة (Infinix وغيرها) يعلق طلب صلاحية
+    // أو جلب الموقع بلا حسم فيظل السبينر للأبد ويحتجز المستخدم
+    const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T | null> =>
+      Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]);
     try {
-      await requestAllAppPermissions();
-      const settings = await getNotificationSettings(uid);
-      await setPushNotificationsEnabled(uid, settings.pushEnabled !== false).catch(() => {});
-      await updateUserLocation(true).catch(() => {});
+      await withTimeout(requestAllAppPermissions(), 25_000);
+      const settings = await withTimeout(getNotificationSettings(uid), 6_000);
+      if (settings) {
+        await withTimeout(
+          setPushNotificationsEnabled(uid, settings.pushEnabled !== false).catch(() => {}),
+          6_000,
+        );
+      }
+      await withTimeout(updateUserLocation(true).catch(() => {}), 8_000);
     } finally {
       setRequesting(false);
       await finish();
@@ -132,7 +141,11 @@ export function AppPermissionsPrompt() {
           <Pressable
             onPress={() => void handleAllowAll()}
             disabled={requesting}
-            style={({ pressed }) => [{ opacity: pressed || requesting ? 0.88 : 1 }]}
+            // alignSelf: stretch — بدونه كان الزر ينكمش لعرض المحتوى فيظهر
+            // كحبة رفيعة مشوّهة بدل زر بعرض البطاقة
+            style={({ pressed }) => [
+              { alignSelf: 'stretch', opacity: pressed || requesting ? 0.88 : 1 },
+            ]}
           >
             <LinearGradient
               colors={lu.gradients.pink}

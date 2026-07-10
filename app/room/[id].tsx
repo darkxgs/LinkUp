@@ -106,6 +106,7 @@ import {
 } from '@/services/firebase/roomPkMatching';
 import { BackChevron } from '@/components/ui/RtlChevron';
 import { resolveDisplayName } from '@/utils/displayName';
+import { getUserPrivacy } from '@/utils/privacyDisplay';
 import { resolveOfficialUserAvatar } from '@/utils/userAvatar';
 import { prefetchAvatarUris } from '@/utils/imageConfig';
 import { resolveAgencyLogoImage } from '@/utils/agencyBubbleImage';
@@ -354,6 +355,7 @@ import {
   canUserManageRoomSettings,
   canUserManageRoomBlocks,
   canAgencyManageTarget,
+  setRoomAgencyMemberRole,
   type RoomAgencyMemberRole,
 } from '@/services/firebase/roomMemberRoles';
 
@@ -438,6 +440,9 @@ export default function RoomScreen() {
     useCallback(() => {
       leavingRoomRef.current = false;
       return () => {
+        // أغلق قائمة الأدوات عند مغادرة التركيز — مودالها الأصلي يطفو فوق أي
+        // شاشة تالية (تعديل الروم مثلاً) ويعلق كطبقة لا تستجيب للمس.
+        setShowTools(false);
         // لا نغادر الروم تلقائياً عند blur (مثل فتح مشاركة/وسائط/تنقّل مؤقت)
         // المغادرة الكاملة يجب أن تكون صريحة فقط (زر خروج/طرد/تبديل روم).
         if (!roomId) return;
@@ -1538,7 +1543,7 @@ export default function RoomScreen() {
   const canManageAgencyTarget = useCallback(
     (
       targetUid: string | undefined,
-      action: 'kick' | 'block' | 'removeMic' | 'mute' | 'cancelMembership',
+      action: 'kick' | 'block' | 'removeMic' | 'mute' | 'cancelMembership' | 'assignRole',
     ) => {
       if (!targetUid || !room || !myUid) return false;
       return canAgencyManageTarget(
@@ -2012,34 +2017,44 @@ export default function RoomScreen() {
     });
   }, [roomId, canReviewPkInvites]);
 
-  useEffect(() => {
-    const onBack = () => {
-      if (showEndRoomConfirm) {
-        setShowEndRoomConfirm(false);
+  // مقيّد بتركيز الشاشة — كان مسجَّلاً دائماً فيبتلع زر الرجوع حتى فوق
+  // الشاشات المفتوحة من داخل الروم (بروفايل مستخدم مثلاً) فلا يعود الزر يعمل
+  useFocusEffect(
+    useCallback(() => {
+      const onBack = () => {
+        if (showEndRoomConfirm) {
+          setShowEndRoomConfirm(false);
+          return true;
+        }
+        if (showMoreRooms) {
+          setShowMoreRooms(false);
+          return true;
+        }
+        setShowMoreRooms(true);
         return true;
-      }
-      if (showMoreRooms) {
-        setShowMoreRooms(false);
-        return true;
-      }
-      setShowMoreRooms(true);
-      return true;
-    };
-    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
-    return () => sub.remove();
-  }, [showMoreRooms, showEndRoomConfirm]);
+      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+      return () => sub.remove();
+    }, [showMoreRooms, showEndRoomConfirm]),
+  );
 
   const pkLive = isPkActive(roomPk);
 
+  // المضيف أو مشرف الإشراف (الأصفر) — كان حكراً على المضيف
+  const canStartPk = isHost || myRoomMemberRole === 'yellow_supervisor';
   const openPkFlow = useCallback(() => {
-    if (!isHost) {
-      showAlert({ type: 'warning', title: t('roomPk.title'), message: t('roomPk.hostOnly') });
+    if (!canStartPk) {
+      showAlert({
+        type: 'warning',
+        title: t('roomPk.title'),
+        message: t('roomPk.hostOrSupervisorOnly', 'تحدي PK للمضيف أو مشرفي الإشراف فقط'),
+      });
       return;
     }
     if (pkLive) return;
     setShowTools(false);
     setShowPkType(true);
-  }, [isHost, pkLive, showAlert, t]);
+  }, [canStartPk, pkLive, showAlert, t]);
 
   const confirmPendingFreeGame = useCallback(() => {
     if (!pendingFreeGameId || !activeRoomId) return;
@@ -2610,6 +2625,24 @@ export default function RoomScreen() {
     useRoomSessionStore.getState().setMicSeatIndex(mySeat?.seatIndex ?? null);
   }, [mySeat]);
 
+  // عدّاد دقائق مهام مستوى الثروة اليومية — «البقاء في غرفة» و«وقت المايك».
+  // كل دقيقة داخل الغرفة تُسجَّل، ومعها دقيقة مايك إن كنت على مقعد.
+  const onSeatForXpRef = useRef(false);
+  useEffect(() => {
+    onSeatForXpRef.current = !!mySeat;
+  }, [mySeat]);
+  useEffect(() => {
+    if (!roomId) return;
+    const iv = setInterval(() => {
+      void import('@/services/firebase/rewardsCenter')
+        .then(({ trackRewardsRoomMinutes }) =>
+          trackRewardsRoomMinutes(1, onSeatForXpRef.current ? 1 : 0),
+        )
+        .catch(() => {});
+    }, 60_000);
+    return () => clearInterval(iv);
+  }, [roomId]);
+
   /** على المايك: تثبيت العضوية وإلغاء onDisconnect — يبقى المقعد عند واتساب/فيسبوك */
   useEffect(() => {
     if (!roomId || !gateOpen || !mySeat) return;
@@ -2687,6 +2720,8 @@ export default function RoomScreen() {
     for (const uid of audienceUidSet) {
       if (!uid || members.has(uid)) continue;
       const live = liveByUid.get(uid);
+      // «إخفاء في الغرفة» — لا يظهر في قائمة المتصلين لأحد سواه
+      if (live?.hiddenInRoom === true && uid !== myUid) continue;
       members.set(uid, {
         uid,
         name: resolveDisplayName({ displayName: live?.name }, t('rooms.userFallback')),
@@ -2777,20 +2812,30 @@ export default function RoomScreen() {
       const age = new Date().getFullYear() - y;
       return age > 0 && age < 120 ? age : null;
     };
-    return audienceMembers.map((m) => {
+    const rows: ConnectedUserRow[] = [];
+    for (const m of audienceMembers) {
       const p = connectedProfiles[m.uid];
-      return {
+      const privacy = p ? getUserPrivacy(p as unknown as Record<string, unknown>) : null;
+      // «إخفاء في الغرفة» من إعدادات الخصوصية — يخفيه عن الجميع سواه
+      if (privacy?.hideInRoom && m.uid !== myUid && !m.onSeat) continue;
+      const hideSvip = Boolean(privacy?.hideSvipIdentity) && m.uid !== myUid;
+      rows.push({
         ...m,
-        vipLevel: p?.vipLevel ?? m.vipLevel,
-        isVIP: m.isVIP || Boolean(p?.isVIP),
+        // صورة/اسم البروفايل الحقيقيان — سجل الحضور يلتقط photoURL من Auth
+        // لحظة الدخول (فارغ غالباً لحسابات الهاتف) فتظهر المضيفة بلا صورة
+        avatar: (p as any)?.profile?.avatar || p?.avatar || m.avatar,
+        name: (p as any)?.profile?.displayName || p?.displayName || m.name,
+        vipLevel: hideSvip ? 0 : (p?.vipLevel ?? m.vipLevel),
+        isVIP: hideSvip ? false : (m.isVIP || Boolean(p?.isVIP)),
         level: p?.level ?? m.level,
         gender: p?.gender,
         age: ageFromBirthYear(p?.birthYear),
         coins: p?.coins,
         pearls: p?.pearls,
-      };
-    });
-  }, [audienceMembers, connectedProfiles]);
+      });
+    }
+    return rows;
+  }, [audienceMembers, connectedProfiles, myUid]);
 
   const vipAudienceMembers = useMemo(
     () => enrichedAudienceMembers.filter((m) => m.isVIP),
@@ -3410,9 +3455,34 @@ export default function RoomScreen() {
     recipientUids: string | string[],
     opts?: { isCombo?: boolean },
   ) => {
-    const uids = (Array.isArray(recipientUids) ? recipientUids : [recipientUids]).filter(Boolean);
+    let uids = (Array.isArray(recipientUids) ? recipientUids : [recipientUids]).filter(Boolean);
     if (!gift || uids.length === 0 || !user || !roomId) return;
     if (sendingGift && !opts?.isCombo) return;
+
+    // حارس وقت الإرسال: لا تُرسَل هدية لمن غادر الغرفة بين فتح النافذة والضغط —
+    // القائمة كانت تُلتقط عند الفتح فتصل هدايا لمن «مسكّرين ومو موجودين»
+    const stillHere = new Set<string>();
+    for (const m of audienceMembers) if (m.uid) stillHere.add(m.uid);
+    for (const s of allSeats) if (s.uid) stillHere.add(s.uid);
+    if (myUid) stillHere.add(myUid);
+    const absent = uids.filter((u) => !stillHere.has(u));
+    uids = uids.filter((u) => stillHere.has(u));
+    if (uids.length === 0) {
+      showAlert({
+        type: 'warning',
+        title: t('common.error'),
+        message: t('room.giftRecipientLeft', 'المستلم غادر الغرفة — لم تُرسل الهدية'),
+      });
+      setShowGifts(false);
+      return;
+    }
+    if (absent.length > 0) {
+      showAlert({
+        type: 'info',
+        title: t('gifts.title', 'الهدايا'),
+        message: t('room.giftSomeLeft', 'بعض المستلمين غادروا الغرفة واستُبعدوا من الإرسال'),
+      });
+    }
 
     const totalPer = gift.price * quantity;
     const totalAll = totalPer * uids.length;
@@ -4361,11 +4431,23 @@ export default function RoomScreen() {
 
   useEffect(() => {
     if (!myUid || !activeRoomId) return;
+    // نعرض فقط الدعوات المرسلة بعد دخولي الغرفة (بهامش 30 ثانية) —
+    // دعوة قديمة من قبل دخولي كانت تنبثق فوراً وكأن أحداً دعاني للتو
+    const enteredAt = Date.now();
     return subscribePendingRoomMicInvites(myUid, (invites) => {
-      const inRoom = invites.filter((i) => i.roomId === activeRoomId);
-      setMicInvitePopup(inRoom[0] ?? null);
+      const inRoom = invites.filter(
+        (i) => i.roomId === activeRoomId && i.createdAt >= enteredAt - 30_000,
+      );
+      // على المايك بالفعل؟ لا معنى لدعوة مايك — تُتجاهل بدل أن تُربك المستخدم
+      setMicInvitePopup(mySeatRefForInvites.current ? null : inRoom[0] ?? null);
     });
   }, [myUid, activeRoomId]);
+  const mySeatRefForInvites = useRef(false);
+  useEffect(() => {
+    mySeatRefForInvites.current = !!mySeat;
+    // إخفاء دعوة معروضة إن صعدتُ للمايك بطريقة أخرى قبل قبولها
+    if (mySeat) setMicInvitePopup(null);
+  }, [mySeat]);
 
   useEffect(() => {
     if (!myUid || !isAgencyRoom || !room?.agencyId) {
@@ -4384,7 +4466,16 @@ export default function RoomScreen() {
     if (!micInvitePopup) return;
     setMicInviteLoading(true);
     try {
-      await acceptRoomMicInvite(micInvitePopup);
+      // مهلة قصوى — بدونها كان مؤشر «قبول» يدور للأبد عند تعليق الشبكة
+      await Promise.race([
+        acceptRoomMicInvite(micInvitePopup),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('الشبكة بطيئة — تعذّر إكمال القبول، حاول مرة أخرى')),
+            20_000,
+          ),
+        ),
+      ]);
       setMicInvitePopup(null);
       showAlert({
         type: 'success',
@@ -4721,9 +4812,20 @@ export default function RoomScreen() {
       <RoomSeat
         key={seatNum}
         seatIndex={seatNum}
-        avatar={occupant?.avatar}
+        // الاسم/الصورة من البروفايل الحقيقي أولاً — لقطة المقعد قد تكون فارغة/قديمة
+        avatar={
+          (occupant?.uid
+            ? (connectedProfiles[occupant.uid] as any)?.profile?.avatar ||
+              connectedProfiles[occupant.uid]?.avatar
+            : undefined) || occupant?.avatar
+        }
         frameUri={resolveSeatFrameUri(occupant?.uid, occupant)}
-        displayName={occupant?.displayName}
+        displayName={
+          (occupant?.uid
+            ? (connectedProfiles[occupant.uid] as any)?.profile?.displayName ||
+              connectedProfiles[occupant.uid]?.displayName
+            : undefined) || occupant?.displayName
+        }
         isMuted={occupant?.isMuted}
         isSpeaking={
           (occupant?.uid ? speakingIdentities.has(occupant.uid) : false) ||
@@ -4744,7 +4846,9 @@ export default function RoomScreen() {
             : undefined
         }
         size={seatSize}
-        shape="rounded"
+        // شكل موحّد دائري لكل المقاعد — كان «rounded» فيظهر الفارغ مربعاً
+        // والمشغول دائرياً (طلب المالك: الكل مدوّر)
+        shape="circle"
         empty={!isOccupied}
         emptySeatLabel={isAgencyRoom ? String(seatNum) : undefined}
         isLocked={!isOccupied && lockedSeatSet.has(seatNum)}
@@ -5641,6 +5745,49 @@ export default function RoomScreen() {
             ? handleCancelMembership
             : undefined
         }
+        onManageRole={
+          roomId &&
+          seatUser?.uid &&
+          seatUser.uid !== myUid &&
+          (isHost || supervisorPerms.kickBan || supervisorPerms.manageMic) &&
+          canManageAgencyTarget(seatUser.uid, 'assignRole')
+            ? (uid, name) => {
+                const currentRole = roomMemberRoles[uid];
+                const options: { text: string; role: RoomAgencyMemberRole }[] = [];
+                if (currentRole !== 'red_member' && currentRole !== 'blue_supervisor' && currentRole !== 'yellow_supervisor') {
+                  options.push({ text: t('room.grantMembership', 'منح عضوية'), role: 'red_member' });
+                }
+                options.push({ text: t('room.grantBlueSupervisor', 'تعيين مشرف أزرق'), role: 'blue_supervisor' });
+                if (isHost) {
+                  options.push({ text: t('room.grantYellowSupervisor', 'تعيين إشراف (أصفر)'), role: 'yellow_supervisor' });
+                }
+                if (currentRole && currentRole !== 'cancelled') {
+                  options.push({ text: t('roomInfo.cancelMembership'), role: 'cancelled' });
+                }
+                showAlert({
+                  type: 'info',
+                  title: name || t('room.memberRole', 'عضوية / إشراف'),
+                  message: t('room.memberRoleHint', 'اختر الدور الذي تريد منحه لهذا العضو'),
+                  buttons: [
+                    ...options.map((o) => ({
+                      text: o.text,
+                      onPress: () => {
+                        void setRoomAgencyMemberRole(roomId, uid, o.role)
+                          .then(() => {
+                            setSeatUser(null);
+                            showAlert({ type: 'success', title: t('common.done'), message: o.text });
+                          })
+                          .catch((e: any) => {
+                            showAlert({ type: 'error', title: t('common.error'), message: e?.message });
+                          });
+                      },
+                    })),
+                    { text: t('common.cancel'), style: 'cancel' as const },
+                  ],
+                });
+              }
+            : undefined
+        }
         seatIsMuted={seatUserMicMuted}
         isChatMuted={seatUserChatMuted}
         onToggleMicMute={
@@ -5930,10 +6077,22 @@ export default function RoomScreen() {
       {isHost && pkLive ? (
         <Pressable
           style={[styles.pkEndFab, { top: insets.top + 120 }]}
-          onPress={() => handlePkEnded(false)}
+          onPress={() => {
+            // تسمية أمرية + تأكيد — «انتهى التحدي» كانت تُقرأ كحالة
+            // فيظن الجميع أن التحدي انتهى وهو جارٍ
+            showAlert({
+              type: 'warning',
+              title: t('roomPk.endAction', 'إنهاء التحدي'),
+              message: t('roomPk.endConfirm', 'هل تريد إنهاء التحدي الآن واحتساب النتيجة؟'),
+              buttons: [
+                { text: t('common.cancel'), style: 'cancel' },
+                { text: t('roomPk.endAction', 'إنهاء التحدي'), onPress: () => void handlePkEnded(false) },
+              ],
+            });
+          }}
         >
           <Text variant="caption" weight="bold" color="#fff">
-            {t('roomPk.ended')}
+            {t('roomPk.endAction', 'إنهاء التحدي')}
           </Text>
         </Pressable>
       ) : null}

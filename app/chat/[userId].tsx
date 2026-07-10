@@ -930,6 +930,10 @@ function PersonalChatScreen({ userId }: { userId: string }) {
   const userAge = otherUser.birthYear
     ? new Date().getFullYear() - otherUser.birthYear
     : null;
+  // عضوا وكالة واحدة — الدردشة مجانية (نفس إعفاء chargeForChatMessage)
+  const myAgencyId = String((user as unknown as { agencyId?: string | null })?.agencyId ?? '').trim();
+  const peerAgencyId = String((otherUser as unknown as { agencyId?: string | null })?.agencyId ?? '').trim();
+  const sameAgencyFreeChat = Boolean(myAgencyId) && myAgencyId === peerAgencyId;
   const handleMoreMenu = () => {
     if (!conversationId || !userId) return;
     showActionSheet({
@@ -1368,7 +1372,9 @@ function PersonalChatScreen({ userId }: { userId: string }) {
       <FlatList
         ref={listRef}
         data={invertedMessages}
-        inverted
+        // inverted فقط مع وجود رسائل — القائمة المقلوبة الفارغة تعكس مكوّن
+        // «ابدأ المحادثة» بـ scaleY فتتكسّر الحروف العربية على أندرويد
+        inverted={invertedMessages.length > 0}
         keyExtractor={(item) => item.id}
         onContentSizeChange={() => {
           if (displayMessages.length === 0) return;
@@ -1603,7 +1609,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         }}
         contentContainerStyle={styles.messagesContent}
         ListEmptyComponent={
-          <View style={[styles.emptyChat, { transform: [{ scaleY: -1 }] }]}>
+          <View style={styles.emptyChat}>
             <View style={styles.emptyChatIcon}>
               <Sparkles size={32} color={lu.colors.purple} strokeWidth={2} />
             </View>
@@ -1626,7 +1632,15 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         </View>
       ) : null}
 
-      {!chatBlocked && !isAgencyAgent(user) && !isAgencyAgent(otherUser) ? (
+      {!chatBlocked && sameAgencyFreeChat ? (
+        <View style={styles.pricingHint}>
+          <Text variant="caption" color={lu.colors.muted} style={{ textAlign: 'center' }}>
+            {t('chat.sameAgencyFreeHint', 'الدردشة مجانية — أنتما ضمن وكالة واحدة، لا تُخصم عملات على الرسائل')}
+          </Text>
+        </View>
+      ) : null}
+
+      {!chatBlocked && !isAgencyAgent(user) && !isAgencyAgent(otherUser) && !sameAgencyFreeChat ? (
         <View style={styles.pricingHint}>
           {callPricing.messages?.enabled ? (
             <Text variant="caption" color={lu.colors.muted} style={{ textAlign: 'center' }}>

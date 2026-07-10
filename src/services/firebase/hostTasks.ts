@@ -61,8 +61,8 @@ export const DEFAULT_HOST_TASKS: HostTasksConfig = {
       order: 1,
       titleAr: 'الرسائل الواردة',
       titleEn: 'Incoming Messages',
-      descAr: 'كل 1,000 رسالة تصلك تحصل على 10,000 كوينز',
-      descEn: 'Every 1,000 messages received earns 10,000 coins',
+      descAr: 'كل 1,000 رسالة مدفوعة تصلك من الأعضاء تمنحك 10,000 كوينز — تُحسب الرسائل حتى لو كانت من نفس الشخص',
+      descEn: 'Every 1,000 paid messages received earns 10,000 coins — repeat messages from the same person count',
       target: 1000,
       rewardCoins: 10_000,
       repeatable: true,
@@ -539,16 +539,17 @@ export async function collectHostTaskReward(
 
 // ─── Public trackers ────────────────────────────────────────────
 
-/** يُستدعى من Cloud Function عند وصول رسالة مدفوعة للمضيفة */
+/**
+ * @deprecated عدّ الرسائل انتقل بالكامل إلى السيرفر —
+ * trigger «countHostTaskMessageOnCreate» يعدّ كل رسالة مدفوعة عند إنشائها
+ * مهما كانت نسخة تطبيق المرسل. لا تستدعِ هذه الدالة.
+ */
 export async function trackHostMessageReceived(
-  hostUid: string,
-  wasPaid = true,
+  _hostUid: string,
+  _wasPaid = true,
 ): Promise<void> {
-  if (!wasPaid) return;
-  try {
-    const fn = httpsCallable(functions, 'recordHostMessageReceived');
-    await fn({ hostUid, wasPaid: true });
-  } catch { /* non-blocking */ }
+  void httpsCallable;
+  void functions;
 }
 
 export async function trackHostCallEnded(

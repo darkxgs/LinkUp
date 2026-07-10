@@ -38,6 +38,25 @@ import {
   onDisconnect,
 } from 'firebase/database';
 import { firestore, realtimeDb, auth } from './firebase/index';
+import { getDoc, doc as fsDoc } from 'firebase/firestore';
+
+// كاش وجود الوكالات — يمنع تكرار قراءة Firestore لنفس الوكالة في نفس الجلسة
+const agencyExistsCache = new Map<string, boolean>();
+
+/** هل وكالة هذه الغرفة ما زالت موجودة؟ الغرف التابعة لوكالات محذوفة تُخفى */
+async function agencyStillExists(agencyId: string): Promise<boolean> {
+  const id = agencyId.trim();
+  if (!id) return true;
+  const cached = agencyExistsCache.get(id);
+  if (cached != null) return cached;
+  try {
+    const snap = await getDoc(fsDoc(firestore, 'agencies', id));
+    agencyExistsCache.set(id, snap.exists());
+    return snap.exists();
+  } catch {
+    return true; // فشل شبكة عابر — لا نخفي
+  }
+}
 
 // ========================================================
 // 1. FAVORITE ROOMS (متابعة الروم)
@@ -166,6 +185,9 @@ export const subscribeToFavoriteRoomsLive = (
               roomData?.isAgencyRoom === true ||
               Boolean(roomData?.agencyId);
             const agencyId = f.agencyId || String(roomData?.agencyId ?? '') || undefined;
+            const archived = roomData?.isArchived === true;
+            const agencyGone =
+              isAgencyRoom && agencyId ? !(await agencyStillExists(agencyId)) : false;
             return {
               ...f,
               hostAvatar: hostAvatar || undefined,
@@ -173,13 +195,23 @@ export const subscribeToFavoriteRoomsLive = (
               isAgencyRoom,
               agencyId,
               isLive,
+              // حالة القفل الحية من الغرفة نفسها (بيانات الحفظ قد تكون قديمة)
+              isPrivate: roomData
+                ? roomData.mode === 'locked' || roomData.isPrivate === true
+                : (f as { isPrivate?: boolean }).isPrivate,
+              exists: roomSnap.exists() && !archived && !agencyGone,
             };
           } catch {
-            return { ...f, isLive: false };
+            return { ...f, isLive: false, exists: true };
           }
         }),
       );
-      callback(enriched);
+      // الغرف المحذوفة نهائياً من قاعدة البيانات تُخفى — الدخول إليها مستحيل،
+      // وتُحذف وثائقها (شفاء ذاتي حتى لا تضخّم عدّاد الغرف بأسماء وهمية)
+      for (const dead of enriched.filter((r) => (r as { exists?: boolean }).exists === false)) {
+        void deleteDoc(doc(firestore, 'users', user.uid, 'favoriteRooms', dead.roomId)).catch(() => {});
+      }
+      callback(enriched.filter((r) => (r as { exists?: boolean }).exists !== false));
     },
   );
   return unsubFav;
@@ -266,6 +298,16 @@ export const subscribeToRecentRoomsLive = (
               roomData?.isAgencyRoom === true ||
               Boolean(roomData?.agencyId);
             const agencyId = r.agencyId || String(roomData?.agencyId ?? '') || undefined;
+            // تُحذف من القائمة والسجل:
+            // - غرفة محذوفة أو مؤرشفة
+            // - غرفة وكالة حُذفت وكالتها
+            // - غرفي الشخصية (تظهر في بطاقة «غرفتي» أعلى الشاشة — نسخها
+            //   المكررة القديمة «غرفة» كانت تزاحم القائمة وتضخّم العدّاد)
+            const archived = roomData?.isArchived === true;
+            const agencyGone =
+              isAgencyRoom && agencyId ? !(await agencyStillExists(agencyId)) : false;
+            const ownPersonal =
+              !!roomData && String(roomData.hostUid ?? '') === user.uid && !isAgencyRoom;
             return {
               ...r,
               hostAvatar: hostAvatar || undefined,
@@ -273,13 +315,21 @@ export const subscribeToRecentRoomsLive = (
               isAgencyRoom,
               agencyId,
               isLive,
+              // حالة القفل الحية من الغرفة نفسها (بيانات الزيارة قد تكون قديمة)
+              isPrivate: roomData
+                ? roomData.mode === 'locked' || roomData.isPrivate === true
+                : (r as { isPrivate?: boolean }).isPrivate,
+              exists: roomSnap.exists() && !archived && !agencyGone && !ownPersonal,
             };
           } catch {
-            return { ...r, isLive: false };
+            return { ...r, isLive: false, exists: true };
           }
         }),
       );
-      callback(enriched);
+      for (const dead of enriched.filter((r) => (r as { exists?: boolean }).exists === false)) {
+        void deleteDoc(doc(firestore, 'users', user.uid, 'recentRooms', dead.roomId)).catch(() => {});
+      }
+      callback(enriched.filter((r) => (r as { exists?: boolean }).exists !== false));
     },
   );
   return unsub;
@@ -307,6 +357,30 @@ export const subscribeToMyRoomStats = (
 
   const emit = () => callback({ joined, agencies, favorites });
 
+  // هل تُحسب هذه الغرفة؟ — قراءات أوراق صغيرة بدل الغرفة كاملة.
+  // لا تُحسب (وتُحذف وثيقتها): غرفة محذوفة/مؤرشفة، غرفة وكالة محذوفة،
+  // وغرفي الشخصية في «انضم» (تظهر في بطاقة «غرفتي» — نسخها كانت تضخّم العدّاد).
+  const shouldCountRoom = async (
+    roomId: string,
+    excludeOwnPersonal: boolean,
+  ): Promise<boolean> => {
+    try {
+      const [hostSnap, archSnap, agencySnap] = await Promise.all([
+        rtGet(ref(realtimeDb, `rooms/${roomId}/hostUid`)),
+        rtGet(ref(realtimeDb, `rooms/${roomId}/isArchived`)),
+        rtGet(ref(realtimeDb, `rooms/${roomId}/agencyId`)),
+      ]);
+      if (!hostSnap.exists()) return false;
+      if (archSnap.val() === true) return false;
+      const agencyId = String(agencySnap.val() ?? '').trim();
+      if (agencyId && !(await agencyStillExists(agencyId))) return false;
+      if (excludeOwnPersonal && !agencyId && String(hostSnap.val()) === user.uid) return false;
+      return true;
+    } catch {
+      return true; // فشل شبكة عابر — لا نحذف ولا نُنقص العدّ
+    }
+  };
+
   const unsubRecent = onSnapshot(
     query(
       collection(firestore, 'users', user.uid, 'recentRooms'),
@@ -314,8 +388,15 @@ export const subscribeToMyRoomStats = (
       limit(50),
     ),
     (snap) => {
-      joined = snap.size;
-      emit();
+      void (async () => {
+        const docs = snap.docs;
+        const checks = await Promise.all(docs.map((d) => shouldCountRoom(d.id, true)));
+        joined = checks.filter(Boolean).length;
+        docs.forEach((d, i) => {
+          if (!checks[i]) void deleteDoc(d.ref).catch(() => {});
+        });
+        emit();
+      })();
     },
     () => emit(),
   );
@@ -327,14 +408,22 @@ export const subscribeToMyRoomStats = (
       limit(50),
     ),
     (snap) => {
-      agencies = 0;
-      favorites = 0;
-      for (const d of snap.docs) {
-        const data = d.data() as FavoriteRoom;
-        if (data.isAgencyRoom) agencies += 1;
-        else favorites += 1;
-      }
-      emit();
+      void (async () => {
+        const docs = snap.docs;
+        const checks = await Promise.all(docs.map((d) => shouldCountRoom(d.id, false)));
+        agencies = 0;
+        favorites = 0;
+        docs.forEach((d, i) => {
+          if (!checks[i]) {
+            void deleteDoc(d.ref).catch(() => {});
+            return;
+          }
+          const data = d.data() as FavoriteRoom;
+          if (data.isAgencyRoom) agencies += 1;
+          else favorites += 1;
+        });
+        emit();
+      })();
     },
     () => emit(),
   );

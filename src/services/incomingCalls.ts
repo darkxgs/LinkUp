@@ -53,12 +53,26 @@ export const ringUser = async (
   const callId = `${me.uid}_${Date.now()}`;
   const callRef = doc(firestore, 'incomingCalls', targetUid, 'calls', callId);
 
-  // ⚡ رنين فوري: اكتب الوثيقة فوراً بهوية auth المتاحة (يرنّ المستقبل بأسرع ما يمكن)
-  //    دون انتظار جلب وثيقة المستخدم من Firestore (كان يضيف جولة شبكة قبل الرنين).
+  // ⚡ رنين فوري: اكتب الوثيقة فوراً — بالاسم من بروفايل التطبيق المخزّن محلياً
+  //    (متزامن بلا شبكة). كان يُكتب اسم حساب Auth/جوجل الحقيقي («مريم سعود»)
+  //    فيظهر في إشعار المكالمة اسم غير اسم البروفايل (miral^^^).
+  const { useAuthStore } = await import('@/stores/authStore');
+  const localProfile = useAuthStore.getState().user as unknown as {
+    profile?: { displayName?: string; avatar?: string };
+    displayName?: string;
+    avatar?: string;
+  } | null;
+  const profileName =
+    localProfile?.profile?.displayName?.trim() ||
+    localProfile?.displayName?.trim() ||
+    me.displayName ||
+    'مستخدم';
+  const profileAvatar =
+    localProfile?.profile?.avatar || localProfile?.avatar || me.photoURL || '';
   await setDoc(callRef, {
     from: me.uid,
-    fromName: me.displayName || 'مستخدم',
-    fromAvatar: me.photoURL || '',
+    fromName: profileName,
+    fromAvatar: profileAvatar,
     type,
     channelName,
     createdAt: Date.now(),

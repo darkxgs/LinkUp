@@ -322,7 +322,9 @@ export function SupportChatScreen({ officialUid = SUPPORT_UID }: { officialUid?:
       <FlatList
         ref={listRef}
         data={invertedMessages}
-        inverted
+        // القلب فقط عند وجود رسائل — قلب واجهة «ابدأ محادثة» الفارغة بـ scaleY
+        // كان يشوّه رسم الحروف العربية على أندرويد (نص مبعثر غير مقروء)
+        inverted={invertedMessages.length > 0}
         keyExtractor={(m) => m.id}
         style={styles.list}
         contentContainerStyle={styles.listContent}
@@ -349,7 +351,7 @@ export function SupportChatScreen({ officialUid = SUPPORT_UID }: { officialUid?:
           );
         }}
         ListEmptyComponent={
-          <View style={[styles.empty, { transform: [{ scaleY: -1 }] }]}>
+          <View style={styles.empty}>
             <LinkUpSupportAvatar size={64} />
             <Text weight="bold" style={styles.emptyTitle}>
               {t('supportChat.emptyTitle')}

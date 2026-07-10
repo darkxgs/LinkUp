@@ -46,6 +46,7 @@ import {
   FavoriteRoom,
 } from '@/services/roomFeatures';
 import { getUser, UserDoc } from '@/services/firebase/users';
+import { navigateToRoom } from '@/utils/navigateToRoom';
 import { resolveDisplayName } from '@/utils/displayName';
 import { colors, radius, spacing, shadows } from '@/theme';
 import { lu } from '@/theme/lu-brand';
@@ -169,7 +170,9 @@ export default function UserRoomsScreen() {
   const handleEnterOrCreatePrivateRoom = async () => {
     if (!isMe) {
       if (privateRoom) {
-        router.push(`/room/${privateRoom.id}` as any);
+        // فحص التوفر + بوابة كلمة المرور قبل الدخول — الدفع المباشر لغرفة
+        // ميتة كان يفتح شاشة روم حمراء فارغة عالقة
+        void navigateToRoom(router, privateRoom.id);
       }
       return;
     }
@@ -233,7 +236,7 @@ export default function UserRoomsScreen() {
 
     return (
       <Pressable
-        onPress={() => router.push(`/room/${item.roomId}` as any)}
+        onPress={() => void navigateToRoom(router, String(item.roomId))}
         style={({ pressed }) => [styles.roomRow, pressed && { opacity: 0.85 }]}
       >
         {/* معلومات الغرفة باليسار (نظام RTL) */}
@@ -342,16 +345,20 @@ export default function UserRoomsScreen() {
                 </Text>
               </View>
 
-              {/* صورة الغرفة باليمين مع القفل (RTL) */}
+              {/* صورة الغرفة باليمين — القفل يظهر فقط إذا كانت الغرفة مقفلة فعلاً */}
               <View style={styles.privateAvatarWrap}>
                 <Image
                   source={{ uri: targetUser?.avatar || 'https://i.pravatar.cc/200' }}
                   style={styles.privateAvatar}
                   contentFit="cover"
                 />
-                <View style={styles.lockBadge}>
-                  <Lock size={12} color="#fff" />
-                </View>
+                {(!privateRoom ||
+                  (privateRoom as any).mode === 'locked' ||
+                  (!(privateRoom as any).mode && privateRoom.isPrivate)) ? (
+                  <View style={styles.lockBadge}>
+                    <Lock size={12} color="#fff" />
+                  </View>
+                ) : null}
               </View>
             </>
           )}

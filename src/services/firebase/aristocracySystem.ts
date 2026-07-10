@@ -421,12 +421,15 @@ export function resolvePurchasePrice(
     throw new Error('هذا المستوى غير متاح حالياً');
   }
 
-  if (active && level.level < state.level) {
-    throw new Error('لا يمكن شراء مستوى أقل من مستواك الحالي');
-  }
-
-  if (active && level.level > state.level) {
-    return { price: level.activationCoins, mode: 'upgrade', labelAr: 'ترقية' };
+  // يُسمح بشراء أي مستوى (تبديل) — المنع القديم «لا يمكن شراء مستوى أقل»
+  // كان يجعل بعض المستويات مستحيلة الشراء لأن ترتيبها أدنى وسعرها أعلى
+  // (الأمير 300K أغلى من الأرستقراطي 100K)
+  if (active && level.level !== state.level) {
+    return {
+      price: level.activationCoins,
+      mode: 'upgrade',
+      labelAr: level.level > state.level ? 'ترقية' : 'تبديل',
+    };
   }
 
   if ((active || inGrace) && level.level === state.level && level.allowRenewal !== false) {

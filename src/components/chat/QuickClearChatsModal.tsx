@@ -16,7 +16,7 @@ import { Text, useAlert } from '@/components/ui';
 import { quickClearOldChatMessages, type QuickClearDays } from '@/services/firebase/chat';
 import { lu } from '@/theme/lu-brand';
 
-const OPTIONS: QuickClearDays[] = [4, 14, 21, 90];
+const OPTIONS: QuickClearDays[] = [0, 4, 14, 21, 90];
 
 interface Props {
   visible: boolean;
@@ -39,7 +39,10 @@ export function QuickClearChatsModal({ visible, onClose, onDone }: Props) {
       showAlert({
         type: 'success',
         title: t('chat.quickClearDone'),
-        message: t('chat.quickClearDoneMsg', { count: cleared, days: selected }),
+        message:
+          selected === 0
+            ? t('chat.quickClearAllDoneMsg', 'تم إخفاء {{count}} رسالة من كل المحادثات', { count: cleared })
+            : t('chat.quickClearDoneMsg', { count: cleared, days: selected }),
       });
     } catch (e: any) {
       showAlert({
@@ -76,7 +79,9 @@ export function QuickClearChatsModal({ visible, onClose, onDone }: Props) {
                     {active ? <View style={styles.checkboxInner} /> : null}
                   </View>
                   <Text variant="body" color={lu.colors.ink} weight={active ? 'bold' : 'regular'}>
-                    {t('chat.quickClearSinceDays', { days })}
+                    {days === 0
+                      ? t('chat.quickClearAll', 'كل الرسائل (مسح شامل)')
+                      : t('chat.quickClearSinceDays', { days })}
                   </Text>
                 </Pressable>
               );

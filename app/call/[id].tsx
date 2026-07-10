@@ -134,7 +134,7 @@ export default function VoiceCallScreen() {
     if (canPin) {
       useCallSessionStore.getState().minimize({
         peerUid: id,
-        peerName: peer?.displayName ?? t('rooms.userFallback'),
+        peerName: ((peer as any)?.profile?.displayName || peer?.displayName) ?? t('rooms.userFallback'),
         peerAvatar: peer?.avatar,
         channelName,
         isVideo: false,
@@ -217,7 +217,7 @@ export default function VoiceCallScreen() {
 
         <View style={styles.nameRow}>
           <Text variant="h1" weight="bold" color={colors.white} style={{ marginTop: spacing.xl }}>
-            {peer?.displayName ?? t('rooms.userFallback')}
+            {((peer as any)?.profile?.displayName || peer?.displayName) ?? t('rooms.userFallback')}
           </Text>
           {isRemoteMuted && (
             <MicOff size={18} color="rgba(255,100,100,0.9)" strokeWidth={2} style={{ marginTop: spacing.xl, marginStart: 6 }} />

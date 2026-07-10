@@ -254,7 +254,19 @@ export default function RelationshipsScreen() {
             <Image source={REL_ASSETS.heart3d} style={{ width: 16, height: 16 }} contentFit="contain" />
             <Text weight="bold" style={styles.relationPillText}>{t('relationships.text62936')}</Text>
           </View>
-          <Pressable style={styles.headBtn} hitSlop={10}>
+          <Pressable
+            style={styles.headBtn}
+            hitSlop={10}
+            onPress={() =>
+              Alert.alert(
+                t('relationships.helpTitle', 'نظام العلاقات'),
+                t(
+                  'relationships.helpBody',
+                  'ترتبط بعلاقة مع صديق/صديقة وتكسبان نقاط حميمية معاً:\n\n• الرسائل والهدايا المتبادلة ترفع نقاط العلاقة\n• كل مستوى يفتح وساماً وشكلاً جديداً للعلاقة\n• زر «ترقية» يظهر عند اكتمال نقاط المستوى التالي\n• يمكنك التنقل بين المستويات بالسهمين لمعاينة المكافآت',
+                ),
+              )
+            }
+          >
             <RelQuestionIcon size={20} color={REL_DESIGN.ink} />
           </Pressable>
         </View>

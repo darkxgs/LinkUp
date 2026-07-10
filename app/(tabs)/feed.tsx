@@ -262,7 +262,11 @@ export default function FeedScreen() {
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.topicsScroll, { paddingHorizontal: padX }]}>
                   {HOT_TOPICS.map((tp) => (
-                    <View key={tp.id} style={[styles.topicCard, { width: topicW }]}>
+                    <Pressable
+                      key={tp.id}
+                      style={({ pressed }) => [styles.topicCard, { width: topicW }, pressed && { opacity: 0.75 }]}
+                      onPress={() => router.push('/(tabs)/home' as any)}
+                    >
                       {tp.image ? (
                         <Image source={typeof tp.image === 'number' ? tp.image : { uri: tp.image }} style={styles.topicThumb} contentFit="cover" />
                       ) : (
@@ -274,7 +278,7 @@ export default function FeedScreen() {
                         <Text style={styles.topicTitle} numberOfLines={1}>{tp.title}</Text>
                         <Text style={styles.topicMembers}>{tp.members}</Text>
                       </View>
-                    </View>
+                    </Pressable>
                   ))}
                 </ScrollView>
               </>

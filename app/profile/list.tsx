@@ -98,9 +98,10 @@ export default function ProfileListScreen() {
       return () => unsub();
     }
 
-    if (isOwnProfile) {
-      void reconcileSocialCounts(userId).catch(() => {});
-    }
+    // مزامنة العدّادات مع الوثائق الفعلية لأي ملف (وليس ملفي فقط) —
+    // كان الرقم «من برا» على البروفايل يخالف القائمة «جوا» لأن العدّاد
+    // المخزّن لا يُصحَّح إلا لصاحب الحساب نفسه
+    void reconcileSocialCounts(userId).catch(() => {});
 
     setLoading(true);
     let cancelled = false;
