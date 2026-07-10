@@ -3,7 +3,7 @@
  * المدير يتحكم بالأعضاء (إضافة بالـ ID / حذف).
  * متجاوبة على كل المقاسات (هاتف صغير → جهاز لوحي) ومطابقة لهوية LinkUp.
  */
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, StyleSheet, FlatList, Pressable, TextInput, ActivityIndicator,
   Modal, Alert, KeyboardAvoidingView, Platform, useWindowDimensions,
@@ -18,12 +18,8 @@ import { Send, ImagePlus, Users as UsersIcon, UserPlus, Trash2, X, Crown, Messag
 
 import { Text, VoiceRecorder } from '@/components/ui';
 import { VoiceMessagePlayer } from '@/components/ui/VoiceMessagePlayer';
-import { FramedMessageBubble, prefetchMessageBubbleUris } from '@/components/chat/FramedMessageBubble';
 import { BackChevron } from '@/components/ui/RtlChevron';
 import { auth } from '@/services/firebase';
-import { fetchEquippedBubbleUrlsForUsers } from '@/services/firebase/userBubbles';
-import { subscribeToVipSystem, type VipSystemConfig } from '@/services/firebase/vipSystem';
-import { subscribeToStoreItems, storeItemMediaUrl, type StoreItem } from '@/services/firebase/storeConfig';
 import {
   openAgencyChat, subscribeToAgencyChat, subscribeToAgencyChatMessages,
   sendAgencyText, sendAgencyImage, sendAgencyVoice,
@@ -58,9 +54,6 @@ export default function AgencyChatScreen() {
   const [sending, setSending] = useState(false);
   const [fullImage, setFullImage] = useState<string | null>(null);
   const [showManage, setShowManage] = useState(false);
-  const [storeBubbleCatalog, setStoreBubbleCatalog] = useState<StoreItem[]>([]);
-  const [userBubbleByUid, setUserBubbleByUid] = useState<Record<string, string>>({});
-  const [vipSystem, setVipSystem] = useState<VipSystemConfig | null>(null);
 
   useEffect(() => {
     if (!agencyId) return;
@@ -140,43 +133,6 @@ export default function AgencyChatScreen() {
     finally { setSending(false); }
   };
 
-  useEffect(() => {
-    const unsub = subscribeToStoreItems((items) => {
-      const bubbles = items.filter((i) => i.type === 'bubble');
-      setStoreBubbleCatalog(bubbles);
-      prefetchMessageBubbleUris(bubbles.map((i) => storeItemMediaUrl(i)));
-    });
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    prefetchMessageBubbleUris(Object.values(userBubbleByUid));
-  }, [userBubbleByUid]);
-
-  useEffect(() => {
-    const unsub = subscribeToVipSystem((cfg) => {
-      setVipSystem(cfg);
-    });
-    return unsub;
-  }, []);
-
-  const bubbleLookupUids = useMemo(
-    () => [...new Set(messages.map((m) => m.fromUid).filter(Boolean))],
-    [messages],
-  );
-
-  useEffect(() => {
-    if (!bubbleLookupUids.length || !storeBubbleCatalog.length) {
-      setUserBubbleByUid({});
-      return;
-    }
-    let cancelled = false;
-    fetchEquippedBubbleUrlsForUsers(bubbleLookupUids, storeBubbleCatalog, vipSystem || undefined).then((map) => {
-      if (!cancelled) setUserBubbleByUid(map);
-    });
-    return () => { cancelled = true; };
-  }, [bubbleLookupUids.join(','), storeBubbleCatalog, vipSystem?.privileges]);
-
   const handleSendVoice = async (uri: string, durationSec: number) => {
     setSending(true);
     try { await sendAgencyVoice(agencyId!, uri, durationSec); }
@@ -186,8 +142,7 @@ export default function AgencyChatScreen() {
 
   const renderMessage = useCallback(({ item }: { item: AgencyChatMessage }) => {
     const mine = item.fromUid === myUid;
-    const bubbleUri = userBubbleByUid[item.fromUid];
-    const hasBubbleFrame = Boolean(bubbleUri?.trim() && item.type === 'text');
+    // Message/profile frames are live-room only — agency chat uses plain bubbles.
     return (
       <View style={[styles.msgRow, mine ? styles.msgRowMine : styles.msgRowOther]}>
         {!mine && (
@@ -195,19 +150,10 @@ export default function AgencyChatScreen() {
             ? <Image source={{ uri: item.fromAvatar }} style={[styles.msgAvatar, { width: av, height: av, borderRadius: av / 2 }]} contentFit="cover" cachePolicy="memory-disk" recyclingKey={item.fromUid} />
             : <View style={[styles.msgAvatar, styles.msgAvatarEmpty, { width: av, height: av, borderRadius: av / 2 }]}><Text style={styles.msgAvatarLetter}>{(item.fromName ?? '?').charAt(0)}</Text></View>
         )}
-        <View style={[hasBubbleFrame ? styles.bubbleFrameWrap : styles.bubble, { maxWidth: bubbleMax }, !hasBubbleFrame && (mine ? styles.bubbleMine : styles.bubbleOther)]}>
-          {!mine && !hasBubbleFrame && <Text weight="bold" style={styles.senderName} numberOfLines={1}>{item.fromName}</Text>}
-          {!mine && hasBubbleFrame && <Text weight="bold" style={styles.senderNameFramed} numberOfLines={1}>{item.fromName}</Text>}
+        <View style={[styles.bubble, { maxWidth: bubbleMax }, mine ? styles.bubbleMine : styles.bubbleOther]}>
+          {!mine && <Text weight="bold" style={styles.senderName} numberOfLines={1}>{item.fromName}</Text>}
           {item.type === 'text' && (
-            hasBubbleFrame ? (
-              <FramedMessageBubble
-                bubbleUri={bubbleUri}
-                text={item.text}
-                textStyle={[styles.msgText, mine && styles.msgTextMine]}
-              />
-            ) : (
-              <Text style={[styles.msgText, mine && styles.msgTextMine]}>{item.text}</Text>
-            )
+            <Text style={[styles.msgText, mine && styles.msgTextMine]}>{item.text}</Text>
           )}
           {item.type === 'image' && item.imageUrl && (
             <Pressable onPress={() => setFullImage(item.imageUrl!)}>
@@ -220,7 +166,7 @@ export default function AgencyChatScreen() {
         </View>
       </View>
     );
-  }, [myUid, av, bubbleMax, userBubbleByUid]);
+  }, [myUid, av, bubbleMax]);
 
   return (
     <View style={[styles.fill, { paddingTop: insets.top }]}>
@@ -517,11 +463,9 @@ const styles = StyleSheet.create({
   msgAvatarEmpty: { backgroundColor: lu.colors.purple, alignItems: 'center', justifyContent: 'center' },
   msgAvatarLetter: { color: '#fff', fontSize: 13, fontFamily: lu.fonts.displayHeavy, includeFontPadding: false },
   bubble: { borderRadius: lu.radius.base, paddingHorizontal: 13, paddingVertical: 9 },
-  bubbleFrameWrap: { paddingVertical: 2 },
   bubbleMine: { backgroundColor: lu.colors.purple, borderBottomRightRadius: 5, ...lu.shadows.card, shadowOpacity: 0.12 },
   bubbleOther: { backgroundColor: lu.colors.card, borderBottomLeftRadius: 5, borderWidth: 1, borderColor: lu.colors.line },
   senderName: { fontSize: 11.5, color: lu.colors.purple, marginBottom: 3 },
-  senderNameFramed: { fontSize: 11.5, color: lu.colors.purple, marginBottom: 4 },
   msgText: { fontSize: 14.5, color: lu.colors.ink, lineHeight: 21 },
   msgTextMine: { color: '#fff' },
   msgImage: { width: 200, height: 200, borderRadius: lu.radius.sm },
