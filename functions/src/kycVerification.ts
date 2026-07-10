@@ -200,21 +200,121 @@ type FaceVerifyPersonal = {
   displayName?: string;
 };
 
-/** تحليل صورة وجه مباشرة (base64) — للتحقق السريع من التطبيق */
+type MultiFrameMeta = {
+  framesReceived: number;
+  framesAnalyzed: number;
+  /** كل الإطارات متطابقة بايتاً-ببايت — صورة ثابتة مُعادة وليست لقطات كاميرا حية */
+  staticFrames: boolean;
+  /** إطارات أعطت جنسين متعارضين — مشبوه، يتحوّل لمراجعة يدوية */
+  genderConflict: boolean;
+  perFrame: Array<{ gender: Gender; confidence: number; provider: string }>;
+};
+
+/**
+ * تحليل عدة إطارات (حتى 3) من فيديو/كاميرا التحقق — أدق من إطار واحد:
+ * - الإطارات المتطابقة تماماً تُعدّ صورة ثابتة → مراجعة يدوية
+ * - جنسان متعارضان بين الإطارات → مراجعة يدوية
+ * - اتفاق الإطارات → الثقة = متوسط الإطارات المتفقة (أثبت من لقطة واحدة)
+ */
+async function detectGenderFromFrames(
+  frames: Buffer[],
+): Promise<{ detected: DetectionResult; meta: MultiFrameMeta }> {
+  const capped = frames.slice(0, 3);
+
+  // إزالة التكرار البايتي — التقاط حي من كاميرا لا يعطي بايتات متطابقة أبداً
+  const { createHash } = await import('crypto');
+  const seen = new Set<string>();
+  const unique: Buffer[] = [];
+  for (const f of capped) {
+    const h = createHash('sha1').update(f).digest('hex');
+    if (seen.has(h)) continue;
+    seen.add(h);
+    unique.push(f);
+  }
+  const staticFrames = capped.length > 1 && unique.length === 1;
+
+  const results = await Promise.all(
+    unique.map(async (bytes) => {
+      try {
+        return await detectGenderFromImage(bytes);
+      } catch {
+        return { gender: 'unknown', confidence: 0, provider: 'none' } as DetectionResult;
+      }
+    }),
+  );
+
+  const meta: MultiFrameMeta = {
+    framesReceived: capped.length,
+    framesAnalyzed: unique.length,
+    staticFrames,
+    genderConflict: false,
+    perFrame: results.map((r) => ({
+      gender: r.gender,
+      confidence: r.confidence,
+      provider: r.provider,
+    })),
+  };
+
+  const valid = results.filter((r) => r.gender !== 'unknown' && r.confidence > 0);
+  if (!valid.length) {
+    return { detected: { gender: 'unknown', confidence: 0, provider: 'none' }, meta };
+  }
+
+  const hasMale = valid.some((r) => r.gender === 'male');
+  const hasFemale = valid.some((r) => r.gender === 'female');
+  if (hasMale && hasFemale) {
+    // تعارض بين الإطارات — لا قرار تلقائي؛ يذهب لمراجعة الإدارة
+    meta.genderConflict = true;
+    return { detected: { gender: 'unknown', confidence: 0, provider: valid[0]!.provider }, meta };
+  }
+
+  if (staticFrames) {
+    // صورة ثابتة مُعادة — لا توثيق تلقائي مهما كانت الثقة
+    return { detected: { gender: 'unknown', confidence: 0, provider: valid[0]!.provider }, meta };
+  }
+
+  const gender = valid[0]!.gender;
+  const best = valid.reduce((a, b) => (b.confidence > a.confidence ? b : a), valid[0]!);
+  const avgConfidence = Math.round(
+    valid.reduce((s, r) => s + r.confidence, 0) / valid.length,
+  );
+  return {
+    detected: { gender, confidence: avgConfidence, provider: best.provider },
+    meta,
+  };
+}
+
+/**
+ * تحليل صورة وجه مباشرة (base64) — للتحقق السريع من التطبيق.
+ * يدعم `framesBase64` (حتى 3 إطارات تُلتقط تلقائياً أثناء إيماءة بسيطة عشوائية):
+ * اتفاق الإطارات يرفع الدقة، وتعارضها أو تطابقها البايتي (صورة ثابتة) → مراجعة يدوية.
+ * التوافق الخلفي: `imageBase64` وحدها تعمل كالسابق تماماً.
+ */
 export const verifyGenderFace = onCall({ memory: '1GiB', timeoutSeconds: 120 }, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
 
   const imageBase64 = String(request.data?.imageBase64 ?? '');
+  const rawFrames = Array.isArray(request.data?.framesBase64)
+    ? (request.data.framesBase64 as unknown[]).map((f) => String(f ?? '')).filter(Boolean)
+    : [];
+  const gesture = String(request.data?.gesture ?? '').slice(0, 80);
   const personal = (request.data?.personal ?? {}) as FaceVerifyPersonal;
 
-  let imageBytes: Buffer;
-  try {
-    imageBytes = decodeBase64Image(imageBase64);
-  } catch (e) {
-    if (e instanceof HttpsError) throw e;
-    throw new HttpsError('invalid-argument', 'صورة غير صالحة');
+  const frameSources = (rawFrames.length ? rawFrames : [imageBase64]).slice(0, 3);
+  const frames: Buffer[] = [];
+  for (const src of frameSources) {
+    try {
+      frames.push(decodeBase64Image(src));
+    } catch (e) {
+      // إطار تالف واحد لا يُسقط الطلب إذا وُجد غيره
+      if (!frames.length && frameSources.length === 1) {
+        if (e instanceof HttpsError) throw e;
+        throw new HttpsError('invalid-argument', 'صورة غير صالحة');
+      }
+    }
   }
+  if (!frames.length) throw new HttpsError('invalid-argument', 'صورة غير صالحة');
 
   const userRef = db.collection('users').doc(uid);
   const userSnap = await userRef.get();
@@ -223,12 +323,17 @@ export const verifyGenderFace = onCall({ memory: '1GiB', timeoutSeconds: 120 }, 
 
   const now = Date.now();
   const kycRef = db.collection('kycRequests').doc(uid);
-  let verificationImageUrl = '';
-  try {
-    verificationImageUrl = await persistKycVerificationImage(uid, imageBytes, 'face');
-  } catch (e) {
-    console.error('KYC face image persist error:', e);
+  const frameUrls: string[] = [];
+  for (let i = 0; i < frames.length; i++) {
+    try {
+      frameUrls.push(
+        await persistKycVerificationImage(uid, frames[i]!, i === 0 ? 'face' : 'frame'),
+      );
+    } catch (e) {
+      console.error('KYC face image persist error:', e);
+    }
   }
+  const verificationImageUrl = frameUrls[0] ?? '';
 
   await kycRef.set(
     {
@@ -240,6 +345,8 @@ export const verifyGenderFace = onCall({ memory: '1GiB', timeoutSeconds: 120 }, 
       ...(verificationImageUrl
         ? { selfie: verificationImageUrl, verificationFrameUrl: verificationImageUrl }
         : {}),
+      ...(frameUrls.length > 1 ? { verificationFrameUrls: frameUrls } : {}),
+      ...(gesture ? { livenessGesture: gesture } : {}),
       createdAt: now,
       updatedAt: now,
     },
@@ -248,7 +355,18 @@ export const verifyGenderFace = onCall({ memory: '1GiB', timeoutSeconds: 120 }, 
 
   let detected: DetectionResult;
   try {
-    detected = await detectGenderFromImage(imageBytes);
+    const analysis = await detectGenderFromFrames(frames);
+    detected = analysis.detected;
+    await kycRef.set(
+      {
+        livenessFrames: analysis.meta.framesAnalyzed,
+        livenessStatic: analysis.meta.staticFrames,
+        livenessConflict: analysis.meta.genderConflict,
+        livenessPerFrame: analysis.meta.perFrame,
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    );
   } catch (e) {
     console.error('verifyGenderFace analyze error:', e);
     detected = { gender: 'unknown', confidence: 0, provider: 'none' };
@@ -271,8 +389,13 @@ export const processKycVerification = onCall({ memory: '512MiB', timeoutSeconds:
   }
 
   const kyc = kycSnap.data()!;
-  const frameUrl = String(kyc.verificationFrameUrl ?? kyc.selfie ?? '').trim();
-  if (!frameUrl) {
+  const frameUrls = (Array.isArray(kyc.verificationFrameUrls)
+    ? (kyc.verificationFrameUrls as unknown[]).map((u) => String(u ?? '').trim())
+    : []
+  ).filter(Boolean);
+  const singleUrl = String(kyc.verificationFrameUrl ?? kyc.selfie ?? '').trim();
+  const urls = (frameUrls.length ? frameUrls : [singleUrl]).filter(Boolean).slice(0, 3);
+  if (!urls.length) {
     throw new HttpsError('failed-precondition', 'صورة/إطار التحقق مفقود');
   }
 
@@ -283,8 +406,22 @@ export const processKycVerification = onCall({ memory: '512MiB', timeoutSeconds:
 
   let detected: DetectionResult;
   try {
-    const bytes = await fetchImageBytes(frameUrl);
-    detected = await detectGenderFromImage(bytes);
+    const frames = (
+      await Promise.all(urls.map((u) => fetchImageBytes(u).catch(() => null)))
+    ).filter((b): b is Buffer => b != null);
+    if (!frames.length) throw new Error('تعذّر تحميل إطارات التحقق');
+    const analysis = await detectGenderFromFrames(frames);
+    detected = analysis.detected;
+    await kycRef.set(
+      {
+        livenessFrames: analysis.meta.framesAnalyzed,
+        livenessStatic: analysis.meta.staticFrames,
+        livenessConflict: analysis.meta.genderConflict,
+        livenessPerFrame: analysis.meta.perFrame,
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    );
   } catch (e) {
     console.error('KYC AI analyze error:', e);
     detected = { gender: 'unknown', confidence: 0, provider: 'none' };

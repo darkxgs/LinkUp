@@ -72,7 +72,7 @@
         },
         "pk": {
           ".read": "auth != null",
-          ".write": "auth != null && (root.child('rooms').child($roomId).child('hostUid').val() == auth.uid || (!data.exists() && newData.child('status').val() == 'active' && newData.child('mode').val() == 'cross_room' && newData.child('crossRoom').child('opponentRoomId').exists() && root.child('rooms').child(newData.child('crossRoom').child('opponentRoomId').val()).child('hostUid').val() == auth.uid))",
+          ".write": "auth != null && (root.child('rooms').child($roomId).child('hostUid').val() == auth.uid || root.child('rooms').child($roomId).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor' || (!data.exists() && newData.child('status').val() == 'active' && newData.child('mode').val() == 'cross_room' && newData.child('crossRoom').child('opponentRoomId').exists() && (root.child('rooms').child(newData.child('crossRoom').child('opponentRoomId').val()).child('hostUid').val() == auth.uid || root.child('rooms').child(newData.child('crossRoom').child('opponentRoomId').val()).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor')))",
           "blueScore": {
             ".write": "auth != null"
           },
@@ -113,6 +113,12 @@
     "presence": {
       ".read": "auth != null",
       "$uid": {
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "userCurrentRoom": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
         ".write": "auth != null && auth.uid == $uid"
       }
     },
@@ -175,7 +181,7 @@
     "pkMatchRequests": {
       "$fromRoomId": {
         ".read": "auth != null",
-        ".write": "auth != null && (!data.exists() && newData.child('createdByUid').val() == auth.uid && root.child('rooms').child($fromRoomId).child('hostUid').val() == auth.uid || data.exists() && root.child('rooms').child($fromRoomId).child('hostUid').val() == auth.uid || data.exists() && data.child('status').val() == 'searching' && newData.child('status').val() == 'matched' && root.child('rooms').child(newData.child('matchedRoomId').val()).child('hostUid').val() == auth.uid)"
+        ".write": "auth != null && (!data.exists() && newData.child('createdByUid').val() == auth.uid && (root.child('rooms').child($fromRoomId).child('hostUid').val() == auth.uid || root.child('rooms').child($fromRoomId).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor') || data.exists() && (root.child('rooms').child($fromRoomId).child('hostUid').val() == auth.uid || root.child('rooms').child($fromRoomId).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor') || data.exists() && data.child('status').val() == 'searching' && newData.child('status').val() == 'matched' && (root.child('rooms').child(newData.child('matchedRoomId').val()).child('hostUid').val() == auth.uid || root.child('rooms').child(newData.child('matchedRoomId').val()).child('memberRoles').child(auth.uid).val() == 'yellow_supervisor'))"
       }
     },
     "pkAgencyInvites": {

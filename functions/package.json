@@ -21,11 +21,6 @@
     "livekit-server-sdk": "^2.9.0",
     "ws": "^8.18.3"
   },
-  "optionalDependencies": {
-    "@tensorflow/tfjs-node": "^4.22.0",
-    "@vladmandic/face-api": "^1.7.15",
-    "canvas": "^2.11.2"
-  },
   "devDependencies": {
     "esbuild": "^0.25.0",
     "typescript": "^5.5.4"

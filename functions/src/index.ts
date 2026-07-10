@@ -2898,6 +2898,80 @@ export const recordProfileVisit = onCall(async (request) => {
   return { ok: true };
 });
 
+/**
+ * تصحيح عدّاد زوار الملف — نسخ قديمة كانت تكتب وثيقة زيارة بمعرّف عشوائي
+ * لكل زيارة (بدل وثيقة واحدة لكل زائر)، فتضخّم «إجمالي الزوار» بزيارات مكررة
+ * لنفس الأشخاص. تدمج هذه الدالة الوثائق العشوائية في وثيقة الزائر القانونية
+ * (id = visitorUid وبأحدث وقت زيارة)، تحذف المكرر والزيارات الذاتية،
+ * ثم تعيد العدد الفريد الصحيح وتزامنه على وثيقة المستخدم.
+ */
+export const reconcileProfileVisitors = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+
+  const col = db.collection('profileVisitors').doc(uid).collection('visits');
+  const snap = await col.get();
+
+  const canonicalAt = new Map<string, number>();
+  const strays: Array<{ id: string; data: FirebaseFirestore.DocumentData }> = [];
+  snap.forEach((d) => {
+    const data = d.data();
+    const visitorUid = String(data.visitorUid ?? '');
+    if (d.id === visitorUid && visitorUid) {
+      canonicalAt.set(visitorUid, Number(data.visitedAt) || 0);
+    } else {
+      strays.push({ id: d.id, data });
+    }
+  });
+
+  let batch = db.batch();
+  let ops = 0;
+  const flush = async () => {
+    if (ops > 0) {
+      await batch.commit();
+      batch = db.batch();
+      ops = 0;
+    }
+  };
+
+  for (const stray of strays) {
+    const visitorUid = String(stray.data.visitorUid ?? '');
+    const visitedAt = Number(stray.data.visitedAt) || 0;
+    if (visitorUid && visitorUid !== uid) {
+      const currentAt = canonicalAt.get(visitorUid) ?? 0;
+      if (visitedAt > currentAt) {
+        batch.set(
+          col.doc(visitorUid),
+          { ...stray.data, visitorUid, visitedAt },
+          { merge: true },
+        );
+        ops += 1;
+      }
+      canonicalAt.set(visitorUid, Math.max(currentAt, visitedAt));
+    }
+    batch.delete(col.doc(stray.id));
+    ops += 1;
+    if (ops >= 400) await flush();
+  }
+
+  // زيارة ذاتية من نسخ قديمة — تُحذف ولا تُحسب
+  if (canonicalAt.has(uid)) {
+    batch.delete(col.doc(uid));
+    ops += 1;
+    canonicalAt.delete(uid);
+  }
+  await flush();
+
+  const total = canonicalAt.size;
+  await db
+    .collection('users')
+    .doc(uid)
+    .update({ visitors: total, 'stats.visitors': total })
+    .catch(() => {});
+
+  return { ok: true, total };
+});
+
 /** Push + رنين عند مكالمة واردة (التطبيق مغلق/خلفية) */
 export const pushOnIncomingCallCreated = onDocumentCreated(
   'incomingCalls/{targetUid}/calls/{callId}',
@@ -2919,7 +2993,24 @@ export const pushOnIncomingCallCreated = onDocumentCreated(
       const fcmToken = userData.fcmToken as string | undefined;
       if (!fcmToken) return;
 
-      const fromName = (call.fromName as string) || 'مستخدم';
+      // اسم المتصل من بروفايل التطبيق لا من هوية Auth — وثيقة المكالمة تُكتب
+      // أولاً باسم حساب جوجل الحقيقي (للسرعة) والإشعار ينطلق قبل إثرائها
+      let fromName = (call.fromName as string) || 'مستخدم';
+      try {
+        const callerUid = String(call.from ?? '');
+        if (callerUid) {
+          const callerSnap = await db.collection('users').doc(callerUid).get();
+          const callerData = callerSnap.data() ?? {};
+          const profileName = String(
+            (callerData.profile as Record<string, unknown> | undefined)?.displayName ??
+              callerData.displayName ??
+              '',
+          ).trim();
+          if (profileName) fromName = profileName;
+        }
+      } catch {
+        // نكتفي بالاسم المكتوب في الوثيقة
+      }
       const callType = call.type === 'video' ? 'video' : 'voice';
       const title = fromName;
       const body =
@@ -7187,6 +7278,62 @@ export const buyWeeklyLotteryTickets = onCall(async (request) => {
 });
 
 /** سحب اليانصيب الأسبوعي تلقائياً — كل سبت 11:00 (الرياض) */
+/**
+ * كنّاس حضور الغرف — يزيل «الأشباح» من جمهور الغرف: أعضاء قُتل تطبيقهم قبل
+ * أن يسجّل onDisconnect على السيرفر فبقيت صورهم على بطاقات الوكالات كأنهم
+ * ما زالوا داخل الغرفة. القاعدة: عضو جمهور انضم قبل >10 دقائق وحضوره العام
+ * (presence/{uid}) غائب أو أقدم من 10 دقائق = شبح ⇒ يُحذف.
+ */
+export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () => {
+  const [audSnap, presenceSnap, roomsSnap] = await Promise.all([
+    rtdb.ref('roomAudience').get(),
+    rtdb.ref('presence').get(),
+    rtdb.ref('rooms').get(),
+  ]);
+  const presence = (presenceSnap.val() ?? {}) as Record<string, unknown>;
+  const now = Date.now();
+  const STALE_MS = 10 * 60 * 1000;
+  const updates: Record<string, unknown> = {};
+  const isStale = (uid: string): boolean => {
+    const lastSeen = Number(presence[uid]) || 0;
+    return now - lastSeen >= STALE_MS;
+  };
+  if (audSnap.exists()) {
+    audSnap.forEach((roomSnap) => {
+      roomSnap.forEach((memberSnap) => {
+        const uid = memberSnap.key;
+        if (!uid) return;
+        const joinedAt = Number(memberSnap.child('joinedAt').val()) || 0;
+        if (now - joinedAt < STALE_MS) return; // انضمام حديث — أمهله
+        if (!isStale(uid)) return; // متصل فعلاً بالتطبيق
+        updates[`roomAudience/${roomSnap.key}/${uid}`] = null;
+        updates[`userCurrentRoom/${uid}`] = null;
+      });
+    });
+  }
+  // مقاعد «معلّقة» — جالس على مايك وحضوره منقطع عن التطبيق كلياً
+  // (تنظيف الأجهزة الحيّ لا يعمل إذا خرج الجميع من الغرفة)
+  if (roomsSnap.exists()) {
+    roomsSnap.forEach((roomSnap) => {
+      const seatsSnap = roomSnap.child('seats');
+      if (!seatsSnap.exists()) return;
+      seatsSnap.forEach((seatSnap) => {
+        const uid = String(seatSnap.child('uid').val() ?? '');
+        if (!uid) return;
+        const joinedAt = Number(seatSnap.child('joinedAt').val()) || 0;
+        if (joinedAt > 0 && now - joinedAt < STALE_MS) return;
+        if (!isStale(uid)) return;
+        updates[`rooms/${roomSnap.key}/seats/${seatSnap.key}`] = { uid: '' };
+      });
+    });
+  }
+  const count = Object.keys(updates).length;
+  if (count > 0) {
+    await rtdb.ref().update(updates);
+    console.log('sweepGhostRoomAudience: removed', count, 'stale entries');
+  }
+});
+
 export const scheduledWeeklyLotteryDraw = onSchedule(
   {
     schedule: '0 11 * * 6',
@@ -7471,48 +7618,93 @@ function applyHostRewards(
   return { progress, coins: 0 };
 }
 
+/**
+ * @deprecated العدّ انتقل إلى countHostTaskMessageOnCreate (trigger على messages).
+ * تبقى الدالة no-op حتى لا تفشل نسخ التطبيق القديمة التي ما زالت تستدعيها —
+ * ولو زادت العدّاد هنا أيضاً لتضاعف العدّ مع الـ trigger.
+ */
 export const recordHostMessageReceived = onCall(async (request) => {
-  const senderUid = request.auth?.uid;
-  if (!senderUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
-
-  const { hostUid, wasPaid } = request.data as { hostUid?: string; wasPaid?: boolean };
-  if (!hostUid || hostUid === senderUid) {
-    throw new HttpsError('invalid-argument', 'hostUid مطلوب');
-  }
-  if (wasPaid !== true) return { ok: true, coins: 0 };
-
-  const cfgSnap = await db.doc('config/hostTasks').get();
-  const cfgRaw = cfgSnap.exists ? cfgSnap.data()! : {};
-  const cfg = {
-    ...DEFAULT_HOST_TASKS_CFG,
-    ...cfgRaw,
-    tasks: { ...DEFAULT_HOST_TASKS_CFG.tasks, ...(cfgRaw.tasks ?? {}) },
-  };
-  if (!cfg.enabled || !cfg.tasks.messages.enabled) return { ok: true, coins: 0 };
-
-  const resetHour = Number(cfgRaw.resetHour ?? 0);
-  const hostRef = db.collection('users').doc(hostUid);
-  const senderRef = db.collection('users').doc(senderUid);
-
-  await db.runTransaction(async (tx) => {
-    const [hostSnap, senderSnap] = await Promise.all([tx.get(hostRef), tx.get(senderRef)]);
-    if (!hostSnap.exists || !senderSnap.exists) return;
-    const hostData = hostSnap.data()!;
-    const senderData = senderSnap.data()!;
-    if (!canEarnHostTasksAccount(hostData)) return;
-    if (!shouldCountHostTaskMessage(senderData)) return;
-
-    let progress = readHostProgress(hostData, resetHour);
-    progress.messagesReceived = (Number(progress.messagesReceived) || 0) + 1;
-
-    tx.update(hostRef, {
-      hostTasksProgress: progress,
-      updatedAt: Date.now(),
-    });
-  });
-
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   return { ok: true, coins: 0 };
 });
+
+// حسابات النظام الرسمية — رسائلها مجانية فلا تدخل في عدّ مهام المضيفة
+const HOST_TASKS_OFFICIAL_UIDS = new Set([
+  'linkup_support',
+  'linkup_assistant',
+  'linkup_feedback',
+  'linkup_recharge_bot',
+]);
+
+/**
+ * عدّ «الرسائل الواردة» لمهام المضيفة من السيرفر مباشرة عند إنشاء مستند الرسالة —
+ * لا يعتمد على نسخة تطبيق المرسل ولا على استدعاء callable من جهازه.
+ * تُحسب الرسالة فقط إذا كانت مدفوعة فعلاً (نفس منطق خصم الكوينز في التطبيق):
+ * نص/صورة/صوت بسعر > 0، المرسل ذكر ليس وكيلاً ولا حساباً رسمياً، والمستلمة مضيفة موثّقة.
+ * الرسائل المتكررة من نفس الشخص تُحسب كلها.
+ */
+// (أُعيدت التسمية من countHostTaskMessageOnCreate — علِقت نسخة معطوبة بالاسم
+// القديم على السيرفر من نشر جزئي فاشل ورفضت المنصة تغيير نوعها؛ الاسم الجديد
+// يُنشأ نظيفاً والقديم يُحذف تلقائياً مع --force)
+export const hostTaskMessageCounter = onDocumentCreated(
+  'messages/{messageId}',
+  async (event) => {
+    const msg = event.data?.data();
+    if (!msg) return;
+    const fromUid = String(msg.fromUid ?? '');
+    const toUid = String(msg.toUid ?? '');
+    const type = String(msg.type ?? 'text');
+    if (!fromUid || !toUid || fromUid === toUid) return;
+    if (type !== 'text' && type !== 'image' && type !== 'voice') return;
+    if (HOST_TASKS_OFFICIAL_UIDS.has(fromUid) || HOST_TASKS_OFFICIAL_UIDS.has(toUid)) return;
+
+    const cfgSnap = await db.doc('config/hostTasks').get();
+    const cfgRaw = (cfgSnap.exists ? cfgSnap.data()! : {}) as Record<string, any>;
+    const cfg = {
+      ...DEFAULT_HOST_TASKS_CFG,
+      ...cfgRaw,
+      tasks: { ...DEFAULT_HOST_TASKS_CFG.tasks, ...(cfgRaw.tasks ?? {}) },
+    };
+    if (!cfg.enabled || !cfg.tasks.messages.enabled) return;
+
+    // سعر الرسالة من config/callPricing — سعر 0 أو التسعير معطّل = رسالة مجانية لا تُحسب
+    const pricingSnap = await db.doc('config/callPricing').get();
+    const pricingRaw = (pricingSnap.exists ? pricingSnap.data()! : {}) as Record<string, any>;
+    const msgPricing = (pricingRaw.messages ?? {}) as Record<string, any>;
+    if (msgPricing.enabled === false) return;
+    const price = Number(
+      type === 'text'
+        ? msgPricing.textMessage ?? 200
+        : type === 'voice'
+          ? msgPricing.voiceMessage ?? 200
+          : msgPricing.imageMessage ?? 200,
+    );
+    if (!(price > 0)) return;
+
+    const resetHour = Number(cfgRaw.resetHour ?? 0);
+    const hostRef = db.collection('users').doc(toUid);
+    const senderRef = db.collection('users').doc(fromUid);
+
+    await db.runTransaction(async (tx) => {
+      const [hostSnap, senderSnap] = await Promise.all([tx.get(hostRef), tx.get(senderRef)]);
+      if (!hostSnap.exists || !senderSnap.exists) return;
+      const hostData = hostSnap.data()!;
+      const senderData = senderSnap.data()!;
+      if (!canEarnHostTasksAccount(hostData)) return;
+      if (!shouldCountHostTaskMessage(senderData)) return;
+      // الإناث يرسلن مجاناً (موثّقات وغير موثّقات) — رسائلهن غير مدفوعة فلا تُحسب
+      if ((senderData.profile?.gender ?? senderData.gender) === 'female') return;
+
+      const progress = readHostProgress(hostData, resetHour);
+      progress.messagesReceived = (Number(progress.messagesReceived) || 0) + 1;
+
+      tx.update(hostRef, {
+        hostTasksProgress: progress,
+        updatedAt: Date.now(),
+      });
+    });
+  },
+);
 
 // ==================== REVOKE REGISTERED DEVICE ====================
 /** إزالة جهاز من الحساب — يُضاف لقائمة المحظورين ولا يستطيع الدخول مجدداً */
