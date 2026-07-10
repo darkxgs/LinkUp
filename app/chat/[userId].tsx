@@ -67,8 +67,6 @@ import { ChatGiftBubble } from '@/components/chat/ChatGiftBubble';
 import { ChatCallBubble } from '@/components/chat/ChatCallBubble';
 
 import { Text, EmojiPicker, VoiceRecorder, useAlert, GiftAnimation, BackChevron, ForwardChevron } from '@/components/ui';
-import { FramedAvatar, getFramedAvatarContainerSize } from '@/components/ui/FramedAvatar';
-import { useEquippedFrameUrl } from '@/hooks/useEquippedFrameUrl';
 import { useConfig } from '@/contexts/ConfigContext';
 import { buyAndSendGift, type Gift as GiftType } from '@/services/firebase/shop';
 import { useAuth } from '@/hooks/useAuth';
@@ -161,29 +159,15 @@ export default function ChatScreen() {
   return <PersonalChatScreen userId={uid} />;
 }
 
-const CHAT_MSG_AVATAR_SIZE = 24;
 const SWIPE_REPLY_TRIGGER = 56;
 const SWIPE_REPLY_MAX = 72;
 
 function ChatMsgAvatar({
   avatarUri,
-  frameUri,
-  fallbackLetter,
 }: {
   avatarUri?: string;
-  frameUri?: string;
-  fallbackLetter?: string;
 }) {
-  if (frameUri) {
-    return (
-      <FramedAvatar
-        avatarUri={avatarUri}
-        frameUri={frameUri}
-        avatarSize={CHAT_MSG_AVATAR_SIZE}
-        fallbackLetter={fallbackLetter}
-      />
-    );
-  }
+  // Profile/message frames are live-room only — 1:1 chat uses plain avatars.
   if (avatarUri) {
     return (
       <Image
@@ -205,8 +189,6 @@ function PersonalChatScreen({ userId }: { userId: string }) {
   const insets = useSafeAreaInsets();
   const { user, refreshUser } = useAuth();
   const canMakeCalls = canUserMakeCalls(user);
-  const myFrameUrl = useEquippedFrameUrl(user?.uid);
-  const otherFrameUrl = useEquippedFrameUrl(userId);
   const { gifts: catalogGifts, giftCategories, settings, chatBackgrounds, callPricing, vipSystem } = useConfig();
   const { presenceMap, now: presenceNow } = usePresenceForUids(userId ? [userId] : []);
   const [peerRoom, setPeerRoom] = useState<UserPresence | null>(null);
@@ -1413,25 +1395,14 @@ function PersonalChatScreen({ userId }: { userId: string }) {
           const showAvatar =
             index === invertedMessages.length - 1 ||
             invertedMessages[index + 1]?.fromUid !== item.fromUid;
-          const avatarFrameUrl = isMe ? myFrameUrl : otherFrameUrl;
           const avatarUri = isMe ? user?.profile?.avatar : otherAvatarUri;
-          const fallbackLetter = isMe
-            ? (user?.profile?.displayName ?? '?')
-            : (otherUser?.displayName ?? '?');
-          const avatarSpacerWidth = avatarFrameUrl
-            ? getFramedAvatarContainerSize(CHAT_MSG_AVATAR_SIZE)
-            : 28;
           return (
             <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
               {!isMe && (
                 showAvatar ? (
-                  <ChatMsgAvatar
-                    avatarUri={avatarUri}
-                    frameUri={avatarFrameUrl}
-                    fallbackLetter={fallbackLetter}
-                  />
+                  <ChatMsgAvatar avatarUri={avatarUri} />
                 ) : (
-                  <View style={[styles.msgAvatarSpacer, { width: avatarSpacerWidth }]} />
+                  <View style={styles.msgAvatarSpacer} />
                 )
               )}
               {item.type === 'call' ? (
@@ -1602,11 +1573,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
                 </View>
               ) : null}
               {isMe && showAvatar ? (
-                <ChatMsgAvatar
-                  avatarUri={avatarUri}
-                  frameUri={avatarFrameUrl}
-                  fallbackLetter={fallbackLetter}
-                />
+                <ChatMsgAvatar avatarUri={avatarUri} />
               ) : null}
             </View>
           );
