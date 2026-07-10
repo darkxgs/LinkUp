@@ -13,6 +13,8 @@ export function HostTasksTracker() {
   const { user } = useAuth();
   const lastTickRef = useRef(Date.now());
   const isActiveRef = useRef(AppState.currentState === 'active');
+  // دقائق فشل تسجيلها (تعارض كتابة على وثيقة ساخنة) — تُرحَّل للنبضة التالية بدل الضياع
+  const pendingMinutesRef = useRef(0);
 
   useEffect(() => {
     if (!user?.uid || !canEarnHostTasks(user)) return;
@@ -22,8 +24,12 @@ export function HostTasksTracker() {
       const now = Date.now();
       const elapsedMin = Math.floor((now - lastTickRef.current) / 60_000);
       lastTickRef.current = now;
-      if (elapsedMin >= 1) {
-        void trackHostOnlineMinutes(elapsedMin, false);
+      const total = elapsedMin + pendingMinutesRef.current;
+      if (total >= 1) {
+        pendingMinutesRef.current = 0;
+        void trackHostOnlineMinutes(total, false).catch(() => {
+          pendingMinutesRef.current += total;
+        });
       }
     };
 

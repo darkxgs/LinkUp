@@ -83,7 +83,7 @@ const GiftCell = memo(
         </RNText>
         <View style={styles.priceRow}>
           <CurrencyIcon type="coin" size={10} />
-          <RNText style={styles.priceText}>{gift.price.toLocaleString()}</RNText>
+          <RNText style={styles.priceText}>{gift.price.toLocaleString('en-US')}</RNText>
         </View>
       </Pressable>
     );
@@ -529,7 +529,7 @@ export function RoomGiftPickerModal({
           <View style={styles.footer}>
             <Pressable style={styles.balanceChip} onPress={onRecharge}>
               <LuCoinIcon size={18} color={lu.colors.gold} />
-              <RNText style={styles.balanceText}>{balance.toLocaleString()}</RNText>
+              <RNText style={styles.balanceText}>{balance.toLocaleString('en-US')}</RNText>
               <ChevronDown size={14} color="rgba(255,255,255,0.45)" style={{ transform: [{ rotate: '-90deg' }] }} />
             </Pressable>
 
@@ -639,10 +639,10 @@ export function RoomGiftPickerModal({
                     {selectedGift
                       ? recipientCount > 1
                         ? t('room.sendGiftMulti', {
-                            price: totalPrice.toLocaleString(),
+                            price: totalPrice.toLocaleString('en-US'),
                             count: recipientCount,
                           })
-                        : t('chat.sendGiftBtn', { price: totalPrice.toLocaleString() })
+                        : t('chat.sendGiftBtn', { price: totalPrice.toLocaleString('en-US') })
                       : t('chat.selectGiftFirst')}
                   </RNText>
                 )}

@@ -107,6 +107,7 @@ import {
 import { BackChevron } from '@/components/ui/RtlChevron';
 import { resolveDisplayName } from '@/utils/displayName';
 import { getUserPrivacy } from '@/utils/privacyDisplay';
+import { friendlyErrorMessage } from '@/utils/friendlyErrorMessage';
 import { resolveOfficialUserAvatar } from '@/utils/userAvatar';
 import { prefetchAvatarUris } from '@/utils/imageConfig';
 import { resolveAgencyLogoImage } from '@/utils/agencyBubbleImage';
@@ -4487,7 +4488,7 @@ export default function RoomScreen() {
       showAlert({
         type: 'error',
         title: t('common.error'),
-        message: e instanceof Error ? e.message : t('room.actionFailed'),
+        message: friendlyErrorMessage(e, t('room.actionFailed')),
       });
     } finally {
       setMicInviteLoading(false);

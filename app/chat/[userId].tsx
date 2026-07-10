@@ -1195,34 +1195,38 @@ function PersonalChatScreen({ userId }: { userId: string }) {
       await sendGiftChatMessage(conversationId, userId, gift, quantity);
       playGiftAnimation(gift, quantity, true);
       setShowGiftPicker(false);
+      // الهدية وصلت والخصم تم — الزر يتوقف هنا؛ نقاط العلاقة تُحتسب بالخلفية
+      // (كانت تُنتظر فيظل زر الإرسال يدور رغم وصول الهدية)
+      setSendingGift(false);
       void refreshUser?.();
 
-      try {
-        const result = await addRelationshipPoints(
-          userId,
-          otherUser.displayName,
-          otherAvatarUri,
-          total,
-          'gift',
-        );
-        if (result.levelUp) {
-          setLevelUpAnimation(result.newLevel);
-          setTimeout(() => setLevelUpAnimation(null), 3000);
-          const updated = await getOrCreateRelationship(
+      void (async () => {
+        try {
+          const result = await addRelationshipPoints(
             userId,
             otherUser.displayName,
             otherAvatarUri,
+            total,
+            'gift',
           );
-          setRelationship(updated);
+          if (result.levelUp) {
+            setLevelUpAnimation(result.newLevel);
+            setTimeout(() => setLevelUpAnimation(null), 3000);
+            const updated = await getOrCreateRelationship(
+              userId,
+              otherUser.displayName,
+              otherAvatarUri,
+            );
+            setRelationship(updated);
+          }
+        } catch {
+          /* ignore */
         }
-      } catch {
-        /* ignore */
-      }
+      })();
     } catch (e: any) {
       setGiftAnimation(null);
       console.warn('handleSendGift failed:', e);
       Alert.alert(t('common.error'), e?.message ?? t('chat.giftSendFailed'));
-    } finally {
       setSendingGift(false);
     }
   };

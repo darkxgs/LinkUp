@@ -339,8 +339,10 @@ export function RoomBottomToolbar({
                 styles.input,
                 tight && styles.inputTight,
                 {
-                  textAlign: RTL ? 'right' : 'left',
-                  writingDirection: RTL ? 'rtl' : 'ltr',
+                  // التطبيق عربي أولاً — الكتابة تبدأ من اليمين دائماً حتى على
+                  // الأجهزة التي لا يُفعَّل عليها وضع RTL للنظام
+                  textAlign: 'right',
+                  writingDirection: 'rtl',
                 },
               ]}
               value={chatText}

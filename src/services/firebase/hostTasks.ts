@@ -484,20 +484,35 @@ async function mutateHostProgress(
 
   const userRef = doc(firestore, 'users', me.uid);
 
-  await runTransaction(firestore, async (tx) => {
-    const snap = await tx.get(userRef);
-    if (!snap.exists()) return;
-    const data = snap.data() as Record<string, unknown>;
-    if (!canEarnHostTasksParticipant(agencyParticipantFromUserDoc(data))) return;
+  const runOnce = () =>
+    runTransaction(firestore, async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists()) return;
+      const data = snap.data() as Record<string, unknown>;
+      if (!canEarnHostTasksParticipant(agencyParticipantFromUserDoc(data))) return;
 
-    let progress = readHostTasksProgress(data, config.resetHour ?? 0);
-    progress = mutator(progress);
+      let progress = readHostTasksProgress(data, config.resetHour ?? 0);
+      progress = mutator(progress);
 
-    tx.update(userRef, {
-      hostTasksProgress: progress,
-      updatedAt: Date.now(),
-    } as Record<string, unknown>);
-  });
+      tx.update(userRef, {
+        hostTasksProgress: progress,
+        updatedAt: Date.now(),
+      } as Record<string, unknown>);
+    });
+
+  // وثيقة المضيفة «ساخنة» (هدايا/XP/دعم مستمر) — المحاولة الواحدة كانت تفشل
+  // بتعارض النسخ غالباً فتضيع دقائق «التسجيل اليومي» بصمت (75 من 480!)
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      await runOnce();
+      return;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 export async function collectHostTaskReward(
