@@ -11,14 +11,14 @@ import Animated, {
   withSequence,
   withRepeat,
   Easing,
+  FadeInUp,
 } from 'react-native-reanimated';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
 
 import { RealCountryFlag } from '@/components/ui';
-import { LuVerifiedIcon } from '@/components/icons/LuDesignIcons';
-import { UserPlus, UserCheck, MapPin } from 'lucide-react-native';
+import { UserPlus, UserCheck, MapPin, BadgeCheck } from 'lucide-react-native';
 import { lu } from '@/theme/lu-brand';
 import { UserDoc } from '@/services/firebase/users';
 import { followUser, isFollowing as checkFollowing } from '@/services/firebase/follow';
@@ -29,7 +29,7 @@ import { isUserOnline, resolveLastSeenMs } from '@/utils/presence';
 import { resolveDiscoverCardPhoto } from '@/utils/userAvatar';
 import { formatDistance } from '@/services/locationService';
 
-const CARD_ASPECT = 0.82;
+const CARD_ASPECT = 0.68;
 const HEART_GRAD = ['#E11414', '#FF5C5C', '#FF7A2E'] as const;
 
 const FALLBACK_GRADIENTS: ReadonlyArray<readonly [string, string]> = [
@@ -67,6 +67,7 @@ export type ExploreUserCardProps = {
   presenceNow: number;
   distanceKm?: number;
   onPress: () => void;
+  dark?: boolean;
 };
 
 export const ExploreUserCard = React.memo(function ExploreUserCard({
@@ -77,6 +78,7 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
   presenceNow,
   distanceKm,
   onPress,
+  dark = true,
 }: ExploreUserCardProps) {
   const { t } = useTranslation();
   const grad = gradFor(user.uid);
@@ -203,7 +205,7 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
       }}
       style={{ width, height: cardH }}
     >
-      <Animated.View style={[styles.card, cardAnimatedStyle, { width: '100%', height: '100%' }]}>
+      <Animated.View entering={FadeInUp.duration(380)} style={[styles.card, !dark && styles.cardLight, cardAnimatedStyle, { width: '100%', height: '100%' }]}>
         <LinearGradient
           colors={grad}
           start={{ x: 0, y: 0 }}
@@ -219,7 +221,8 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
         )}
 
         <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.78)']}
+          colors={['transparent', 'rgba(8,3,4,0.62)', 'rgba(8,3,4,0.94)']}
+          locations={[0, 0.45, 1]}
           style={styles.legibility}
         />
 
@@ -242,7 +245,7 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
         >
           <Animated.View style={heartAnimatedStyle}>
             <LinearGradient
-              colors={liked ? [...HEART_GRAD] : ['rgba(255, 255, 255, 0.25)', 'rgba(255, 255, 255, 0.12)']}
+              colors={liked ? [...HEART_GRAD] : ['rgba(14, 7, 9, 0.72)', 'rgba(14, 7, 9, 0.6)']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={[
@@ -256,14 +259,14 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
                   top: 0,
                   end: 0,
                   borderWidth: liked ? 0 : 1.2,
-                  borderColor: 'rgba(255, 255, 255, 0.35)',
+                  borderColor: 'rgba(255, 255, 255, 0.45)',
                 },
               ]}
             >
               {liked ? (
                 <UserCheck size={14} color="#fff" strokeWidth={2.5} />
               ) : (
-                <UserPlus size={14} color="rgba(255, 255, 255, 0.92)" strokeWidth={2.5} />
+                <UserPlus size={15} color="#fff" strokeWidth={2.6} />
               )}
             </LinearGradient>
           </Animated.View>
@@ -274,7 +277,7 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
             <Text style={styles.name} numberOfLines={1}>
               {name}
             </Text>
-            {verified ? <LuVerifiedIcon size={15} color="#E92424" /> : null}
+            {verified ? <BadgeCheck size={17} color="#fff" fill="#E11414" strokeWidth={1.9} /> : null}
           </View>
           <View style={styles.metaRow}>
             {age > 0 ? <Text style={styles.metaText}>{age}</Text> : null}
@@ -303,10 +306,25 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 20,
+    borderRadius: 22,
     overflow: 'hidden',
-    backgroundColor: '#fff',
-    ...lu.shadows.card,
+    backgroundColor: lu.colors.nightCard,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 45, 60, 0.28)',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.75,
+    shadowRadius: 24,
+    elevation: 14,
+  },
+  cardLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: 'rgba(225, 20, 20, 0.16)',
+    shadowColor: '#9A1414',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 6,
   },
   initialWrap: {
     ...StyleSheet.absoluteFillObject,
@@ -324,7 +342,7 @@ const styles = StyleSheet.create({
     start: 0,
     end: 0,
     bottom: 0,
-    height: '62%',
+    height: '70%',
   },
   onlinePill: {
     position: 'absolute',
@@ -333,16 +351,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(54, 224, 122, 0.18)',
+    backgroundColor: 'rgba(12, 6, 8, 0.6)',
     borderWidth: 1,
-    borderColor: 'rgba(54, 224, 122, 0.35)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 4.5,
     borderRadius: 99,
   },
   onlinePillOffline: {
-    backgroundColor: 'rgba(10, 4, 5, 0.45)',
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(12, 6, 8, 0.6)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
   },
   onlineDot: { width: 7, height: 7, borderRadius: 4 },
   onlineText: {
@@ -384,38 +402,40 @@ const styles = StyleSheet.create({
   name: {
     flexShrink: 1,
     color: '#fff',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '800',
     fontFamily: lu.fonts.bodyHeavy,
-    textShadowColor: 'rgba(0,0,0,0.4)',
+    includeFontPadding: false,
+    textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    textShadowRadius: 5,
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    marginTop: 3,
+    gap: 6,
+    marginTop: 5,
   },
   metaText: {
     color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 12.5,
+    fontWeight: '700',
     fontFamily: lu.fonts.bodyBold,
+    includeFontPadding: false,
   },
-  metaDot: { color: 'rgba(255,255,255,0.6)', fontSize: 12 },
+  metaDot: { color: 'rgba(255,255,255,0.55)', fontSize: 12 },
   location: {
     flex: 1,
-    color: '#fff',
-    fontSize: 12,
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 12.5,
     fontWeight: '600',
     fontFamily: lu.fonts.bodyBold,
-    opacity: 0.95,
+    includeFontPadding: false,
   },
   bio: {
-    color: 'rgba(255,255,255,0.82)',
+    color: 'rgba(255,255,255,0.72)',
     fontSize: 11.5,
-    marginTop: 4,
+    marginTop: 5,
     lineHeight: 16,
     fontFamily: lu.fonts.body,
   },

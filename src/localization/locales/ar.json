@@ -319,6 +319,7 @@
     "gamesCollapse": "إخفاء",
     "gameOpen": "العب",
     "gamePlayingNow": "{{n}} يلعب الآن",
+    "gameTicketsSold": "{{n}} تذكرة مباعة",
     "gameNoPlayers": "كن أول من يلعب",
     "gamesOnlineNow": "{{n}} متصل الآن",
     "viewAll": "عرض الكل",

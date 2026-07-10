@@ -319,6 +319,7 @@
     "gamesCollapse": "Hide",
     "gameOpen": "Play",
     "gamePlayingNow": "{{n}} playing now",
+    "gameTicketsSold": "{{n}} tickets sold",
     "gameNoPlayers": "Be the first to play",
     "gamesOnlineNow": "{{n}} online now",
     "viewAll": "View all",

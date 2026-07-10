@@ -4,7 +4,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Path, Rect, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { COIN_CURRENCY_ICON } from '@/constants/brandAssets';
 
 export type LuDesignIconProps = {
@@ -183,6 +183,25 @@ export function LuHeartIcon({
         strokeWidth={1.9}
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+/** قلب ممتلئ بتدرج أحمر — بانر المطابقة */
+export function LuGlowHeartIcon({ size = 24 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Defs>
+        <SvgLinearGradient id="luGlowHeart" x1="0" y1="0" x2="1" y2="1">
+          <Stop offset="0" stopColor="#FF4D5E" />
+          <Stop offset="0.55" stopColor="#F0182E" />
+          <Stop offset="1" stopColor="#C40E1E" />
+        </SvgLinearGradient>
+      </Defs>
+      <Path
+        d="M11.1 21.9C6.6 18.4 2.9 14.9 1.8 10.6 0.9 6.8 3 2.9 7 2.3c2.4-0.4 4.3 1.1 5 3.2 1.1-2.6 3.7-4.1 6.5-3.5 3.5 0.8 5 4.3 3.9 7.9-1.3 4.1-5.4 5.1-8.2 7.5-1.3 1.1-2.4 2.8-3.1 4.5z"
+        fill="url(#luGlowHeart)"
       />
     </Svg>
   );
