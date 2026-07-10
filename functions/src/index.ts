@@ -7285,12 +7285,17 @@ export const buyWeeklyLotteryTickets = onCall(async (request) => {
  * (presence/{uid}) غائب أو أقدم من 10 دقائق = شبح ⇒ يُحذف.
  */
 export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () => {
-  const [audSnap, presenceSnap, roomsSnap] = await Promise.all([
+  const [audSnap, presenceSnap, roomsSnap, pointerSnap] = await Promise.all([
     rtdb.ref('roomAudience').get(),
     rtdb.ref('presence').get(),
     rtdb.ref('rooms').get(),
+    rtdb.ref('userCurrentRoom').get(),
   ]);
   const presence = (presenceSnap.val() ?? {}) as Record<string, unknown>;
+  const pointers = (pointerSnap.val() ?? {}) as Record<
+    string,
+    { roomId?: string; at?: number } | null
+  >;
   const now = Date.now();
   const STALE_MS = 10 * 60 * 1000;
   const updates: Record<string, unknown> = {};
@@ -7298,23 +7303,38 @@ export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () =>
     const lastSeen = Number(presence[uid]) || 0;
     return now - lastSeen >= STALE_MS;
   };
+  // متصل بالتطبيق لكن مؤشره الحالي يشير لغرفة أخرى منذ مدة ⇒ غادر هذه الغرفة
+  // ولم يُنظَّف أثره (كان يبقى على شريط الهدايا/المقاعد وهو خارج الوكالة)
+  const movedElsewhere = (uid: string, roomId: string): boolean => {
+    const p = pointers[uid];
+    if (!p?.roomId || p.roomId === roomId) return false;
+    const at = Number(p.at) || 0;
+    return now - at >= 2 * 60 * 1000;
+  };
   if (audSnap.exists()) {
     audSnap.forEach((roomSnap) => {
+      const roomId = String(roomSnap.key);
       roomSnap.forEach((memberSnap) => {
         const uid = memberSnap.key;
         if (!uid) return;
         const joinedAt = Number(memberSnap.child('joinedAt').val()) || 0;
         if (now - joinedAt < STALE_MS) return; // انضمام حديث — أمهله
-        if (!isStale(uid)) return; // متصل فعلاً بالتطبيق
-        updates[`roomAudience/${roomSnap.key}/${uid}`] = null;
-        updates[`userCurrentRoom/${uid}`] = null;
+        if (isStale(uid)) {
+          updates[`roomAudience/${roomId}/${uid}`] = null;
+          updates[`userCurrentRoom/${uid}`] = null;
+          return;
+        }
+        if (movedElsewhere(uid, roomId)) {
+          updates[`roomAudience/${roomId}/${uid}`] = null;
+        }
       });
     });
   }
-  // مقاعد «معلّقة» — جالس على مايك وحضوره منقطع عن التطبيق كلياً
+  // مقاعد «معلّقة» — جالس على مايك وحضوره منقطع كلياً أو انتقل لغرفة أخرى
   // (تنظيف الأجهزة الحيّ لا يعمل إذا خرج الجميع من الغرفة)
   if (roomsSnap.exists()) {
     roomsSnap.forEach((roomSnap) => {
+      const roomId = String(roomSnap.key);
       const seatsSnap = roomSnap.child('seats');
       if (!seatsSnap.exists()) return;
       seatsSnap.forEach((seatSnap) => {
@@ -7322,8 +7342,8 @@ export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () =>
         if (!uid) return;
         const joinedAt = Number(seatSnap.child('joinedAt').val()) || 0;
         if (joinedAt > 0 && now - joinedAt < STALE_MS) return;
-        if (!isStale(uid)) return;
-        updates[`rooms/${roomSnap.key}/seats/${seatSnap.key}`] = { uid: '' };
+        if (!isStale(uid) && !movedElsewhere(uid, roomId)) return;
+        updates[`rooms/${roomId}/seats/${seatSnap.key}`] = { uid: '' };
       });
     });
   }
