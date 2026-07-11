@@ -294,6 +294,10 @@ service cloud.firestore {
     match /incomingCalls/{targetUid}/calls/{callId} {
       allow read, delete: if request.auth != null && request.auth.uid == targetUid;
       allow create: if request.auth != null && request.resource.data.from == request.auth.uid;
+      // المتصل يحدّث وثيقته (إثراء الاسم/الصورة بعد الرنين الفوري) دون تغيير هوية المتصل
+      allow update: if request.auth != null
+        && resource.data.from == request.auth.uid
+        && request.resource.data.from == resource.data.from;
       allow delete: if request.auth != null && resource.data.from == request.auth.uid;
     }
 

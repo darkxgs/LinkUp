@@ -1,23 +1,26 @@
 /**
  * اليانصيب الأسبوعي — جدول السيرفر (توقيت الرياض)
- * - يفتح السبت 12:00
- * - السحب السبت 11:00 (للأسبوع السابق)
+ * - يُغلق بيع التذاكر السبت 11:00
+ * - السحب السبت 12:00 (للجولة المغلقة)
+ * - بعد السحب مباشرة تبدأ الجولة الجديدة (تفتح السبت 12:00)
  * - العداد والأسبوع من وقت السيرفر فقط
  */
 import * as admin from 'firebase-admin';
 
-export const LOTTERY_DRAW_HOUR = 11;
+export const LOTTERY_SALES_CLOSE_HOUR = 11;
+export const LOTTERY_DRAW_HOUR = 12;
 export const LOTTERY_OPEN_HOUR = 12;
 const MS_HOUR = 3_600_000;
 /** الرياض UTC+3 دائماً */
 const RIYADH_UTC_OFFSET_HOURS = 3;
 
-export type LotteryPhase = 'selling' | 'announcing' | 'waiting_new_round';
+export type LotteryPhase = 'selling' | 'sales_closed' | 'announcing' | 'waiting_new_round';
 
 export interface LotterySchedule {
   serverNowMs: number;
   weekId: string;
   roundStartMs: number;
+  salesCloseAtMs: number;
   drawAtMs: number;
   nextRoundStartMs: number;
   countdownTargetMs: number;
@@ -66,14 +69,17 @@ function buildScheduleForRoundStart(startY: number, startM: number, startD: numb
   const weekId = formatWeekId(startY, startM, startD);
   const roundStartMs = riyadhLocalToUtcMs(startY, startM, startD, LOTTERY_OPEN_HOUR);
   const drawDay = addDays(startY, startM, startD, 7);
+  const salesCloseAtMs = riyadhLocalToUtcMs(drawDay.y, drawDay.m, drawDay.d, LOTTERY_SALES_CLOSE_HOUR);
   const drawAtMs = riyadhLocalToUtcMs(drawDay.y, drawDay.m, drawDay.d, LOTTERY_DRAW_HOUR);
-  const nextRoundStartMs = riyadhLocalToUtcMs(drawDay.y, drawDay.m, drawDay.d, LOTTERY_OPEN_HOUR);
+  // الجولة الجديدة تبدأ فور السحب مباشرة
+  const nextRoundStartMs = drawAtMs;
 
   if (nowMs < roundStartMs) {
     return {
       serverNowMs: nowMs,
       weekId,
       roundStartMs,
+      salesCloseAtMs,
       drawAtMs,
       nextRoundStartMs,
       countdownTargetMs: roundStartMs,
@@ -82,11 +88,14 @@ function buildScheduleForRoundStart(startY: number, startM: number, startD: numb
     };
   }
 
-  if (nowMs < drawAtMs) {
+  if (nowMs < salesCloseAtMs) {
+    // countdownTargetMs يبقى نحو السحب (توافقاً مع العملاء القدامى)؛
+    // العميل الجديد يعدّ نحو salesCloseAtMs في طور البيع
     return {
       serverNowMs: nowMs,
       weekId,
       roundStartMs,
+      salesCloseAtMs,
       drawAtMs,
       nextRoundStartMs,
       countdownTargetMs: drawAtMs,
@@ -95,15 +104,16 @@ function buildScheduleForRoundStart(startY: number, startM: number, startD: numb
     };
   }
 
-  if (nowMs < nextRoundStartMs) {
+  if (nowMs < drawAtMs) {
     return {
       serverNowMs: nowMs,
       weekId,
       roundStartMs,
+      salesCloseAtMs,
       drawAtMs,
       nextRoundStartMs,
-      countdownTargetMs: nextRoundStartMs,
-      phase: 'announcing',
+      countdownTargetMs: drawAtMs,
+      phase: 'sales_closed',
       salesOpen: false,
     };
   }
@@ -125,9 +135,22 @@ export function computeLotterySchedule(nowMs = Date.now()): LotterySchedule {
   return buildScheduleForRoundStart(start.y, start.m, start.d, nowMs);
 }
 
-/** أسبوع السحب عند السبت 11:00 — الجولة المنتهية */
+/**
+ * أسبوع الجولة المستحقّة للسحب:
+ * - بين 11:00 و12:00 السبت (البيع مغلق): الجولة الحالية نفسها.
+ * - بعد 12:00 (بدأت جولة جديدة): الجولة التي سبقت الحالية بأسبوع.
+ */
 export function getDrawWeekIdAt(nowMs = Date.now()): string {
-  return computeLotterySchedule(nowMs).weekId;
+  const s = computeLotterySchedule(nowMs);
+  if (s.phase === 'sales_closed') return s.weekId;
+  const startLocal = new Date(s.roundStartMs + RIYADH_UTC_OFFSET_HOURS * MS_HOUR);
+  const prev = addDays(
+    startLocal.getUTCFullYear(),
+    startLocal.getUTCMonth(),
+    startLocal.getUTCDate(),
+    -7,
+  );
+  return formatWeekId(prev.y, prev.m, prev.d);
 }
 
 async function readGamesGlobal(db: FirebaseFirestore.Firestore): Promise<{

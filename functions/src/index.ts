@@ -35,6 +35,7 @@ import {
   computeLotterySchedule,
   executeWeeklyLotteryDraw,
   getCountdownParts,
+  getDrawWeekIdAt,
 } from './weeklyLottery';
 
 admin.initializeApp();
@@ -2908,6 +2909,13 @@ export const recordProfileVisit = onCall(async (request) => {
     .doc(visitorUid);
   const now = Date.now();
 
+  // مستوى الزائر الموحّد — stats.level أو الحقل المباشر (الأعلى)، لا نعرض 1 خطأً
+  const visitorStats = (visitorData.stats as Record<string, unknown> | undefined) ?? {};
+  const visitorLevel = Math.max(
+    Number(visitorStats.level) || 0,
+    Number(visitorData.level) || 0,
+  ) || 1;
+
   await visitRef.set(
     {
       visitorUid,
@@ -2915,7 +2923,7 @@ export const recordProfileVisit = onCall(async (request) => {
       displayName: visitorName,
       avatar: (visitorData.avatar as string) ?? '',
       country: (visitorData.country as string) ?? '',
-      level: (visitorData.level as number) ?? 1,
+      level: visitorLevel,
       isVIP: visitorData.isVIP === true,
     },
     { merge: true },
@@ -7229,7 +7237,7 @@ export const getWeeklyLotteryState = onCall(async (request) => {
   const uid = request.auth?.uid ?? null;
   const schedule = computeLotterySchedule(Date.now());
 
-  const [ticketsSnap, featuredSnap, latestDrawSnap] = await Promise.all([
+  const [ticketsSnap, featuredSnap, latestDrawSnap, roundSnap] = await Promise.all([
     db.collection('lotteryTickets').where('weekId', '==', schedule.weekId).get(),
     db.collection('lotteryState').doc('featured').get(),
     db
@@ -7238,6 +7246,7 @@ export const getWeeklyLotteryState = onCall(async (request) => {
       .limit(1)
       .get()
       .catch(() => null),
+    db.collection('lotteryState').doc('currentRound').get().catch(() => null),
   ]);
 
   let myTickets = 0;
@@ -7250,13 +7259,21 @@ export const getWeeklyLotteryState = onCall(async (request) => {
     ? { weekId: latestDrawSnap.docs[0].id, ...latestDrawSnap.docs[0].data() }
     : null;
 
+  // علم إغلاق البيع على وثيقة الجولة (يكتبه مجدول 11:00) — يُحترم لنفس الجولة فقط
+  const round = roundSnap?.exists ? roundSnap.data()! : null;
+  const flagClosed =
+    !!round && String(round.weekId ?? '') === schedule.weekId && round.salesOpen === false;
+  const salesOpen = schedule.salesOpen && !flagClosed;
+  const phase = schedule.phase === 'selling' && !salesOpen ? 'sales_closed' : schedule.phase;
+
   return {
     ok: true,
     serverNowMs: schedule.serverNowMs,
     weekId: schedule.weekId,
-    phase: schedule.phase,
-    salesOpen: schedule.salesOpen,
+    phase,
+    salesOpen,
     countdownTargetMs: schedule.countdownTargetMs,
+    salesCloseAtMs: schedule.salesCloseAtMs,
     drawAtMs: schedule.drawAtMs,
     nextRoundStartMs: schedule.nextRoundStartMs,
     totalTickets: ticketsSnap.size,
@@ -7281,10 +7298,25 @@ export const buyWeeklyLotteryTickets = onCall(async (request) => {
   if (!schedule.salesOpen) {
     throw new HttpsError(
       'failed-precondition',
-      schedule.phase === 'announcing'
-        ? 'تم السحب — يفتح اليانصيب الجديد السبت الساعة 12'
+      schedule.phase === 'sales_closed'
+        ? 'أُغلق بيع التذاكر لهذه الجولة'
         : 'شراء التذاكر مغلق حالياً',
     );
+  }
+
+  // علم وثيقة الجولة (يكتبه مجدول الإغلاق 11:00) — حزام أمان فوق حساب الوقت
+  const roundFlagSnap = await db
+    .collection('lotteryState')
+    .doc('currentRound')
+    .get()
+    .catch(() => null);
+  const roundFlag = roundFlagSnap?.exists ? roundFlagSnap.data()! : null;
+  if (
+    roundFlag
+    && String(roundFlag.weekId ?? '') === schedule.weekId
+    && roundFlag.salesOpen === false
+  ) {
+    throw new HttpsError('failed-precondition', 'أُغلق بيع التذاكر لهذه الجولة');
   }
 
   const userRef = db.collection('users').doc(uid);
@@ -7340,7 +7372,6 @@ export const buyWeeklyLotteryTickets = onCall(async (request) => {
   return { ok: true, ticketIds: ids, weekId: schedule.weekId, totalCost };
 });
 
-/** سحب اليانصيب الأسبوعي تلقائياً — كل سبت 11:00 (الرياض) */
 /**
  * كنّاس حضور الغرف — يزيل «الأشباح» من جمهور الغرف: أعضاء قُتل تطبيقهم قبل
  * أن يسجّل onDisconnect على السيرفر فبقيت صورهم على بطاقات الوكالات كأنهم
@@ -7439,21 +7470,68 @@ export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () =>
   }
 });
 
-export const scheduledWeeklyLotteryDraw = onSchedule(
+/**
+ * إغلاق بيع تذاكر اليانصيب — كل سبت 11:00 (الرياض):
+ * علم salesOpen=false على وثيقة الجولة lotteryState/currentRound
+ * يحترمه العميل (فورياً عبر onSnapshot) ونداء الشراء معاً.
+ */
+export const scheduledWeeklyLotterySalesClose = onSchedule(
   {
     schedule: '0 11 * * 6',
     timeZone: 'Asia/Riyadh',
   },
   async () => {
     const schedule = computeLotterySchedule(Date.now());
-    const draw = await executeWeeklyLotteryDraw(db, schedule.weekId);
+    const now = Date.now();
+    await db.collection('lotteryState').doc('currentRound').set(
+      {
+        weekId: schedule.weekId,
+        salesOpen: false,
+        salesClosedAt: now,
+        roundStartMs: schedule.roundStartMs,
+        salesCloseAtMs: schedule.salesCloseAtMs,
+        drawAtMs: schedule.drawAtMs,
+        updatedAt: now,
+      },
+      { merge: true },
+    );
+    console.log('scheduledWeeklyLotterySalesClose: sales closed for week', schedule.weekId);
+  },
+);
+
+/** السحب كل سبت 12:00 (الرياض) — وبعده مباشرة تُفتح الجولة الجديدة ويستأنف البيع */
+export const scheduledWeeklyLotteryDraw = onSchedule(
+  {
+    schedule: '0 12 * * 6',
+    timeZone: 'Asia/Riyadh',
+  },
+  async () => {
+    const drawWeekId = getDrawWeekIdAt(Date.now());
+    const draw = await executeWeeklyLotteryDraw(db, drawWeekId).catch((e) => {
+      console.error('scheduledWeeklyLotteryDraw failed:', e);
+      return null;
+    });
+
+    // فتح الجولة الجديدة فور السحب — حتى لو كان السحب فارغاً/مسحوباً يدوياً
+    const next = computeLotterySchedule(Date.now());
+    const now = Date.now();
+    await db.collection('lotteryState').doc('currentRound').set({
+      weekId: next.weekId,
+      salesOpen: true,
+      openedAt: now,
+      roundStartMs: next.roundStartMs,
+      salesCloseAtMs: next.salesCloseAtMs,
+      drawAtMs: next.drawAtMs,
+      updatedAt: now,
+    });
+
     if (!draw) {
-      console.log('scheduledWeeklyLotteryDraw: no tickets for week', schedule.weekId);
+      console.log('scheduledWeeklyLotteryDraw: no tickets for week', drawWeekId);
       return;
     }
     console.log(
       'scheduledWeeklyLotteryDraw:',
-      schedule.weekId,
+      drawWeekId,
       draw.winnerUid,
       draw.prize,
     );
