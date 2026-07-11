@@ -486,6 +486,35 @@ export async function uploadRoomReactionAsset(
   );
 }
 
+/** رفع أيقونة حزمة ملصقات — config/stickers/{packId}/icon/ */
+export async function uploadStickerPackIcon(
+  file: File,
+  packId: string,
+): Promise<string> {
+  return uploadStickerAsset(file, packId, 'icon');
+}
+
+/** رفع ملصق (صورة/GIF/WebP متحرك) — config/stickers/{packId}/{itemId}/ */
+export async function uploadStickerAsset(
+  file: File,
+  packId: string,
+  itemId: string,
+): Promise<string> {
+  if (!packId.trim() || !itemId.trim()) {
+    throw new Error('احفظ معرّف الحزمة والملصق أولاً');
+  }
+  if (file.size > MAX_DECOR_BYTES) {
+    throw new Error(`حجم الملف أكبر من ${mbLabel(MAX_DECOR_BYTES)}`);
+  }
+  const contentType = resolveImageType(file);
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+  return uploadToStorage(
+    `config/stickers/${packId}/${itemId}/image.${ext}`,
+    file,
+    contentType,
+  );
+}
+
 /** رفع أصول موظفي التطبيق — صورة / إطار GIF / شعار */
 export async function uploadStaffAsset(
   file: File,

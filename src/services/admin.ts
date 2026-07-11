@@ -385,6 +385,40 @@ export const banUser = async (uid: string, banned: boolean): Promise<void> => {
   await updateDoc(doc(firestore, 'users', uid), { isBanned: banned });
 };
 
+/**
+ * تعليق مؤقت للحساب — يمنع الدخول حتى انتهاء المدة أو رفع التعليق يدوياً.
+ * يفعّل isBanned/banReason أيضاً لأن تطبيق الموبايل يراقب هذين الحقلين مباشرة (onSnapshot حي)
+ * ويحجب المستخدم فوراً بدون أي تعديل على التطبيق — isSuspended/suspendedUntil للتتبّع الداخلي فقط
+ * (لتمييز التعليق المؤقت عن الحظر الدائم في لوحة التحكم وتفعيل الرفع التلقائي بعد انتهاء المدة).
+ */
+export const suspendUser = async (
+  uid: string,
+  durationDays: number,
+  reason?: string,
+): Promise<void> => {
+  assertCountryAccess(await getUserCountry(uid));
+  const suspendedUntil = Date.now() + Math.max(1, durationDays) * 24 * 60 * 60 * 1000;
+  const trimmedReason = reason?.trim();
+  await updateDoc(doc(firestore, 'users', uid), {
+    isSuspended: true,
+    suspendedUntil,
+    suspendReason: trimmedReason || null,
+    isBanned: true,
+    banReason: `الحساب معلّق حتى ${formatDate(suspendedUntil)}${trimmedReason ? ` — ${trimmedReason}` : ''}`,
+  });
+};
+
+export const unsuspendUser = async (uid: string): Promise<void> => {
+  assertCountryAccess(await getUserCountry(uid));
+  await updateDoc(doc(firestore, 'users', uid), {
+    isSuspended: false,
+    suspendedUntil: deleteField(),
+    suspendReason: deleteField(),
+    isBanned: false,
+    banReason: deleteField(),
+  });
+};
+
 export const toggleVIP = async (uid: string, isVIP: boolean): Promise<void> => {
   await assertUidInAdminCountryScope(uid);
   await updateDoc(doc(firestore, 'users', uid), { isVIP });
@@ -1834,6 +1868,7 @@ export const saveConfigGifts = async (
   const payload: Record<string, unknown> = {
     items: items.map(giftToFirestore),
     updatedAt: Date.now(),
+    _permKey: 'gifts',
   };
   if (categories) payload.categories = categories.map(categoryToFirestore);
   await setDoc(doc(firestore, 'config', 'gifts'), payload, { merge: true });
@@ -1842,7 +1877,7 @@ export const saveConfigGifts = async (
 export const saveConfigGiftCategories = async (categories: ConfigGiftCategory[]): Promise<void> => {
   await setDoc(
     doc(firestore, 'config', 'gifts'),
-    { categories: categories.map(categoryToFirestore), updatedAt: Date.now() },
+    { categories: categories.map(categoryToFirestore), updatedAt: Date.now(), _permKey: 'gifts' },
     { merge: true },
   );
 };
@@ -1950,7 +1985,7 @@ export const getRoomFrames = async (): Promise<RoomFrame[]> => {
 export const saveRoomFrames = async (items: RoomFrame[]): Promise<void> => {
   await setDoc(
     doc(firestore, 'config', 'roomFrames'),
-    { items: items.map(frameToFirestore), updatedAt: Date.now() },
+    { items: items.map(frameToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' },
     { merge: true },
   );
 };
@@ -1965,7 +2000,7 @@ export const getRoomBackgrounds = async (): Promise<RoomBackground[]> => {
 export const saveRoomBackgrounds = async (items: RoomBackground[]): Promise<void> => {
   await setDoc(
     doc(firestore, 'config', 'roomBackgrounds'),
-    { items: items.map(backgroundToFirestore), updatedAt: Date.now() },
+    { items: items.map(backgroundToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' },
     { merge: true },
   );
 };
@@ -1980,7 +2015,7 @@ export const getAgencyRoomFrames = async (): Promise<RoomFrame[]> => {
 export const saveAgencyRoomFrames = async (items: RoomFrame[]): Promise<void> => {
   await setDoc(
     doc(firestore, 'config', 'agencyRoomFrames'),
-    { items: items.map(frameToFirestore), updatedAt: Date.now() },
+    { items: items.map(frameToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' },
     { merge: true },
   );
 };
@@ -1995,7 +2030,7 @@ export const getAgencyRoomBackgrounds = async (): Promise<RoomBackground[]> => {
 export const saveAgencyRoomBackgrounds = async (items: RoomBackground[]): Promise<void> => {
   await setDoc(
     doc(firestore, 'config', 'agencyRoomBackgrounds'),
-    { items: items.map(backgroundToFirestore), updatedAt: Date.now() },
+    { items: items.map(backgroundToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' },
     { merge: true },
   );
 };
@@ -2148,6 +2183,7 @@ export const saveConfigStore = async (
   const payload: Record<string, unknown> = {
     items: items.map(storeItemToFirestore),
     updatedAt: Date.now(),
+    _permKey: 'store',
   };
   if (categories) payload.categories = categories.map(storeCategoryToFirestore);
   await setDoc(doc(firestore, 'config', 'store'), payload, { merge: true });
@@ -2156,7 +2192,7 @@ export const saveConfigStore = async (
 export const saveConfigStoreCategories = async (categories: ConfigStoreCategory[]): Promise<void> => {
   await setDoc(
     doc(firestore, 'config', 'store'),
-    { categories: categories.map(storeCategoryToFirestore), updatedAt: Date.now() },
+    { categories: categories.map(storeCategoryToFirestore), updatedAt: Date.now(), _permKey: 'store' },
     { merge: true },
   );
 };
@@ -2330,7 +2366,7 @@ export const saveConfigChatBackgrounds = async (
 ): Promise<void> => {
   await setDoc(
     doc(firestore, 'config', 'chatBackgrounds'),
-    { items: items.map(chatBackgroundToFirestore), updatedAt: Date.now() },
+    { items: items.map(chatBackgroundToFirestore), updatedAt: Date.now(), _permKey: 'chat-backgrounds' },
     { merge: true },
   );
 };
@@ -2363,7 +2399,7 @@ export const getLuckyBagGifts = async (): Promise<LuckyBagGift[]> => {
 };
 
 export const saveLuckyBagGifts = async (items: LuckyBagGift[]): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'luckyBagGifts'), { items, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'luckyBagGifts'), { items, updatedAt: Date.now(), _permKey: 'lucky-bag' }, { merge: true });
 };
 
 // ===== عرش الغرفة =====
@@ -2404,7 +2440,7 @@ export const getRoomThroneConfig = async (): Promise<ConfigRoomThrone> => {
 };
 
 export const saveRoomThroneConfig = async (config: ConfigRoomThrone): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'roomThrone'), { ...config, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'roomThrone'), { ...config, updatedAt: Date.now(), _permKey: 'room-throne' }, { merge: true });
 };
 
 // ===== رموز/صور الروم (GIF/PNG) — config/roomReactions =====
@@ -2505,7 +2541,111 @@ export const saveRoomReactionsConfig = async (config: ConfigRoomReactions): Prom
     }));
   await setDoc(
     doc(firestore, 'config', 'roomReactions'),
-    { packs, updatedAt: Date.now() },
+    { packs, updatedAt: Date.now(), _permKey: 'room-reactions' },
+    { merge: true },
+  );
+};
+
+// ==================== الملصقات (Stickers) ====================
+
+export interface ConfigStickerItem {
+  id: string;
+  imageUrl: string;
+  enabled?: boolean;
+  order?: number;
+}
+
+export interface ConfigStickerPack {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  /** إيموجي احتياطي — يُستخدم إذا لم تُرفع iconUrl */
+  icon: string;
+  iconUrl?: string;
+  enabled?: boolean;
+  order?: number;
+  items: ConfigStickerItem[];
+}
+
+export interface ConfigStickers {
+  packs: ConfigStickerPack[];
+}
+
+export const DEFAULT_STICKERS: ConfigStickers = { packs: [] };
+
+function normalizeStickerItem(raw: Partial<ConfigStickerItem>): ConfigStickerItem | null {
+  const id = String(raw.id ?? '').trim();
+  const imageUrl = String(raw.imageUrl ?? '').trim();
+  if (!id || !imageUrl) return null;
+  return {
+    id,
+    imageUrl,
+    enabled: raw.enabled !== false,
+    order: Number(raw.order) || 0,
+  };
+}
+
+function normalizeStickerPack(raw: Partial<ConfigStickerPack>): ConfigStickerPack | null {
+  const id = String(raw.id ?? '').trim();
+  if (!id) return null;
+  const items = (raw.items ?? [])
+    .map((item) => normalizeStickerItem(item))
+    .filter((item): item is ConfigStickerItem => Boolean(item))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  return {
+    id,
+    nameAr: raw.nameAr?.trim() || id,
+    nameEn: raw.nameEn?.trim() || id,
+    icon: raw.icon?.trim() || '✨',
+    iconUrl: raw.iconUrl?.trim() || undefined,
+    enabled: raw.enabled !== false,
+    order: Number(raw.order) || 0,
+    items,
+  };
+}
+
+export function normalizeStickersConfig(data: unknown): ConfigStickers {
+  const raw = data as { packs?: Partial<ConfigStickerPack>[] } | null | undefined;
+  const packs = (raw?.packs ?? [])
+    .map((pack) => normalizeStickerPack(pack))
+    .filter((pack): pack is ConfigStickerPack => Boolean(pack))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  return { packs };
+}
+
+export const getStickersConfig = async (): Promise<ConfigStickers> => {
+  try {
+    const snap = await getDoc(doc(firestore, 'config', 'stickers'));
+    if (!snap.exists()) return DEFAULT_STICKERS;
+    return normalizeStickersConfig(snap.data());
+  } catch {
+    return DEFAULT_STICKERS;
+  }
+};
+
+export const saveStickersConfig = async (config: ConfigStickers): Promise<void> => {
+  const packs = (config?.packs ?? [])
+    .map((pack) => normalizeStickerPack(pack))
+    .filter((pack): pack is ConfigStickerPack => Boolean(pack))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((pack) => ({
+      id: pack.id,
+      nameAr: pack.nameAr,
+      nameEn: pack.nameEn,
+      icon: pack.icon,
+      ...(pack.iconUrl ? { iconUrl: pack.iconUrl } : {}),
+      enabled: pack.enabled !== false,
+      order: pack.order ?? 0,
+      items: pack.items.map((item) => ({
+        id: item.id,
+        imageUrl: item.imageUrl,
+        enabled: item.enabled !== false,
+        order: item.order ?? 0,
+      })),
+    }));
+  await setDoc(
+    doc(firestore, 'config', 'stickers'),
+    { packs, updatedAt: Date.now(), _permKey: 'stickers' },
     { merge: true },
   );
 };
@@ -2635,6 +2775,7 @@ export const saveAgencyLevelsConfig = async (config: ConfigAgencyLevels): Promis
         .sort((a, b) => a.minLevel - b.minLevel),
       vipSupervisorBonus: Math.max(0, Math.round(Number(config.vipSupervisorBonus) || 0)),
       updatedAt: Date.now(),
+      _permKey: 'agency-levels',
     },
     { merge: true },
   );
@@ -2650,7 +2791,7 @@ export const getConfigVipTiers = async (): Promise<ConfigVipTier[]> => {
 };
 
 export const saveConfigVipTiers = async (tiers: ConfigVipTier[]): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'vipTiers'), { tiers, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'vipTiers'), { tiers, updatedAt: Date.now(), _permKey: 'vip' }, { merge: true });
 };
 
 // ===== VIP System (levels + privileges) =====
@@ -2912,7 +3053,7 @@ export const getConfigVipSystem = async (): Promise<ConfigVipSystem> => {
 
 export const saveConfigVipSystem = async (config: ConfigVipSystem): Promise<void> => {
   const normalized = normalizeConfigVipSystem(config);
-  const payload = stripUndefinedDeep({ ...normalized, updatedAt: Date.now() });
+  const payload = stripUndefinedDeep({ ...normalized, updatedAt: Date.now(), _permKey: 'vip' });
   await setDoc(doc(firestore, 'config', 'vipSystem'), payload, { merge: true });
 };
 
@@ -2982,7 +3123,7 @@ export const saveConfigPackages = async (
   tags?: ConfigRechargePackageTag[],
 ): Promise<void> => {
   const normalized = packages.map(normalizeConfigRechargePackage);
-  const payload: Record<string, unknown> = { packages: normalized, updatedAt: Date.now() };
+  const payload: Record<string, unknown> = { packages: normalized, updatedAt: Date.now(), _permKey: 'packages' };
   if (tags) {
     payload.tags = tags.map(normalizeConfigRechargePackageTag).map((t, i) => ({ ...t, order: i }));
   }
@@ -2991,7 +3132,7 @@ export const saveConfigPackages = async (
 
 export const saveConfigPackageTags = async (tags: ConfigRechargePackageTag[]): Promise<void> => {
   const normalized = tags.map(normalizeConfigRechargePackageTag).map((t, i) => ({ ...t, order: i }));
-  await setDoc(doc(firestore, 'config', 'rechargePackages'), { tags: normalized, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'rechargePackages'), { tags: normalized, updatedAt: Date.now(), _permKey: 'packages' }, { merge: true });
 };
 
 // ===== Rewards Center =====
@@ -3105,7 +3246,7 @@ export const getRewardsCenterConfig = async (): Promise<ConfigRewardsCenter | nu
 };
 
 export const saveRewardsCenterConfig = async (config: ConfigRewardsCenter): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'rewardsCenter'), { ...config, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'rewardsCenter'), { ...config, updatedAt: Date.now(), _permKey: 'rewards-center' }, { merge: true });
 };
 
 // ===== Host Tasks (مهام المضيفة) =====
@@ -3200,7 +3341,7 @@ export const getHostTasksConfig = async (): Promise<ConfigHostTasks | null> => {
 };
 
 export const saveHostTasksConfig = async (config: ConfigHostTasks): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'hostTasks'), { ...config, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'hostTasks'), { ...config, updatedAt: Date.now(), _permKey: 'host-tasks' }, { merge: true });
 };
 
 // ===== About Pages (حول التطبيق) =====
@@ -3253,7 +3394,7 @@ export const getAboutPagesConfig = async (): Promise<ConfigAboutPages | null> =>
 };
 
 export const saveAboutPagesConfig = async (config: ConfigAboutPages): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'aboutPages'), { ...config, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'aboutPages'), { ...config, updatedAt: Date.now(), _permKey: 'about-pages' }, { merge: true });
 };
 
 // ===== إصدار التطبيق (APK تجريبي) =====
@@ -3306,7 +3447,7 @@ export const getAppReleaseConfig = async (): Promise<ConfigAppRelease | null> =>
 };
 
 export const saveAppReleaseConfig = async (config: ConfigAppRelease): Promise<void> => {
-  const data: Record<string, unknown> = { ...config, updatedAt: Date.now() };
+  const data: Record<string, unknown> = { ...config, updatedAt: Date.now(), _permKey: 'app-release' };
 
   if (config.storagePath === undefined) data.storagePath = deleteField();
   if (config.fileSizeBytes === undefined) data.fileSizeBytes = deleteField();
@@ -3667,7 +3808,7 @@ export const getAristocracyConfig = async (): Promise<ConfigAristocracy | null> 
 
 export const saveAristocracyConfig = async (config: ConfigAristocracy): Promise<void> => {
   const normalized = normalizeAristocracyConfig(config);
-  const payload = stripUndefinedDeep({ ...normalized, updatedAt: Date.now() });
+  const payload = stripUndefinedDeep({ ...normalized, updatedAt: Date.now(), _permKey: 'aristocracy' });
   // استبدال كامل — merge كان يبقي حقول قديمة ويعيد محتوى تجريبي
   await setDoc(doc(firestore, 'config', 'aristocracy'), payload);
 };
@@ -3776,7 +3917,7 @@ export const getTitlesConfig = async (): Promise<ConfigTitles | null> => {
 };
 
 export const saveTitlesConfig = async (config: ConfigTitles): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'titles'), { ...config, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'titles'), { ...config, updatedAt: Date.now(), _permKey: 'titles' }, { merge: true });
 };
 
 /** منح لقب يدوياً لمستخدم */
@@ -4057,7 +4198,7 @@ export const getAgencyPrinceConfig = async (): Promise<ConfigAgencyPrince | null
 };
 
 export const saveAgencyPrinceConfig = async (config: ConfigAgencyPrince): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'agencyPrince'), { ...config, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'agencyPrince'), { ...config, updatedAt: Date.now(), _permKey: 'agency-prince' }, { merge: true });
 };
 
 async function applyAgencyPrinceToUser(
@@ -4344,7 +4485,7 @@ export const getPrivacyConfig = async (): Promise<ConfigPrivacy | null> => {
 };
 
 export const savePrivacyConfig = async (config: ConfigPrivacy): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'privacy'), { ...config, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'privacy'), { ...config, updatedAt: Date.now(), _permKey: 'privacy' }, { merge: true });
 };
 
 // ===== Settings =====
@@ -4356,7 +4497,7 @@ export const getConfigSettings = async (): Promise<ConfigSettings | null> => {
 };
 
 export const saveConfigSettings = async (settings: ConfigSettings): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'settings'), { ...settings, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'settings'), { ...settings, updatedAt: Date.now(), _permKey: 'settings' }, { merge: true });
 };
 
 /** مفتاح Bot Admin API + باقة الشحن — يُحفظ في السحابة */
@@ -4377,7 +4518,7 @@ export const getBotAdminPanelConfig = async (): Promise<BotAdminPanelConfig | nu
 };
 
 export const saveBotAdminPanelConfig = async (config: BotAdminPanelConfig): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'botAdmin'), { ...config, updatedAt: Date.now() }, { merge: true });
+  await setDoc(doc(firestore, 'config', 'botAdmin'), { ...config, updatedAt: Date.now(), _permKey: 'bot' }, { merge: true });
 };
 
 /** تصنيفات عينة — تُضاف فقط عند الضغط على «عينات تجريبية» */
@@ -4899,14 +5040,11 @@ export const getGamesGlobalEconomy = async (): Promise<GamesGlobalEconomy> => {
   return DEFAULT_GAMES_GLOBAL;
 };
 
-function getLotteryWeekId(d = new Date()): string {
-  const start = new Date(d);
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - start.getDay());
-  return start.toISOString().slice(0, 10);
-}
-
-/** سحب يانصيب أسبوعي عشوائي — من لوحة التحكم */
+/**
+ * سحب يانصيب أسبوعي يدوي — عبر Cloud Function (adminRunWeeklyLotteryDraw) بدل الكتابة
+ * المباشرة من العميل (weeklyLotteryDraws/lotteryTickets محظورة الكتابة مباشرة بقواعد Firestore
+ * أصلاً — الخصم والسحب يتمّان بصلاحيات السيرفر فقط).
+ */
 export const runWeeklyLotteryDraw = async (weekId?: string): Promise<{
   weekId: string;
   winnerUid: string;
@@ -4914,53 +5052,17 @@ export const runWeeklyLotteryDraw = async (weekId?: string): Promise<{
   prize: number;
   ticketCount: number;
 }> => {
-  const global = await getGamesGlobalEconomy();
-  const wk = weekId || getLotteryWeekId();
-  const drawRef = doc(firestore, 'weeklyLotteryDraws', wk);
-  const existing = await getDoc(drawRef);
-  if (existing.exists()) throw new Error('تم إجراء سحب هذا الأسبوع مسبقاً');
-
-  const snap = await getDocs(
-    query(collection(firestore, 'lotteryTickets'), where('weekId', '==', wk)),
+  const fn = httpsCallable<
+    { weekId?: string },
+    { weekId: string; winnerUid: string; winnerName: string; prize: number; ticketCount: number }
+  >(functions, 'adminRunWeeklyLotteryDraw');
+  const res = await fn({ weekId });
+  const draw = res.data;
+  await logAdminAction(
+    'سحب اليانصيب الأسبوعي',
+    `${draw.winnerName} (${draw.winnerUid}) — ${draw.prize.toLocaleString()} كوين`,
   );
-  if (snap.empty) throw new Error('لا توجد تذاكر مشتراة لهذا الأسبوع');
-
-  const tickets = snap.docs;
-  const winnerDoc = tickets[Math.floor(Math.random() * tickets.length)];
-  const winnerUid = String(winnerDoc.data().uid ?? '');
-  if (!winnerUid) throw new Error('تذكرة فائزة بدون معرّف مستخدم');
-
-  const userSnap = await getDoc(doc(firestore, 'users', winnerUid));
-  const user = userSnap.exists() ? (userSnap.data() as Record<string, unknown>) : {};
-  const winnerName = String(
-    winnerDoc.data().displayName
-      ?? (user.profile as { displayName?: string } | undefined)?.displayName
-      ?? user.displayName
-      ?? 'فائز',
-  );
-  const winnerPublicId = user.publicAccountId != null ? String(user.publicAccountId) : null;
-  const prize = global.lotteryGrandPrize;
-
-  await updateDoc(doc(firestore, 'users', winnerUid), {
-    'stats.coins': increment(prize),
-    coins: increment(prize),
-    updatedAt: Date.now(),
-  });
-  await updateDoc(winnerDoc.ref, { isWinner: true, wonAt: Date.now(), prize });
-
-  const draw = {
-    weekId: wk,
-    winnerUid,
-    winnerName,
-    winnerPublicId,
-    prize,
-    ticketCount: tickets.length,
-    drawnAt: Date.now(),
-  };
-  await setDoc(drawRef, draw);
-  await logAdminAction('سحب اليانصيب الأسبوعي', `${winnerName} (${winnerUid}) — ${prize.toLocaleString()} كوين`);
-
-  return { weekId: wk, winnerUid, winnerName, prize, ticketCount: tickets.length };
+  return draw;
 };
 
 export const saveConfigGames = async (
@@ -4984,7 +5086,7 @@ export const saveConfigGames = async (
   });
   await setDoc(
     doc(firestore, 'config', 'games'),
-    { games: mergedGames, global: globalPayload, updatedAt: Date.now() },
+    { games: mergedGames, global: globalPayload, updatedAt: Date.now(), _permKey: 'games' },
     { merge: true },
   );
 
@@ -5072,31 +5174,62 @@ export const getConfigCallPricing = async (): Promise<ConfigCallPricing> => {
 export const saveConfigCallPricing = async (pricing: ConfigCallPricing): Promise<void> => {
   await setDoc(
     doc(firestore, 'config', 'callPricing'),
-    { ...normalizeConfigCallPricing(pricing as unknown as Record<string, unknown>), updatedAt: Date.now() },
+    { ...normalizeConfigCallPricing(pricing as unknown as Record<string, unknown>), updatedAt: Date.now(), _permKey: 'call-pricing' },
     { merge: true },
   );
 };
 
 // ==================== ADMINS & COUNTRY PERMISSIONS ====================
 
-/** أقسام الصلاحيات القابلة للتحكّم لكل مشرف */
+/**
+ * صلاحية مستقلة لكل صفحة في لوحة التحكم — المفتاح مطابق تماماً لـ routePath في navConfig.ts
+ * (مصدر واحد للحقيقة، بلا جدول تطابق منفصل قد ينحرف عنه).
+ */
 export const PERMISSION_SECTIONS = [
+  { key: 'analytics', label: 'الإحصائيات والأرباح' },
+  { key: 'call-usage', label: 'استهلاك دقائق المزوّد' },
   { key: 'users', label: 'المستخدمون' },
+  { key: 'staff', label: 'موظفو التطبيق' },
+  { key: 'kyc-requests', label: 'طلبات التحقق من الهوية' },
   { key: 'rooms', label: 'الغرف الصوتية' },
+  { key: 'room-decor', label: 'تخصيص الروم (إطارات/خلفيات)' },
+  { key: 'room-reactions', label: 'رموز الروم (GIF/صور)' },
   { key: 'agencies', label: 'الوكالات' },
-  { key: 'applications', label: 'طلبات الوكالات' },
+  { key: 'agency-levels', label: 'مستويات الوكالة' },
+  { key: 'agency-prince', label: 'أمير الوكلاء' },
+  { key: 'agency-applications', label: 'طلبات فتح الوكالة' },
   { key: 'wallet', label: 'الشحن والسحب' },
   { key: 'withdrawals', label: 'طلبات السحب' },
-  { key: 'gifts', label: 'الهدايا' },
-  { key: 'posts', label: 'المنشورات' },
-  { key: 'notifications', label: 'الإشعارات' },
-  { key: 'support', label: 'الدعم' },
-  { key: 'analytics', label: 'الإحصائيات' },
   { key: 'bot', label: 'بوت تيليغرام (شحن)' },
+  { key: 'packages', label: 'باقات الشحن' },
+  { key: 'gifts', label: 'الهدايا' },
+  { key: 'store', label: 'متجر التطبيق' },
+  { key: 'lucky-bag', label: 'حقيبة الحظ' },
+  { key: 'room-throne', label: 'عرش الغرفة' },
+  { key: 'vip', label: 'العضويات VIP' },
+  { key: 'aristocracy', label: 'الأرستقراطية' },
+  { key: 'rewards-center', label: 'مركز المكافآت' },
+  { key: 'host-tasks', label: 'مهام المضيفة' },
+  { key: 'titles', label: 'الألقاب (لقبي)' },
+  { key: 'gift-privileges', label: 'منح الامتيازات' },
+  { key: 'privacy', label: 'الخصوصية' },
+  { key: 'call-pricing', label: 'تسعير المكالمات والمطابقة' },
+  { key: 'posts', label: 'المنشورات / اللحظات' },
+  { key: 'games', label: 'الألعاب' },
+  { key: 'stickers', label: 'الملصقات' },
+  { key: 'relationships', label: 'العلاقات' },
+  { key: 'chat-backgrounds', label: 'خلفيات المحادثة' },
+  { key: 'notifications', label: 'إشعارات المستخدمين' },
+  { key: 'about-pages', label: 'حول التطبيق' },
+  { key: 'support', label: 'مركز الدعم' },
+  { key: 'reports', label: 'البلاغات' },
   { key: 'settings', label: 'الإعدادات' },
+  { key: 'app-release', label: 'إصدار التطبيق (APK)' },
 ] as const;
 
 export type PermissionKey = (typeof PERMISSION_SECTIONS)[number]['key'];
+
+/** أقسام NAV_SECTIONS نفسها تُستخدم لتجميع مصفوفة الصلاحيات في واجهة Admins.tsx — راجع src/lib/navConfig.ts */
 
 export interface AdminProfile {
   uid: string;
@@ -7112,6 +7245,12 @@ export interface AdminUserFull extends AdminUser {
   lastLoginLocation?: AdminLoginLocation;
   lastLoginDeviceId?: string;
   location?: AdminLoginLocation & { geohash?: string; updatedAt?: number };
+  /** حالة الحساب المشتقة من isBanned/accountStatus */
+  accountStatus?: 'pending_deletion';
+  deletionRequestedAt?: number;
+  isSuspended?: boolean;
+  suspendedUntil?: number;
+  suspendReason?: string;
 }
 
 export interface AdminLoginLocation {
@@ -7134,6 +7273,7 @@ export interface AdminRegisteredDevice {
   lastIp?: string;
   lastLocation?: AdminLoginLocation;
   loginCount?: number;
+  connectionType?: string;
 }
 
 export interface AdminLoginSession {
@@ -7150,6 +7290,8 @@ export interface AdminLoginSession {
   appVersion?: string;
   location?: AdminLoginLocation | null;
   createdAt: number;
+  connectionType?: string;
+  flaggedSuspicious?: boolean;
 }
 
 export interface AdminUserWithdrawal {
@@ -7226,6 +7368,11 @@ export const getUserFullProfile = async (uid: string): Promise<AdminUserFull | n
       lastLoginLocation: data.lastLoginLocation as AdminLoginLocation | undefined,
       lastLoginDeviceId: data.lastLoginDeviceId != null ? String(data.lastLoginDeviceId) : undefined,
       location: data.location as AdminUserFull['location'],
+      accountStatus: data.accountStatus === 'pending_deletion' ? 'pending_deletion' : undefined,
+      deletionRequestedAt: data.deletionRequestedAt != null ? Number(data.deletionRequestedAt) || 0 : undefined,
+      isSuspended: data.isSuspended === true,
+      suspendedUntil: data.suspendedUntil != null ? Number(data.suspendedUntil) || 0 : undefined,
+      suspendReason: data.suspendReason != null ? String(data.suspendReason) : undefined,
     };
   } catch (e) {
     console.error('getUserFullProfile:', e);
@@ -7257,6 +7404,8 @@ export const getUserLoginSessions = async (uid: string, limitCount = 50): Promis
         appVersion: s.appVersion != null ? String(s.appVersion) : undefined,
         location: (s.location as AdminLoginLocation | null) ?? null,
         createdAt: Number(s.createdAt) || 0,
+        connectionType: s.connectionType != null ? String(s.connectionType) : undefined,
+        flaggedSuspicious: s.flaggedSuspicious === true,
       };
     });
   } catch (e) {
@@ -7480,6 +7629,7 @@ export const saveProviderCosts = async (costs: ProviderCosts): Promise<void> => 
     livekitPerMin: Number(costs.livekitPerMin) || 0,
     currency: String(costs.currency || 'USD').slice(0, 6),
     updatedAt: Date.now(),
+    _permKey: 'analytics',
   }, { merge: true });
 };
 
