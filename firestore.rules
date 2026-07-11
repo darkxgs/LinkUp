@@ -542,6 +542,14 @@ service cloud.firestore {
       allow update: if isAdmin();
     }
 
+    // سجلات أعطال العميل (AppErrorBoundary) — إنشاء من صاحب الجلسة، قراءة للأدمن
+    match /clientCrashLogs/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
     // روابط المشاركة المختصرة — تُدار من Cloud Functions فقط
     match /shareLinks/{code} {
       allow read, write: if false;

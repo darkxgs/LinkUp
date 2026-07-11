@@ -21,6 +21,14 @@
       "collectionGroup": "transactions",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "currency", "order": "ASCENDING" },
         { "fieldPath": "uid", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }

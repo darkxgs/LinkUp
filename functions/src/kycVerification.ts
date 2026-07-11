@@ -6,16 +6,20 @@
  *   users/{uid}.isVerified, verificationStatus → approved | rejected | pending
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
 import { RekognitionClient, DetectFacesCommand } from '@aws-sdk/client-rekognition';
 import { detectGenderWithFaceApi } from './faceApiGender';
 import { detectGenderWithNyckel, isNyckelConfigured } from './nyckelGender';
 import {
   applyKycDetectionResult,
+  approveFemaleKyc,
   clearKycGenderMismatchBan,
   decodeBase64Image,
+  notifyUser,
   persistKycVerificationImage,
   readRegisteredGender,
+  rejectKycVerification,
   AI_CONFIDENCE_REVIEW,
   NYCKEL_REVIEW_THRESHOLD,
   type DetectionResult,
@@ -428,6 +432,99 @@ export const processKycVerification = onCall({ memory: '512MiB', timeoutSeconds:
   }
 
   return applyKycDetectionResult(uid, kycRef, userRef, userData, detected, 'ai');
+});
+
+/**
+ * موافقة/رفض الإدارة مباشرة على kycRequests/{uid} (لوحة التحكم) — تُزامن users/{uid}
+ * بنفس أثر مسار الـ AI (isVerified + verificationStatus + تفعيل مضيفة الوكالة + إشعار).
+ * بدونها يبقى المستخدم «غير موثّق» في التطبيق رغم موافقة الإدارة — «وثّقت مرتين وما تغيّر شيء».
+ * كتابات دوال KYC نفسها تحمل syncedStatus مطابقاً للحالة فلا تُعاد معالجتها (ولا تتكرر الإشعارات).
+ */
+export const syncKycStatusToUser = onDocumentUpdated('kycRequests/{uid}', async (event) => {
+  const after = event.data?.after.data();
+  if (!after) return;
+
+  const status = String(after.status ?? '');
+  if (status !== 'approved' && status !== 'rejected') return;
+  // الحالة مُزامنة مسبقاً من verifyGenderFace/processKycVerification أو من تشغيل سابق للمزامنة
+  if (String(after.syncedStatus ?? '') === status) return;
+
+  const uid = event.params.uid;
+  const kycRef = event.data!.after.ref;
+  const userRef = db.collection('users').doc(uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) return;
+  const userData = userSnap.data()!;
+  const now = Date.now();
+  const method: 'ai' | 'face' | 'manual' =
+    after.method === 'ai' || after.method === 'face' ? after.method : 'manual';
+
+  if (status === 'approved') {
+    if (userData.isVerified === true && userData.verificationStatus === 'approved') {
+      // users محدث بالفعل (مثلاً عبر adminUpdateAppUser) — نكتفي بتعليم الطلب
+      await kycRef.set({ syncedStatus: 'approved', updatedAt: now }, { merge: true });
+      return;
+    }
+    if (readRegisteredGender(userData) === 'female') {
+      await approveFemaleKyc(
+        uid,
+        kycRef,
+        userRef,
+        userData,
+        { updatedAt: now },
+        method,
+        now,
+        {
+          gender: 'female',
+          confidence: Number(after.aiConfidence) || 0,
+          provider: 'none',
+        },
+        typeof after.fullName === 'string' ? after.fullName : undefined,
+      );
+      return;
+    }
+    // حالة نادرة: طلب لحساب مسجّل ذكراً — توثيق بدون قلب الجنس
+    await kycRef.set(
+      { status: 'approved', syncedStatus: 'approved', approvedAt: now, updatedAt: now },
+      { merge: true },
+    );
+    await userRef.update({
+      isVerified: true,
+      verifiedGender: readRegisteredGender(userData),
+      verifiedAt: now,
+      verificationStatus: 'approved',
+      isBanned: false,
+      banReason: admin.firestore.FieldValue.delete(),
+      updatedAt: now,
+    });
+    await notifyUser(
+      uid,
+      'تم توثيق حسابك بنجاح ✓',
+      { title: 'توثيق ناجح', type: 'kyc_approved', route: '/wallet/kyc' },
+    );
+    return;
+  }
+
+  // status === 'rejected' — رفض من لوحة التحكم
+  if (userData.verificationStatus === 'rejected' && userData.isVerified !== true) {
+    await kycRef.set({ syncedStatus: 'rejected', updatedAt: now }, { merge: true });
+    return;
+  }
+  const reason =
+    typeof after.rejectionReason === 'string' && after.rejectionReason.trim()
+      ? after.rejectionReason.trim()
+      : 'تم رفض طلب التوثيق من الإدارة';
+  await rejectKycVerification(
+    uid,
+    kycRef,
+    userRef,
+    { updatedAt: now },
+    method,
+    now,
+    reason,
+    'تم رفض طلب التوثيق — راجع بياناتك وحاول مجدداً',
+    { gender: 'unknown', confidence: 0, provider: 'none' },
+  );
 });
 
 /** يرفع حظراً خاطئاً من فشل توثيق سابق — يُستدعى من التطبيق عند تسجيل الدخول */

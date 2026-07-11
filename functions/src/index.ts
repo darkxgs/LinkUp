@@ -14,7 +14,7 @@
 
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import * as admin from 'firebase-admin';
 import type { DocumentReference } from 'firebase-admin/firestore';
@@ -3759,8 +3759,15 @@ async function ensureAgencyLiveRoom(agencyId: string): Promise<string> {
 
   let roomId = agency.liveRoomId ? String(agency.liveRoomId) : '';
   if (roomId) {
-    const existing = await rtdb.ref(`rooms/${roomId}`).once('value');
-    if (existing.exists()) return roomId;
+    // فحص الوجود لا يمنع الدخول — تعثّر قراءة RTDB العابر كان يُرجع «internal»
+    // فيُقفل دخول نفس الروم نهائياً على المستخدم
+    try {
+      const existing = await rtdb.ref(`rooms/${roomId}`).once('value');
+      if (existing.exists()) return roomId;
+    } catch (e) {
+      console.warn('ensureAgencyLiveRoom: rtdb existence check failed', roomId, (e as Error)?.message);
+      return roomId;
+    }
   }
 
   const ownerSnap = await db.collection('users').doc(ownerUid).get();
@@ -5794,6 +5801,7 @@ const AGENCY_PEARL_EARNING_TYPES = new Set([
   'lucky_bag_won',
   'locked_media_earn',
   'call_earning',
+  'chat_earning',
   'withdrawal_refund',
   'refund',
   'agent_collected',
@@ -5810,6 +5818,7 @@ function pearlIncomeCategory(txType: string): AgencyIncomeCategory {
       return 'calls';
     case 'locked_media_earn':
     case 'transfer_received':
+    case 'chat_earning':
       return 'chat';
     case 'withdrawal_refund':
     case 'refund':
@@ -5825,13 +5834,16 @@ function agencyDayKey(ms: number): string {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** مفتاح فترة الدعم (آخر 7 أيام) — مطابق لتطبيق الجوال */
+/**
+ * مفتاح فترة الدعم الأسبوعية — مطابق حرفياً لدالة التطبيق getAgencyPeriodWeekKey.
+ * ⚠️ الصيغة القديمة (منتصف ليل اليوم - 6 أيام) كانت تتغيّر كل يوم (فيُصفَّر
+ * العدّاد يومياً بدل أسبوعياً) وتختلف بين UTC الخادم ومنطقة جهاز المستخدم
+ * (فيعرض العميل دائماً 0). سلة أسبوعية ثابتة بتوقيت الرياض (+3) تحل الاثنين.
+ */
 function getAgencyPeriodWeekKey(ms = Date.now()): string {
   const DAY = 86400000;
-  const d = new Date(ms);
-  d.setHours(0, 0, 0, 0);
-  const weekStart = d.getTime() - 6 * DAY;
-  return `w${weekStart}`;
+  const TZ_OFFSET_MS = 3 * 60 * 60 * 1000; // Asia/Riyadh ثابت
+  return `wk${Math.floor((ms + TZ_OFFSET_MS) / (7 * DAY))}`;
 }
 
 /** يزيد عدّاد دعم الفترة (كوينز الهدايا) على وثيقة الوكالة */
@@ -7332,6 +7344,16 @@ export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () =>
   }
   // مقاعد «معلّقة» — جالس على مايك وحضوره منقطع كلياً أو انتقل لغرفة أخرى
   // (تنظيف الأجهزة الحيّ لا يعمل إذا خرج الجميع من الغرفة)
+  //
+  // تحفّظ إجباري (متحدثون نشطون كانوا «يُنزَلون من المايك لحالهم»):
+  // - نبض حضور التطبيق كل دقيقتين (UserHeartbeat) وpresence/{uid} يُحذف
+  //   بـonDisconnect عند أي تقطع شبكة عابر — فغياب المفتاح لحظةَ الكنس لا
+  //   يعني أن صاحبه غادر (LiveKit على اتصال مستقل عن RTDB).
+  // - لا يُفرَّغ مقعد إلا بعد ركود طويل (SEAT_STALE_MS)، وأبداً إذا كان حضوره
+  //   حديثاً. وعند غياب presence لا نُفرِّغ إلا إذا كان مؤشر userCurrentRoom
+  //   غائباً أو يشير لغرفة أخرى منذ مدة طويلة — غيابه مع مؤشرٍ على هذه الغرفة
+  //   حالة غامضة تُترك لتنظيف الأجهزة الحي (pruneStaleRoomSeats).
+  const SEAT_STALE_MS = 30 * 60 * 1000;
   if (roomsSnap.exists()) {
     roomsSnap.forEach((roomSnap) => {
       const roomId = String(roomSnap.key);
@@ -7341,9 +7363,21 @@ export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () =>
         const uid = String(seatSnap.child('uid').val() ?? '');
         if (!uid) return;
         const joinedAt = Number(seatSnap.child('joinedAt').val()) || 0;
-        if (joinedAt > 0 && now - joinedAt < STALE_MS) return;
-        if (!isStale(uid) && !movedElsewhere(uid, roomId)) return;
-        updates[`rooms/${roomId}/seats/${seatSnap.key}`] = { uid: '' };
+        if (joinedAt > 0 && now - joinedAt < SEAT_STALE_MS) return;
+        const lastSeen = Number(presence[uid]) || 0;
+        // حضور حديث = متصل فعلاً — لا يُفرَّغ مقعده مهما قال مؤشر الغرفة
+        if (lastSeen > 0 && now - lastSeen < SEAT_STALE_MS) return;
+        const p = pointers[uid];
+        const pointerAbsent = !p?.roomId;
+        const pointerElsewhere =
+          !!p?.roomId &&
+          p.roomId !== roomId &&
+          now - (Number(p.at) || 0) >= SEAT_STALE_MS;
+        // قيمة حضور قديمة (≥ SEAT_STALE_MS) = شبح مؤكد؛
+        // أو غياب الحضور مع مؤشر غائب/على غرفة أخرى منذ مدة طويلة
+        if (lastSeen > 0 || pointerAbsent || pointerElsewhere) {
+          updates[`rooms/${roomId}/seats/${seatSnap.key}`] = { uid: '' };
+        }
       });
     });
   }
@@ -7396,6 +7430,7 @@ const PEARL_EARNING_TYPES = new Set([
   'lucky_bag_won',
   'locked_media_earn',
   'call_earning',
+  'chat_earning',
 ]);
 
 /** هذه الأنواع تُحدّث محفظة المستخدم قبل إنشاء المعاملة — لا نكرّر الإضافة */
@@ -7405,7 +7440,76 @@ const PEARL_WALLET_PRE_CREDITED_TYPES = new Set([
   'withdrawal_refund',
   'agent_refund',
   'gift_received',
+  'chat_earning',
 ]);
+
+// ==================== AGENCY MEMBER COUNT SYNC ====================
+/**
+ * إعادة احتساب memberCount/femaleHostCount من مستندات العضوية الفعلية.
+ * كانت الوكالات المُنشأة قديماً أو التي أُضيف أعضاؤها من مسارات لا تُحدّث
+ * العدّاد (لوحة التحكم/أدمن) تعرض «0 عضو» رغم وجود مشرفين وأعضاء.
+ */
+async function recomputeAgencyMemberCounts(agencyId: string): Promise<void> {
+  if (!agencyId) return;
+  const agencyRef = db.collection('agencies').doc(agencyId);
+  const [agencySnap, totalSnap, femaleSnap] = await Promise.all([
+    agencyRef.get(),
+    db.collection('agencyMembers').where('agencyId', '==', agencyId).count().get(),
+    db
+      .collection('agencyMembers')
+      .where('agencyId', '==', agencyId)
+      .where('isFemaleHost', '==', true)
+      .count()
+      .get(),
+  ]);
+  if (!agencySnap.exists) return;
+  const memberCount = totalSnap.data().count;
+  const femaleHostCount = femaleSnap.data().count;
+  const cur = agencySnap.data() ?? {};
+  if (
+    (Number(cur.memberCount) || 0) === memberCount &&
+    (Number(cur.femaleHostCount) || 0) === femaleHostCount
+  ) {
+    return;
+  }
+  await agencyRef.update({ memberCount, femaleHostCount, updatedAt: Date.now() });
+}
+
+/** أي إنشاء/حذف/نقل عضوية من أي مسار — يُبقي عدّاد الأعضاء حقيقياً دائماً */
+export const syncAgencyMemberCountOnWrite = onDocumentWritten(
+  'agencyMembers/{memberId}',
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    const ids = new Set<string>();
+    const beforeId = String(before?.agencyId ?? '').trim();
+    const afterId = String(after?.agencyId ?? '').trim();
+    if (beforeId) ids.add(beforeId);
+    if (afterId) ids.add(afterId);
+    for (const id of ids) {
+      try {
+        await recomputeAgencyMemberCounts(id);
+      } catch (e) {
+        console.error('syncAgencyMemberCountOnWrite:', id, e);
+      }
+    }
+  },
+);
+
+/** إصلاح يومي للعدّادات العالقة (وكالات فيها أعضاء لكن memberCount = 0) */
+export const reconcileAgencyMemberCountsDaily = onSchedule(
+  { schedule: 'every 24 hours', region: 'us-central1', timeoutSeconds: 300 },
+  async () => {
+    const snap = await db.collection('agencies').limit(500).get();
+    for (const d of snap.docs) {
+      try {
+        await recomputeAgencyMemberCounts(d.id);
+      } catch (e) {
+        console.error('reconcileAgencyMemberCountsDaily:', d.id, e);
+      }
+    }
+  },
+);
 
 /** عند إرسال هدية داخل غرفة وكالة — يزيد دعم الفترة (مستوى الوكالة) */
 export const bumpAgencyPeriodSupportOnGiftSent = onDocumentCreated(
@@ -7451,9 +7555,18 @@ export const creditAgencyPearlsOnGift = onDocumentCreated(
     const tx = event.data?.data();
     if (!tx) return;
 
-    // فقط معاملات الماسة الواردة (دخل) موجبة القيمة
+    // فقط معاملات الدخل الواردة موجبة القيمة
     if (!PEARL_EARNING_TYPES.has(String(tx.type ?? ''))) return;
-    if (String(tx.currency ?? 'pearls') !== 'pearls') return;
+    // ماسات — أو هدية وصلت «كوينز» لأن تطبيق المرسل لم يتعرّف على أن المستلمة
+    // مضيفة (agencyId ناقص وقتها / نسخة قديمة): تُحتسب في تحصيل الوكالة أيضاً
+    // (المحفظة نفسها لا تُلمس هنا — gift_received ضمن الأنواع المُسبقة الائتمان)
+    const txCurrency = String(tx.currency ?? 'pearls');
+    if (
+      txCurrency !== 'pearls' &&
+      !(txCurrency === 'coins' && String(tx.type ?? '') === 'gift_received')
+    ) {
+      return;
+    }
     const pearls = Number(tx.amount) || 0;
     if (pearls <= 0) return;
 
@@ -7485,6 +7598,13 @@ export const creditAgencyPearlsOnGift = onDocumentCreated(
       if (memberSnap.empty) return;
 
       const memberDoc = memberSnap.docs[0];
+      // هدية «كوينز» تُحتسب فقط لمضيفة أنثى — العضو العادي (ذكر/غير مضيفة)
+      // يستلم هداياه كوينز أصلاً وليست دخل وكالة
+      if (txCurrency === 'coins') {
+        const m = memberDoc.data();
+        const isFemaleHostMember = m.isFemaleHost === true || String(m.role ?? '') === 'host';
+        if (!isFemaleHostMember) return;
+      }
       const txType = String(tx.type ?? '');
       const batch = db.batch();
       batch.update(memberDoc.ref, {
@@ -7705,24 +7825,75 @@ export const hostTaskMessageCounter = onDocumentCreated(
     const hostRef = db.collection('users').doc(toUid);
     const senderRef = db.collection('users').doc(fromUid);
 
-    await db.runTransaction(async (tx) => {
-      const [hostSnap, senderSnap] = await Promise.all([tx.get(hostRef), tx.get(senderRef)]);
-      if (!hostSnap.exists || !senderSnap.exists) return;
+    // حصّة المضيفة من رسالة الداعم المدفوعة — نفس نسبة المكالمات (config/settings.giftCommission).
+    // كانت الرسائل تزيد عدّاد المهام فقط دون أي إيداع في المحفظة (خصوصاً مضيفة بلا وكالة).
+    const shareRatio = await getHostShareRatio();
+
+    // حارس idempotency: التريغر at-least-once — يمنع ازدواج العدّ والإيداع عند إعادة التسليم
+    const guardRef = db
+      .collection('processedEvents')
+      .doc(`hostChatEarn_${event.params.messageId}`);
+
+    const credited = await db.runTransaction(async (tx) => {
+      const [guardSnap, hostSnap, senderSnap] = await Promise.all([
+        tx.get(guardRef),
+        tx.get(hostRef),
+        tx.get(senderRef),
+      ]);
+      if (guardSnap.exists) return null;
+      if (!hostSnap.exists || !senderSnap.exists) return null;
       const hostData = hostSnap.data()!;
       const senderData = senderSnap.data()!;
-      if (!canEarnHostTasksAccount(hostData)) return;
-      if (!shouldCountHostTaskMessage(senderData)) return;
+      if (!canEarnHostTasksAccount(hostData)) return null;
+      if (!shouldCountHostTaskMessage(senderData)) return null;
       // الإناث يرسلن مجاناً (موثّقات وغير موثّقات) — رسائلهن غير مدفوعة فلا تُحسب
-      if ((senderData.profile?.gender ?? senderData.gender) === 'female') return;
+      if ((senderData.profile?.gender ?? senderData.gender) === 'female') return null;
+      // نفس الوكالة — الدردشة بينهما مجانية (لا خصم على المرسل فلا أرباح)
+      const hostAgencyId = String(hostData.agencyId ?? '').trim();
+      const senderAgencyId = String(senderData.agencyId ?? '').trim();
+      if (hostAgencyId && hostAgencyId === senderAgencyId) return null;
 
       const progress = readHostProgress(hostData, resetHour);
       progress.messagesReceived = (Number(progress.messagesReceived) || 0) + 1;
 
+      // مضيفة داخل وكالة → ماسات (نفس عرف الهدايا/المكالمات)؛ بلا وكالة → كوينز المحفظة
+      const earnAmount = Math.floor(price * shareRatio);
+      const balanceField = hostAgencyId ? 'pearls' : 'coins';
+
+      tx.set(guardRef, { processedAt: Date.now(), messageId: event.params.messageId });
       tx.update(hostRef, {
         hostTasksProgress: progress,
+        ...(earnAmount > 0
+          ? {
+              [balanceField]: admin.firestore.FieldValue.increment(earnAmount),
+              [`stats.${balanceField}`]: admin.firestore.FieldValue.increment(earnAmount),
+            }
+          : {}),
         updatedAt: Date.now(),
       });
+      return earnAmount > 0
+        ? { earnAmount, currency: balanceField as 'pearls' | 'coins' }
+        : null;
     });
+
+    // سجلّ المعاملة بعد الإيداع — currency=pearls تُفعّل خط تحصيل الوكالة
+    // (creditAgencyPearlsOnGift: pearlsEarned + agencyEarnings فئة «دردشة»)
+    if (credited) {
+      await db
+        .collection('transactions')
+        .add({
+          uid: toUid,
+          type: 'chat_earning',
+          amount: credited.earnAmount,
+          currency: credited.currency,
+          messageType: type,
+          fromUid,
+          itemName: 'أرباح رسالة دردشة',
+          status: 'completed',
+          createdAt: Date.now(),
+        })
+        .catch((e) => console.error('hostTaskMessageCounter tx log:', e));
+    }
   },
 );
 
@@ -7857,7 +8028,7 @@ export const adminDiscoverAristocracyUploads = onCall(async (request) => {
 // ==================== SHARE LINKS (روابط مختصرة + Deep Link) ====================
 export { createShareLink, shareRedirect, resolveShareLink } from './shareLinks';
 export { recordLoginSession } from './loginSession';
-export { processKycVerification, verifyGenderFace, repairKycMismatchBan } from './kycVerification';
+export { processKycVerification, verifyGenderFace, repairKycMismatchBan, syncKycStatusToUser } from './kycVerification';
 export { getLandmarkQuizRound, getLandmarkCountries } from './intelligenceLandmarkQuiz';
 export { placeIntelligenceGameBet } from './intelligenceGames';
 export { roomGamesApi } from './roomGamesApi';

@@ -117,7 +117,7 @@ async function activateAgencyHostIfNeeded(uid: string): Promise<void> {
   await agencyRef.update({ femaleHostCount: newFemaleCount, updatedAt: now });
 }
 
-async function notifyUser(uid: string, message: string, data: Record<string, unknown>): Promise<void> {
+export async function notifyUser(uid: string, message: string, data: Record<string, unknown>): Promise<void> {
   await db.collection('notifications').add({
     uid,
     type: 'system',
@@ -148,7 +148,7 @@ export async function clearKycGenderMismatchBan(
   return true;
 }
 
-async function approveFemaleKyc(
+export async function approveFemaleKyc(
   uid: string,
   kycRef: FirebaseFirestore.DocumentReference,
   userRef: FirebaseFirestore.DocumentReference,
@@ -166,6 +166,8 @@ async function approveFemaleKyc(
     {
       ...aiPatch,
       status: 'approved',
+      // مؤشر أن users/{uid} زُومن في نفس المسار — يمنع إعادة المعالجة في syncKycStatusToUser
+      syncedStatus: 'approved',
       method,
       approvedAt: now,
       genderMatch: true,
@@ -204,7 +206,7 @@ async function approveFemaleKyc(
   };
 }
 
-async function rejectKycVerification(
+export async function rejectKycVerification(
   uid: string,
   kycRef: FirebaseFirestore.DocumentReference,
   userRef: FirebaseFirestore.DocumentReference,
@@ -219,6 +221,7 @@ async function rejectKycVerification(
     {
       ...aiPatch,
       status: 'rejected',
+      syncedStatus: 'rejected',
       method,
       rejectionReason,
     },
@@ -364,6 +367,7 @@ export async function applyKycDetectionResult(
       {
         ...aiPatch,
         status: 'pending',
+        syncedStatus: 'pending',
         method: detected.confidence > 0 ? method : 'manual',
         aiNeedsReview: true,
         rejectionReason: admin.firestore.FieldValue.delete(),
@@ -407,6 +411,7 @@ export async function applyKycDetectionResult(
       {
         ...aiPatch,
         status: 'approved',
+        syncedStatus: 'approved',
         method,
         approvedAt: now,
       },
@@ -440,6 +445,7 @@ export async function applyKycDetectionResult(
     {
       ...aiPatch,
       status: 'pending',
+      syncedStatus: 'pending',
       method,
       aiNeedsReview: true,
     },
