@@ -449,7 +449,8 @@
     "text78282": "You have not visited any room yet",
     "text1420": "Rooms you enter appear here for quick access",
     "text12639": "When people you follow enter rooms, notifications will appear here",
-    "text52023": "Unfollow?"
+    "text52023": "Unfollow?",
+    "onlineCount": "{{n}} online"
   },
   "roomPk": {
     "title": "Room PK",

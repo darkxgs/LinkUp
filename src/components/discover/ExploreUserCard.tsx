@@ -91,6 +91,15 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
   });
   const verified = user.isVerified || (user.level ?? 0) >= 10;
   const photo = resolveDiscoverCardPhoto(user as unknown as Record<string, unknown>, user.uid);
+  // بلا صورة حقيقية (افتراضي dicebear) — شبح محلي عشوائي ثابت حسب المستخدم.
+  const isDefaultPhoto = !photo || photo.includes('dicebear.com');
+  let uidHash = 0;
+  for (let i = 0; i < user.uid.length; i++) uidHash = (uidHash * 31 + user.uid.charCodeAt(i)) >>> 0;
+  const photoSource = isDefaultPhoto
+    ? uidHash % 2 === 0
+      ? require('../../../assets/images/avatar_default_1.png')
+      : require('../../../assets/images/avatar_default_2.png')
+    : { uri: photo };
   const cardH = Math.round(width / CARD_ASPECT);
 
   const [liked, setLiked] = useState(false);
@@ -212,8 +221,8 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
-        {photo ? (
-          <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" recyclingKey={photo} transition={150} />
+        {photoSource ? (
+          <Image source={photoSource} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" recyclingKey={photo} transition={150} />
         ) : (
           <View style={styles.initialWrap}>
             <Text style={styles.initial}>{(name || '?').trim().charAt(0)}</Text>

@@ -27,7 +27,9 @@ import Animated, {
 
 import { useUnreadStore, startUnreadTracking } from '@/stores/unreadStore';
 import { useThemeMode } from '@/stores/themeStore';
+import { useAuthStore } from '@/stores/authStore';
 import { useAppLanguage } from '@/localization/useAppLanguage';
+import { readUserGender } from '@/utils/genderAccess';
 import { lu } from '@/theme/lu-brand';
 
 type TabKey = 'index' | 'feed' | 'home' | 'chat' | 'profile';
@@ -61,6 +63,13 @@ const LinkUpTabBar: React.FC<BottomTabBarProps> = ({ state, navigation }) => {
   const { isDark } = useThemeMode();
   const { t } = useAppLanguage();
   const totalUnread = useUnreadStore((s) => s.totalUnread);
+  const user = useAuthStore((s) => s.user);
+  // معاينة مؤقتة في وضع التطوير فقط: إخفاء الصورة لإظهار أيقونة الجنس.
+  const avatarUri = __DEV__ ? undefined : user?.profile?.avatar;
+  const profileIcon =
+    readUserGender(user) === 'female'
+      ? require('../../assets/images/tab_profile_female.png')
+      : require('../../assets/images/tab_profile_male.png');
 
   const BAR_W = W - 24;
 
@@ -100,12 +109,13 @@ const LinkUpTabBar: React.FC<BottomTabBarProps> = ({ state, navigation }) => {
     center?: boolean;
     badge?: number;
     wide?: boolean;
+    avatarUri?: string;
   }[] = [
     { route: 'index', icon: require('../../assets/images/tab_matches.png'), label: t('tabs.matches'), wide: true },
     { route: 'feed', icon: require('../../assets/images/tab_feed.png'), label: t('tabs.discoverTab'), wide: true },
     { route: 'home', icon: require('../../assets/images/tab_home.png'), label: t('tabs.voiceRoom'), center: true },
     { route: 'chat', icon: require('../../assets/images/tab_chats.png'), label: t('tabs.chats'), badge: totalUnread, wide: true },
-    { route: 'profile', icon: require('../../assets/images/tab_profile.png'), label: t('tabs.profile') },
+    { route: 'profile', icon: profileIcon, label: t('tabs.profile'), avatarUri },
   ];
 
   const navigateTo = (routeName: string) => {
@@ -173,6 +183,7 @@ const LinkUpTabBar: React.FC<BottomTabBarProps> = ({ state, navigation }) => {
                   active={isActive(it.route)}
                   badge={it.badge}
                   wide={it.wide}
+                  avatarUri={it.avatarUri}
                   pal={pal}
                   onPress={() => navigateTo(it.route)}
                 />
@@ -200,6 +211,7 @@ function TabItem({
   active,
   badge,
   wide,
+  avatarUri,
   pal,
   onPress,
 }: {
@@ -208,6 +220,7 @@ function TabItem({
   active: boolean;
   badge?: number;
   wide?: boolean; // أيقونات أفقية التكوين — تُكبَّر بصرياً دون تغيير التخطيط.
+  avatarUri?: string; // صورة المستخدم — تظهر بدل الأيقونة في تبويب الملف الشخصي.
   pal: Pal;
   onPress: () => void;
 }) {
@@ -232,11 +245,21 @@ function TabItem({
       style={styles.item}
     >
       <Animated.View style={iconStyle}>
-        <Image
-          source={icon}
-          style={[styles.itemIcon, wide && styles.itemIconWide]}
-          contentFit="contain"
-        />
+        {avatarUri ? (
+          <Image
+            source={{ uri: avatarUri }}
+            style={styles.itemAvatar}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={avatarUri}
+          />
+        ) : (
+          <Image
+            source={icon}
+            style={[styles.itemIcon, wide && styles.itemIconWide]}
+            contentFit="contain"
+          />
+        )}
         {badge && badge > 0 ? (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>
@@ -415,6 +438,13 @@ const styles = StyleSheet.create({
     height: 40,
     marginVertical: -5,
     marginHorizontal: -5,
+  },
+  itemAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1.6,
+    borderColor: '#FF5C6C',
   },
   itemLabel: {
     marginTop: 3,

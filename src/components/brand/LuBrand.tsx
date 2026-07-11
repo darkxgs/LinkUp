@@ -52,10 +52,10 @@ export function LuLogo({ width, height, size = 42, light }: LuLogoProps) {
 
   // على الخلفية الداكنة: نص الشعار الأسود لا يظهر — بلاطة فاتحة للأيقونة + كلمة بيضاء/حمراء.
   if (light) {
-    const tile = Math.round(resolvedHeight * 1.06);
-    const fontSize = Math.round(resolvedHeight * 0.82);
+    const tile = Math.round(resolvedHeight * 0.95);
+    const fontSize = Math.round(resolvedHeight * 0.72);
     return (
-      <View style={[styles.logoRow, { gap: 8, maxWidth: '100%' }]}>
+      <View style={[styles.logoRow, { gap: 6, maxWidth: '100%' }]}>
         <View style={[styles.logoTile, { width: tile, height: tile, borderRadius: Math.round(tile * 0.3) }]}>
           <LinearGradient
             colors={['#3A141C', '#1B0C10']}

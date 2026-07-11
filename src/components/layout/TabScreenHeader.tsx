@@ -141,7 +141,7 @@ export function TabScreenHeader({
   return (
     <View style={[styles.headerRow, { paddingHorizontal: pad, gap: rowGap }, style]}>
       <View style={styles.headerLeft}>
-        <View style={[styles.headerTitleColumn, dark ? null : { maxWidth: logoWidth }]}>
+        <View style={styles.headerTitleColumn}>
           <LuLogo width={logoWidth} height={logoHeight} light={dark} />
           {showSubtitle && subtitle ? (
             <Text
