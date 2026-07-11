@@ -723,7 +723,7 @@ export default function RoomScreen() {
   const [sendingGift, setSendingGift] = useState(false);
   const [otherAgencies, setOtherAgencies] = useState<Agency[]>([]);
   const [otherAgencyRooms, setOtherAgencyRooms] = useState<Record<string, Room>>({});
-  const { height: windowH } = useWindowDimensions();
+  const { width: windowW, height: windowH } = useWindowDimensions();
   const chatScrollRef = useRef<FlatList>(null);
   const chatBootstrappedRef = useRef(false);
   const lastChatTailIdRef = useRef<string | null>(null);
@@ -2509,11 +2509,14 @@ export default function RoomScreen() {
 
   // عدد الأعمدة المتكيّف: يختار التوزيع الأكثر تساوياً للصفوف حسب العدد وعرض الشاشة
   // مثال: 20 مقعداً → 5 أعمدة (4 صفوف متساوية) بدل 6 أعمدة (6،6،6،2 غير مرتّبة)
+  // Task 5: more seats → allow more columns so each mic shrinks and row count stays low
+  // Uses live window size so layout stays correct across phone sizes / rotation
   const seatColumns = useMemo(() => {
     const n = seatNumbers.length;
     if (n < 4) return Math.max(1, n);
-    // أقصى أعمدة حسب عرض الشاشة لإبقاء كل مقعد قابلاً للّمس
-    const maxCols = Math.max(4, Math.min(6, Math.floor(SCREEN_W / 62)));
+    const minSeatW = n >= 18 ? 48 : n >= 14 ? 52 : 58;
+    const hardMax = n >= 18 ? 7 : 6;
+    const maxCols = Math.max(4, Math.min(hardMax, Math.floor(windowW / minSeatW)));
     let best = Math.min(maxCols, n);
     let bestScore = Infinity;
     for (let c = Math.min(maxCols, n); c >= 4; c--) {
@@ -2525,21 +2528,26 @@ export default function RoomScreen() {
       }
     }
     return best;
-  }, [seatNumbers.length]);
+  }, [seatNumbers.length, windowW]);
 
-  const seatSize = useMemo<'xsmall' | 'small' | 'medium'>(() => {
-    if (seatColumns >= 6) return 'xsmall';
-    if (seatColumns === 5) return SCREEN_W < 360 ? 'xsmall' : 'small';
-    return SCREEN_W < 360 ? 'small' : 'medium';
-  }, [seatColumns]);
+  // Task 5: seat size shrinks with count so the mic stage stays roughly the same height
+  const seatSize = useMemo<'tiny' | 'xsmall' | 'small' | 'medium'>(() => {
+    const n = seatNumbers.length;
+    if (n >= 18 || seatColumns >= 7) return 'tiny';
+    if (n >= 14 || seatColumns >= 6) return 'xsmall';
+    if (n >= 10 || seatColumns >= 5) return windowW < 360 ? 'xsmall' : 'small';
+    return windowW < 360 ? 'small' : 'medium';
+  }, [seatNumbers.length, seatColumns, windowW]);
 
-  // منصّة المقاعد تكبر للغرف ذات العدد الكبير (21 مقعداً) لإظهار صفوف أكثر بلا تمرير طويل
-  const stageMaxHeight = SCREEN_H * (seatNumbers.length >= 16 ? 0.54 : 0.45);
-  // تباعد رأسي يتقلّص كلما زاد عدد المقاعد → يبقى الشات واضحاً ولا تنزل الصفوف عليه
-  const stageRowGap = seatNumbers.length >= 16 ? 4 : seatNumbers.length >= 10 ? 6 : 10;
+  // Task 5: cap mic stage (~42% screen) — never grow with seat count (was 54% at 16+)
+  const stageMaxHeight = windowH * 0.42;
+  const hostSeatReserve = secondHostEnabled ? 128 : 100;
+  const seatsAreaMaxHeight = Math.max(140, stageMaxHeight - hostSeatReserve);
+  // تباعد رأسي يتقلّص كلما زاد عدد المقاعد → يبقى الشات واضحاً
+  const stageRowGap = seatNumbers.length >= 18 ? 2 : seatNumbers.length >= 14 ? 3 : seatNumbers.length >= 10 ? 5 : 10;
   // كلما كثُرت الصفوف نرفع المنصّة للأعلى قليلاً ونقلّص الحشو السفلي لإفساح الشات
   const stageMarginTop = seatNumbers.length >= 16 ? -30 : seatNumbers.length >= 10 ? -27 : -24;
-  const stagePaddingBottom = seatNumbers.length >= 10 ? 4 : 6;
+  const stagePaddingBottom = seatNumbers.length >= 10 ? 2 : 6;
 
   useEffect(() => {
     const unsub = subscribeToStoreItems((items) => {
@@ -5014,9 +5022,16 @@ export default function RoomScreen() {
       ) : null}
 
 
-      {/* Stage Area — ثابتة (غير قابلة للسكرول)، بحجم محتواها الطبيعي حسب عدد المقاعد */}
+      {/* Stage Area — Task 5: capped height so chat stays readable; seats shrink with count */}
       <View
-        style={{ flexShrink: 0, flexGrow: 0, marginTop: stageMarginTop, zIndex: 1, paddingBottom: stagePaddingBottom }}
+        style={{
+          flexShrink: 0,
+          flexGrow: 0,
+          marginTop: stageMarginTop,
+          zIndex: 1,
+          paddingBottom: stagePaddingBottom,
+          maxHeight: stageMaxHeight,
+        }}
       >
         {renderHostSeat()}
 
@@ -5031,29 +5046,45 @@ export default function RoomScreen() {
         ) : null}
 
       {pkLive && roomPk.mode === 'in_room' ? (
-        <View style={styles.pkTeamsRow}>
-          <View style={[styles.pkTeamPanel, styles.pkTeamPanelBlue]}>
-            {seatNumbers
-              .filter((n) => getPkTeamForSeat(n) === 'blue')
-              .map(renderSeat)}
-          </View>
-          <View style={[styles.pkTeamPanel, styles.pkTeamPanelRed]}>
-            {seatNumbers
-              .filter((n) => getPkTeamForSeat(n) === 'red')
-              .map(renderSeat)}
-          </View>
-        </View>
-      ) : (
-        <View style={[styles.seatsGrid, { flexDirection: rowDir, rowGap: stageRowGap }]}>
-          {seatNumbers.map((seatNum) => (
-            <View
-              key={seatNum}
-              style={[styles.seatGridItem, { width: `${100 / seatColumns}%` as any }]}
-            >
-              {renderSeat(seatNum)}
+        <ScrollView
+          style={{ maxHeight: seatsAreaMaxHeight }}
+          contentContainerStyle={{ flexGrow: 0 }}
+          nestedScrollEnabled
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.pkTeamsRow}>
+            <View style={[styles.pkTeamPanel, styles.pkTeamPanelBlue]}>
+              {seatNumbers
+                .filter((n) => getPkTeamForSeat(n) === 'blue')
+                .map(renderSeat)}
             </View>
-          ))}
-        </View>
+            <View style={[styles.pkTeamPanel, styles.pkTeamPanelRed]}>
+              {seatNumbers
+                .filter((n) => getPkTeamForSeat(n) === 'red')
+                .map(renderSeat)}
+            </View>
+          </View>
+        </ScrollView>
+      ) : (
+        <ScrollView
+          style={{ maxHeight: seatsAreaMaxHeight }}
+          contentContainerStyle={{ flexGrow: 0 }}
+          nestedScrollEnabled
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.seatsGrid, { flexDirection: rowDir, rowGap: stageRowGap }]}>
+            {seatNumbers.map((seatNum) => (
+              <View
+                key={seatNum}
+                style={[styles.seatGridItem, { width: `${100 / seatColumns}%` as any }]}
+              >
+                {renderSeat(seatNum)}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
       )}
       </View>
 
