@@ -9,6 +9,21 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    // وثيقة المشرف الحالي — تُستخدم لقراءة الدور والصلاحيات الدقيقة لكل صفحة
+    function adminDoc() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // مدير النظام (super) يملك كل الصلاحيات تلقائياً
+    function isSuperAdmin() {
+      return isAdmin() && adminDoc().data.role == 'super';
+    }
+
+    // صلاحية دقيقة لصفحة واحدة (key == routePath في navConfig.ts) — مدير النظام يمر دائماً
+    function hasAdminPerm(key) {
+      return isSuperAdmin() || (isAdmin() && adminDoc().data.permissions[key] == true);
+    }
+
     function userAgencyId() {
       return request.auth != null &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid))
@@ -31,6 +46,7 @@ service cloud.firestore {
         .hasAny([
           'isVerified', 'verificationStatus', 'verifiedGender', 'verifiedAt',
           'isBanned', 'banReason', 'isFemaleHost',
+          'isSuspended', 'suspendedUntil', 'suspendReason',
         ]);
     }
 
@@ -40,7 +56,7 @@ service cloud.firestore {
     match /admins/{uid} {
       allow read: if request.auth != null;
       allow create: if request.auth != null && request.auth.uid == uid;
-      allow update, delete: if isAdmin();
+      allow update, delete: if isSuperAdmin();
     }
 
     // كلمات مرور المستخدمين المحفوظة من لوحة التحكم — للأدمن فقط
@@ -111,14 +127,14 @@ service cloud.firestore {
       allow read: if request.auth != null;
       // إنشاء: مستخدم مسجّل يجعل نفسه ownerUid
       allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
-      // تحديث: المالك أو الأدمن، أو إضافة memberCount من أي شخص (لما يقبل دعوة)
+      // تحديث: المالك أو أدمن يملك صلاحية 'agencies'، أو إضافة memberCount من أي شخص (لما يقبل دعوة)
       allow update: if request.auth != null && (
         resource.data.ownerUid == request.auth.uid ||
-        isAdmin() ||
+        hasAdminPerm('agencies') ||
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['memberCount', 'totalEarnings', 'updatedAt'])
       );
-      allow delete: if request.auth != null && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow delete: if request.auth != null && (resource.data.ownerUid == request.auth.uid || hasAdminPerm('agencies'));
     }
 
     // عضوية الوكالات
@@ -244,12 +260,12 @@ service cloud.firestore {
       );
       // إنشاء: المستخدم يقدّم طلب لنفسه
       allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
-      // تحديث: الوكيل المسؤول، أو الأدمن
+      // تحديث: الوكيل المسؤول، أو أدمن يملك صلاحية 'withdrawals'
       allow update: if request.auth != null && (
         resource.data.agentUid == request.auth.uid ||
-        isAdmin()
+        hasAdminPerm('withdrawals')
       );
-      allow delete: if isAdmin();
+      allow delete: if hasAdminPerm('withdrawals');
     }
 
     // إشعارات دخول الرومات — يقرأها المستهدف فقط، أي مسجّل يكتبها
@@ -281,14 +297,16 @@ service cloud.firestore {
       allow delete: if request.auth != null && resource.data.from == request.auth.uid;
     }
 
-    // الإعدادات القابلة للتحكم — يقرأ الجميع، يكتب الأدمن فقط
-    // config/botAdmin: مفتاح Bot API — للأدمن فقط (لا يُعرّض للتطبيق)
+    // الإعدادات القابلة للتحكم — يقرأ الجميع، يكتب من يملك صلاحية الصفحة المالكة فقط
+    // config/botAdmin: مفتاح Bot API — لا يُعرّض للتطبيق، يتطلّب صلاحية 'bot'
     match /config/botAdmin {
-      allow read, write: if isAdmin();
+      allow read, write: if hasAdminPerm('bot');
     }
+    // كل وثيقة config/* تحمل حقل _permKey يحدّد صلاحية الصفحة المالكة لها (يكتبه العميل
+    // مع كل حفظ — راجع admin.ts). لا صلاحية أو _permKey غير صالح ⇒ رفض الكتابة.
     match /config/{doc} {
       allow read: if doc != 'botAdmin';
-      allow write: if isAdmin();
+      allow write: if hasAdminPerm(request.resource.data._permKey);
     }
 
     // المعاملات — يقرؤها المسجّلون، الأدمن يعدّل/يحذف
@@ -403,11 +421,11 @@ service cloud.firestore {
         && request.resource.data.status == 'active';
       allow update: if request.auth != null && (
         resource.data.uid == request.auth.uid
-        || isAdmin()
+        || hasAdminPerm('posts')
         || isPostEngagementCounterUpdate()
       );
       allow delete: if request.auth != null
-        && (resource.data.uid == request.auth.uid || isAdmin());
+        && (resource.data.uid == request.auth.uid || hasAdminPerm('posts'));
 
       match /likes/{uid} {
         allow read: if request.auth != null;
@@ -539,7 +557,7 @@ service cloud.firestore {
         && request.resource.data.reporterUid == request.auth.uid;
       allow read: if isAdmin()
         || (request.auth != null && resource.data.reporterUid == request.auth.uid);
-      allow update: if isAdmin();
+      allow update: if hasAdminPerm('reports');
     }
 
     // سجلات أعطال العميل (AppErrorBoundary) — إنشاء من صاحب الجلسة، قراءة للأدمن
@@ -566,7 +584,7 @@ service cloud.firestore {
         && request.resource.data.status in ['processing', 'pending']
         && !request.resource.data.diff(resource.data).affectedKeys()
           .hasAny(['approvedAt', 'aiGender', 'aiConfidence', 'aiProvider', 'genderMatch', 'rejectionReason']);
-      allow update, delete: if isAdmin();
+      allow update, delete: if hasAdminPerm('kyc-requests');
     }
 
     // ألعاب التحدي الجماعي (1v1 Online Challenges)
