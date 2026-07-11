@@ -17,7 +17,7 @@
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.1065.0",
     "firebase-admin": "^12.6.0",
-    "firebase-functions": "^7.2.5",
+    "firebase-functions": "^6.1.0",
     "livekit-server-sdk": "^2.9.0",
     "ws": "^8.18.3"
   },
