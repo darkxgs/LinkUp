@@ -1986,9 +1986,46 @@ async function assertSuperAdmin(uid: string) {
   }
 }
 
+/**
+ * يتطلب صلاحية صفحة محددة (key == routePath في navConfig.ts في لوحة التحكم).
+ * مدير النظام يمر دائماً. تُستخدم إضافة لـ assertAdmin/assertAdminCountryScope وليس بديلاً عنها.
+ */
+async function assertHasPermission(uid: string, key: string): Promise<void> {
+  const data = await assertAdmin(uid);
+  if (data.role === 'super') return;
+  if ((data.permissions as Record<string, boolean> | undefined)?.[key] !== true) {
+    throw new HttpsError('permission-denied', `صلاحية "${key}" مطلوبة`);
+  }
+}
+
 // ==================== ADMIN USER MANAGEMENT (مشرفون + صلاحيات دول) ====================
 
 /** مدير النظام ينشئ حساب مشرف جديد بصلاحيات دول محددة */
+/**
+ * مفاتيح الصلاحيات الصالحة — يجب أن تطابق routePath في navConfig.ts (لوحة التحكم) تماماً.
+ * أي مفتاح خارج هذه القائمة يُرفض هنا حتى لو استُدعيت الدالة مباشرة (تجاوز الواجهة).
+ */
+const VALID_PERMISSION_KEYS = new Set([
+  'analytics', 'call-usage',
+  'users', 'staff', 'kyc-requests',
+  'rooms', 'room-decor', 'room-reactions',
+  'agencies', 'agency-levels', 'agency-prince', 'agency-applications',
+  'wallet', 'withdrawals', 'bot',
+  'packages', 'gifts', 'store', 'lucky-bag', 'room-throne', 'vip', 'aristocracy',
+  'rewards-center', 'host-tasks', 'titles', 'gift-privileges', 'privacy', 'call-pricing',
+  'posts', 'games', 'stickers', 'relationships', 'chat-backgrounds', 'notifications',
+  'about-pages', 'support', 'reports',
+  'settings', 'app-release',
+]);
+
+function sanitizePermissions(raw: Record<string, boolean>): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(raw ?? {})) {
+    if (VALID_PERMISSION_KEYS.has(key) && value === true) out[key] = true;
+  }
+  return out;
+}
+
 export const createAdminUser = onCall(async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
@@ -2027,7 +2064,7 @@ export const createAdminUser = onCall(async (request) => {
     name: name ?? email.trim(),
     role: role === 'super' ? 'super' : 'country',
     countries: Array.isArray(countries) ? countries : [],
-    permissions: permissions ?? {},
+    permissions: sanitizePermissions(permissions ?? {}),
     disabled: false,
     createdAt: Date.now(),
     createdBy: uid,
@@ -2055,7 +2092,7 @@ export const updateAdminUser = onCall(async (request) => {
   if (typeof name === 'string') payload.name = name;
   if (role === 'super' || role === 'country') payload.role = role;
   if (Array.isArray(countries)) payload.countries = countries;
-  if (permissions && typeof permissions === 'object') payload.permissions = permissions;
+  if (permissions && typeof permissions === 'object') payload.permissions = sanitizePermissions(permissions);
   if (typeof disabled === 'boolean') {
     payload.disabled = disabled;
     await admin.auth().updateUser(targetUid, { disabled }).catch(() => {});
@@ -3367,6 +3404,7 @@ export const reviewAgencyApplication = onCall(async (request) => {
   if (!appSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
   const app = appSnap.data()!;
   await assertAdminCountryScope(adminUid, app.countryCode as string | undefined);
+  await assertHasPermission(adminUid, 'agency-applications');
 
   if (action === 'reject') {
     await appRef.update({
@@ -3502,6 +3540,7 @@ export const adminVerifyAgencyHost = onCall(async (request) => {
   if (!appSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
   const app = appSnap.data()!;
   await assertAdminCountryScope(adminUid, app.countryCode as string | undefined);
+  await assertHasPermission(adminUid, 'users');
 
   if (!['awaiting_hosts', 'ready'].includes(app.status)) {
     throw new HttpsError('failed-precondition', 'مرحلة الطلب لا تسمح بالتوثيق');
@@ -3603,6 +3642,7 @@ export const activateAgencyApplication = onCall(async (request) => {
   if (!appSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
   const app = appSnap.data()!;
   await assertAdminCountryScope(adminUid, app.countryCode as string | undefined);
+  await assertHasPermission(adminUid, 'agency-applications');
 
   if (!['awaiting_hosts', 'ready'].includes(app.status)) {
     throw new HttpsError('failed-precondition', 'الطلب غير جاهز للتفعيل');
@@ -3972,6 +4012,7 @@ export const adminCreateAgencyDirect = onCall(async (request) => {
     countryCode?.trim().toUpperCase() || userCountryFromDoc(ownerData)
   );
   await assertAdminCountryScope(adminUid, agencyCountry);
+  await assertHasPermission(adminUid, 'agencies');
 
   const hosts: HostRow[] = [];
   const rawHosts = [...new Set((hostUids ?? []).map((u) => u.trim()).filter(Boolean))];
@@ -4029,6 +4070,7 @@ export const adminExpressActivateApplication = onCall(async (request) => {
   if (!appSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
   const app = appSnap.data()!;
   await assertAdminCountryScope(adminUid, app.countryCode as string | undefined);
+  await assertHasPermission(adminUid, 'agency-applications');
 
   if (app.status === 'active') {
     throw new HttpsError('already-exists', 'الطلب مفعّل مسبقاً');
@@ -4688,6 +4730,7 @@ export const adminSendUserNotification = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
+  await assertHasPermission(adminUid, 'notifications');
 
   const {
     identifier,
@@ -4794,6 +4837,7 @@ export const adminGrantCoins = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
+  await assertHasPermission(adminUid, 'wallet');
 
   const { accountId, coins, note } = request.data as {
     accountId?: string;
@@ -4953,6 +4997,7 @@ export const adminSendBroadcast = onCall({ memory: '1GiB', timeoutSeconds: 300 }
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
+  await assertHasPermission(adminUid, 'notifications');
 
   const {
     title,
@@ -6131,6 +6176,7 @@ export const getAgencyAdminAnalytics = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
+  await assertHasPermission(adminUid, 'analytics');
 
   const {
     agencyId,
@@ -6705,6 +6751,7 @@ export const removeAgencyMember = onCall(async (request) => {
   let removedByAdmin = false;
   if (asAdmin === true) {
     await assertAdmin(callerUid);
+    await assertHasPermission(callerUid, 'agencies');
     removedByAdmin = true;
   } else {
     const supervisorUids = await readAgencySupervisorUids(aid, ownerUid);
@@ -6819,6 +6866,7 @@ export const adminDeleteAgency = onCall(async (request) => {
 
     const agency = agencySnap.data()!;
     await assertAdminCountryScope(adminUid, agency.country as string | undefined);
+    await assertHasPermission(adminUid, 'agencies');
 
     const result = await purgeAgencyCascade(aid);
     if (!result.deleted) return { ok: true, deleted: false };
@@ -6874,6 +6922,7 @@ export const adminPurgeAgencyOrphans = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
+  await assertHasPermission(adminUid, 'agencies');
 
   const { agencyId } = request.data as { agencyId?: string };
   if (!agencyId?.trim()) throw new HttpsError('invalid-argument', 'agencyId مطلوب');
@@ -6887,6 +6936,7 @@ export const adminPurgeUserOrphans = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
+  await assertHasPermission(adminUid, 'users');
 
   const { uid } = request.data as { uid?: string };
   if (!uid?.trim()) throw new HttpsError('invalid-argument', 'uid مطلوب');
@@ -6900,6 +6950,7 @@ export const adminDeletePost = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
+  await assertHasPermission(adminUid, 'posts');
 
   const { postId } = request.data as { postId?: string };
   if (!postId?.trim()) throw new HttpsError('invalid-argument', 'postId مطلوب');
@@ -7380,6 +7431,26 @@ export const scheduledWeeklyLotteryDraw = onSchedule(
   },
 );
 
+/**
+ * سحب يانصيب أسبوعي يدوي من لوحة التحكم — يستدعي نفس منطق السحب المجدول
+ * (executeWeeklyLotteryDraw) عبر Admin SDK بدل الكتابة المباشرة من العميل
+ * (كانت محظورة أصلاً بقواعد Firestore: weeklyLotteryDraws/lotteryTickets كتابتها false).
+ */
+export const adminRunWeeklyLotteryDraw = onCall(async (request) => {
+  const adminUid = request.auth?.uid;
+  if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+  await assertAdmin(adminUid);
+  await assertHasPermission(adminUid, 'games');
+
+  const { weekId } = request.data as { weekId?: string };
+  const draw = await executeWeeklyLotteryDraw(db, weekId?.trim() || undefined);
+  if (!draw) {
+    throw new HttpsError('failed-precondition', 'لا توجد تذاكر مشتراة لهذا الأسبوع');
+  }
+
+  return draw;
+});
+
 // ==================== CREDIT AGENCY PEARLS ON GIFT ====================
 /**
  * Trigger: عند إنشاء معاملة ماسة واردة لمضيفة في وكالة،
@@ -7773,6 +7844,7 @@ export const adminDiscoverAristocracyUploads = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
+  await assertHasPermission(adminUid, 'aristocracy');
 
   const bucket = admin.storage().bucket();
   const [files] = await bucket.getFiles({ prefix: 'config/aristocracy/' });

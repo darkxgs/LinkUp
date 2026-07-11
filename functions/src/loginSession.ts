@@ -24,6 +24,7 @@ export type LoginSessionPayload = {
     region?: string;
     country?: string;
   };
+  connectionType?: string;
 };
 
 type RegisteredDeviceEntry = {
@@ -38,7 +39,33 @@ type RegisteredDeviceEntry = {
   lastIp?: string;
   lastLocation?: LoginSessionPayload['location'];
   loginCount?: number;
+  connectionType?: string;
 };
+
+/** نافذة الاشتباه بتغيّر الدولة بين تسجيلي دخول متتاليين */
+const SUSPICIOUS_COUNTRY_CHANGE_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+async function detectSuspiciousLogin(
+  uid: string,
+  countryNow: string | undefined,
+  now: number,
+): Promise<boolean> {
+  if (!countryNow) return false;
+  const prevSnap = await db
+    .collection('users')
+    .doc(uid)
+    .collection('loginSessions')
+    .orderBy('createdAt', 'desc')
+    .limit(1)
+    .get();
+  if (prevSnap.empty) return false;
+  const prev = prevSnap.docs[0].data();
+  const prevCountry = prev.location?.country as string | undefined;
+  const prevCreatedAt = Number(prev.createdAt) || 0;
+  if (!prevCountry || !prevCreatedAt) return false;
+  if (now - prevCreatedAt > SUSPICIOUS_COUNTRY_CHANGE_WINDOW_MS) return false;
+  return prevCountry.trim().toLowerCase() !== countryNow.trim().toLowerCase();
+}
 
 function extractClientIp(rawRequest: { headers?: Record<string, string | string[] | undefined>; ip?: string } | undefined): string {
   if (!rawRequest) return '';
@@ -75,6 +102,7 @@ function mergeRegisteredDevice(
     lastIp: ip || prev?.lastIp,
     lastLocation: payload.location ?? prev?.lastLocation,
     loginCount: (Number(prev?.loginCount) || 0) + 1,
+    connectionType: payload.connectionType ?? prev?.connectionType,
   };
   return [entry, ...others].slice(0, 20);
 }
@@ -101,6 +129,8 @@ export const recordLoginSession = onCall(async (request) => {
   const now = Date.now();
   const sessionId = `sess_${now}_${Math.random().toString(36).slice(2, 9)}`;
 
+  const flaggedSuspicious = await detectSuspiciousLogin(uid, payload.location?.country, now);
+
   const sessionDoc = {
     id: sessionId,
     deviceId: payload.deviceId.trim(),
@@ -113,8 +143,10 @@ export const recordLoginSession = onCall(async (request) => {
     osVersion: payload.osVersion?.trim() || '',
     deviceIdentifier: payload.deviceIdentifier?.trim() || '',
     appVersion: payload.appVersion?.trim() || '',
+    connectionType: payload.connectionType?.trim() || '',
     location: payload.location ?? null,
     createdAt: now,
+    ...(flaggedSuspicious ? { flaggedSuspicious: true } : {}),
   };
 
   const userRef = db.collection('users').doc(uid);
@@ -128,6 +160,19 @@ export const recordLoginSession = onCall(async (request) => {
   );
   if (revoked.has(payload.deviceId.trim())) {
     throw new HttpsError('permission-denied', 'DEVICE_REVOKED');
+  }
+
+  // تعليق مؤقت للحساب — يمنع تسجيل الدخول حتى انتهاء المدة أو رفع التعليق يدوياً
+  if (data.isSuspended === true) {
+    const suspendedUntil = Number(data.suspendedUntil) || 0;
+    if (!suspendedUntil || suspendedUntil > now) {
+      throw new HttpsError('permission-denied', 'ACCOUNT_SUSPENDED');
+    }
+    // انتهت مدة التعليق تلقائياً — نرفعه الآن حتى لا يُحظر الدخول لاحقاً بالخطأ
+    await userRef.set(
+      { isSuspended: false, suspendedUntil: admin.firestore.FieldValue.delete(), suspendReason: admin.firestore.FieldValue.delete() },
+      { merge: true },
+    );
   }
 
   const mergedDevices = mergeRegisteredDevice(devices, payload, ip, now);
