@@ -67,7 +67,7 @@ const BADGE_LABEL: Record<string, string> = {
 export default function RoomCustomizeScreen() {
   const { id: roomId, agencyId: paramAgencyId } = useLocalSearchParams<{ id: string; agencyId?: string }>();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { vipSystem } = useConfig();
   const canUseRoomBackground = userHasVipFeature(user, 'roomBackground', vipSystem);
 
@@ -273,6 +273,8 @@ export default function RoomCustomizeScreen() {
                   selectedFrame.durationDays ?? 0,
                 );
                 setOwned((prev) => [...prev, selectedFrame.id]);
+                // تحديث الرصيد المعروض فوراً — الخصم كان يتم في الخادم دون أن يظهر في التطبيق
+                void refreshUser?.();
                 Alert.alert('تم', 'تم شراء إطار الوكالة — فعّله ليظهر حول صورتها 🎉');
               } else {
                 await purchaseFrame(
@@ -281,6 +283,8 @@ export default function RoomCustomizeScreen() {
                   selectedFrame.durationDays ?? 0,
                 );
                 setOwned((prev) => [...prev, selectedFrame.id]);
+                // تحديث الرصيد المعروض فوراً — الخصم كان يتم في الخادم دون أن يظهر في التطبيق
+                void refreshUser?.();
                 Alert.alert('تم', 'تم شراء الإطار — يظهر حول صورتك في الملف والغرف 🎉');
               }
             } catch (e: any) {

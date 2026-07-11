@@ -180,7 +180,9 @@ type ThreadRowProps = {
   isRead: boolean;
   myUid?: string;
   peerDisplayName: string;
-  replyLabels: { you: string; replyingTo: string };
+  replyLabels: { you: string; replyingTo: string; deletedMessage?: string };
+  /** الرسالة الأصلية للاقتباس محذوفة — نعرض «رسالة محذوفة» */
+  replyDeleted?: boolean;
   catalogGifts: CatalogGift[];
   onOpenFullImage: (url: string) => void;
   onOpenVideo: (url: string) => void;
@@ -204,6 +206,7 @@ const ThreadMessageRow = React.memo(function ThreadMessageRow({
   myUid,
   peerDisplayName,
   replyLabels,
+  replyDeleted = false,
   catalogGifts,
   onOpenFullImage,
   onOpenVideo,
@@ -293,6 +296,7 @@ const ThreadMessageRow = React.memo(function ThreadMessageRow({
                   myUid={myUid}
                   isMine={isMe}
                   labels={replyLabels}
+                  deleted={replyDeleted}
                 />
               ) : null}
               <Text
@@ -477,31 +481,62 @@ export function RoomEmbeddedChatThread({
     });
   }, [messages, pendingMediaUploads.length]);
 
-  // مفتاح محتوى للمطابقة بين الرسالة التفاؤلية والحقيقية (نفس نمط شاشة الشات الرئيسية)
-  const contentKey = (m: ChatMessage) => `${m.fromUid}|${m.type}|${m.text}`;
+  // مطابقة التفاؤلية مع الحقيقية — نافذة زمنية + استهلاك رسالة حقيقية واحدة لكل
+  // تفاؤلية (نفس إصلاح شاشة الشات الرئيسية: المطابقة بمفتاح المحتوى وحده كانت
+  // تُسقط النسختين معاً عند إرسال رسالتين متتاليتين بنفس النص فيهتزّ الثريد)
+  const filterStillPending = useCallback(
+    (pending: ChatMessage[], real: ChatMessage[]) => {
+      if (pending.length === 0) return pending;
+      const consumed = new Set<string>();
+      return pending.filter((p) => {
+        const match = real.find(
+          (m) =>
+            !consumed.has(m.id)
+            && !m.id.startsWith('temp-')
+            && m.fromUid === p.fromUid
+            && m.type === p.type
+            && m.text === p.text
+            && (m.createdAt ?? 0) >= p.createdAt - 15_000,
+        );
+        if (match) {
+          consumed.add(match.id);
+          return false;
+        }
+        return true;
+      });
+    },
+    [],
+  );
 
-  // أزل النصوص التفاؤلية بمجرد وصول الرسالة الحقيقية عبر onSnapshot
+  // أزل النصوص التفاؤلية بمجرد وصول الرسالة الحقيقية المقابلة عبر onSnapshot
   useEffect(() => {
     if (pendingSends.length === 0) return;
-    const existing = new Set(messages.map(contentKey));
     setPendingSends((prev) => {
-      const next = prev.filter((p) => !existing.has(contentKey(p)));
+      const next = filterStillPending(prev, messages);
       return next.length === prev.length ? prev : next;
     });
-  }, [messages]);
+  }, [messages, filterStillPending, pendingSends.length]);
 
   const displayMessages = useMemo(() => {
     let merged = messages;
     if (pendingSends.length > 0) {
-      const existing = new Set(messages.map(contentKey));
-      const stillPending = pendingSends.filter((p) => !existing.has(contentKey(p)));
+      const stillPending = filterStillPending(pendingSends, messages);
       if (stillPending.length > 0) merged = [...merged, ...stillPending];
     }
     if (pendingMediaUploads.length > 0) {
-      merged = [...merged, ...pendingMediaUploads].sort((a, b) => a.createdAt - b.createdAt);
+      // ساعة الخادم (sortAt) حيث توفّرت — الترتيب بساعة الجهاز كان يخلط الرسائل
+      const sortKey = (m: ChatMessage) =>
+        ((m as ChatMessage & { sortAt?: number }).sortAt || m.createdAt || 0);
+      merged = [...merged, ...pendingMediaUploads].sort((a, b) => sortKey(a) - sortKey(b));
     }
     return merged;
-  }, [messages, pendingSends, pendingMediaUploads]);
+  }, [messages, pendingSends, pendingMediaUploads, filterStillPending]);
+
+  // معرّفات الرسائل المحمّلة — اقتباس الرد يعرض «رسالة محذوفة» إذا حُذفت الأصلية
+  const loadedMessageIds = useMemo(
+    () => new Set(messages.map((m) => m.id)),
+    [messages],
+  );
 
   const isMessageReadByPeer = useCallback(
     (msg: ChatMessage) =>
@@ -789,6 +824,7 @@ export function RoomEmbeddedChatThread({
     () => ({
       you: t('chat.replyYou'),
       replyingTo: t('chat.replyingTo'),
+      deletedMessage: t('chat.replyDeletedMessage'),
     }),
     [t],
   );
@@ -921,6 +957,9 @@ export function RoomEmbeddedChatThread({
                 myUid={myUid}
                 peerDisplayName={peerDisplayName}
                 replyLabels={replyLabels}
+                replyDeleted={
+                  item.replyTo ? !loadedMessageIds.has(item.replyTo.messageId) : false
+                }
                 catalogGifts={catalogGifts}
                 onOpenFullImage={setFullImage}
                 onOpenVideo={setFullVideo}

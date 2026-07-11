@@ -32,6 +32,7 @@ import { initI18n } from '@/localization/i18n';
 import i18n from '@/localization/i18n';
 import { verifyFirebaseConnection, isFirebaseReady } from '@/services/firebase';
 import { useAuthStore } from '@/stores/authStore';
+import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import { AlertProvider } from '@/components/ui';
 import { ConfigProvider } from '@/contexts/ConfigContext';
 import { IncomingCallModal } from '@/components/IncomingCallModal';
@@ -117,6 +118,9 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* حاجز الأخطاء العام — أي خطأ render كان يترك شاشة بيضاء ميتة؛
+          الآن شاشة عربية ودّية مع «إعادة المحاولة» + تسجيل العطل */}
+      <AppErrorBoundary>
       <SafeAreaProvider>
           <I18nextProvider i18n={i18n}>
             <ConfigProvider>
@@ -267,6 +271,7 @@ export default function RootLayout() {
             </ConfigProvider>
           </I18nextProvider>
       </SafeAreaProvider>
+      </AppErrorBoundary>
     </GestureHandlerRootView>
   );
 }

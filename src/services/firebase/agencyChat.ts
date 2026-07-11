@@ -258,6 +258,11 @@ async function pushMessage(
 export const sendAgencyText = async (agencyId: string, text: string): Promise<void> => {
   const t = text.trim();
   if (!t) return;
+  // رقابة برمجية — الألفاظ المسيئة + الدعاية لتطبيقات منافسة (كانت دردشة الوكالة بلا فلترة)
+  const { assertCleanText } = await import('@/utils/textModeration');
+  assertCleanText(t);
+  const { assertNoBannedTerms } = await import('@/utils/moderation');
+  assertNoBannedTerms(t);
   await pushMessage(agencyId, { type: 'text', text: t }, t.slice(0, 60));
 };
 

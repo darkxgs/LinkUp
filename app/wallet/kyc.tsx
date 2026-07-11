@@ -102,11 +102,14 @@ export default function KYCScreen() {
   const { user } = useAuth();
   const kycState = useKycVerification();
   const kycPhase = useMemo(() => resolveKycUiPhase(kycState), [kycState]);
-  const kycBlocked = kycPhase === 'verified' || kycPhase === 'pending' || kycPhase === 'processing';
   const accountSuspended =
     user?.isBanned === true && user?.banReason !== 'gender_verification_mismatch';
 
   const [mode, setMode] = useState<KycMode>('choose');
+  // إرسال جارٍ من هذه الشاشة — يمنع تبديل الواجهة عندما يكتب العميل status: processing
+  const [submitting, setSubmitting] = useState(false);
+  // المدخل دائماً تحقق الـ AI بالوجه — «قيد المراجعة» أو «معالجة» عالقة لا تقفل إعادة المحاولة
+  const kycBlocked = kycPhase === 'verified' || accountSuspended;
 
   // Personal info (للتحقق بالوجه)
   const [fullName, setFullName] = useState('');
@@ -125,13 +128,15 @@ export default function KYCScreen() {
   }, [user?.uid, user?.profile?.displayName]);
 
   useEffect(() => {
-    if (kycState.loading || accountSuspended) return;
-    if (kycPhase === 'verified' || kycPhase === 'pending' || kycPhase === 'processing') {
+    // أثناء الإرسال لا نبدّل الواجهة — كتابة status: processing من العميل تُطلق onSnapshot فوراً
+    if (kycState.loading || accountSuspended || submitting) return;
+    if (kycPhase === 'verified') {
       setMode('choose');
       return;
     }
+    // pending/processing/rejected/none → دائماً تدفق التحقق بالوجه (AI) مع بانر الحالة أعلاه
     setMode('face');
-  }, [kycState.loading, accountSuspended, kycPhase]);
+  }, [kycState.loading, accountSuspended, kycPhase, submitting]);
 
   const isFaceNameValid = fullName.trim().length >= 2;
 
@@ -162,10 +167,15 @@ export default function KYCScreen() {
       ]);
       return;
     }
+    // نبقى على الشاشة — بانر الحالة يتحدّث لحظياً (onSnapshot) عند موافقة/رفض الإدارة
     Alert.alert(t('kyc.pendingTitle'), result.message ?? t('kyc.pendingBody'), [
-      { text: t('common.ok'), onPress: () => router.back() },
+      { text: t('common.ok') },
     ]);
   };
+
+  // «معالجة» بلا إرسال محلي = طلب قديم عالق (فشل الاستدعاء) — نعرضه كـ«قيد المراجعة» مع إتاحة المحاولة
+  const bannerPhase: KycUiPhase =
+    kycPhase === 'processing' && !submitting ? 'pending' : kycPhase;
 
   return (
     <View style={styles.container}>
@@ -230,7 +240,7 @@ export default function KYCScreen() {
 
           {!kycState.loading && mode !== 'choose' ? (
             <KycStatusBanner
-              phase={kycPhase}
+              phase={bannerPhase}
               suspended={accountSuspended}
               rejectionReason={kycState.rejectionReason}
               t={t}
@@ -316,6 +326,7 @@ export default function KYCScreen() {
                 displayName={user?.profile?.displayName ?? fullName}
                 disabled={!isFaceNameValid || kycBlocked}
                 onResult={handleKycResult}
+                onBusyChange={setSubmitting}
               />
             </View>
           )}

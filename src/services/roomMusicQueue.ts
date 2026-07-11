@@ -116,11 +116,8 @@ export async function playOrQueueTrack(
     return 'played';
   }
 
-  if (currentMusic.addedBy === user.uid) {
-    await playTrackInRoom(roomId, track);
-    return 'played';
-  }
-
+  // يوجد مقطع شغّال (حتى لو لي) → أضِف للقائمة بدل الاستبدال —
+  // الاستبدال الفوري كان يمنع وجود أكثر من أغنية في قائمة التشغيل
   await appendToRoomMusicQueue(roomId, track);
   return 'queued';
 }

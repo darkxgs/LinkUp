@@ -66,7 +66,7 @@ import { startCall } from '@/services/firebase/rtc';
 import { subscribeToUserPresence, isTrackableAgencyPresence, type UserPresence } from '@/services/roomFeatures';
 import { colors, radius, spacing, shadows } from '@/theme';
 import { lu } from '@/theme/lu-brand';
-import { blockUser } from '@/services/firebase/blocks';
+import { blockUser, unblockUser, isBlocked } from '@/services/firebase/blocks';
 import { resolveDisplayName } from '@/utils/displayName';
 import { getCountryByCode } from '@/data/countries';
 import { usePresenceForUids } from '@/hooks/usePresence';
@@ -155,6 +155,7 @@ export default function UserProfileScreen() {
   >([]);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [optionsVisible, setOptionsVisible] = useState(false);
+  const [blockedByMe, setBlockedByMe] = useState(false);
   const [hostRoom, setHostRoom] = useState<Room | null>(null);
   const equippedFrameUrl = useEquippedFrameUrl(userId);
 
@@ -211,6 +212,16 @@ export default function UserProfileScreen() {
     });
     return () => { cancelled = true; };
   }, [userId]);
+
+  // حالة الحظر — لعرض «رفع الحظر» بدل «حظر المستخدم» في القائمة
+  useEffect(() => {
+    if (!userId || !myUser?.uid || userId === myUser.uid) return;
+    let cancelled = false;
+    void isBlocked(myUser.uid, userId).then((b) => {
+      if (!cancelled) setBlockedByMe(b);
+    });
+    return () => { cancelled = true; };
+  }, [userId, myUser?.uid]);
 
   // تسجيل زيارة الملف (مرة عند فتح الشاشة)
   const visitRecordedRef = React.useRef(false);
@@ -1010,6 +1021,32 @@ export default function UserProfileScreen() {
                   onPress={() => {
                     setOptionsVisible(false);
                     setTimeout(() => {
+                      if (blockedByMe) {
+                        // محظور مسبقاً — الخيار يصبح «رفع الحظر»
+                        Alert.alert(
+                          t('profile.unblockUser'),
+                          t('profile.unblockConfirmUser', { name: displayName }),
+                          [
+                            { text: t('common.cancel'), style: 'cancel' },
+                            {
+                              text: t('profile.unblockUser'),
+                              onPress: async () => {
+                                try {
+                                  await unblockUser(userId);
+                                  setBlockedByMe(false);
+                                  Alert.alert(
+                                    t('common.done'),
+                                    t('profile.unblockSuccess', { name: displayName }),
+                                  );
+                                } catch {
+                                  Alert.alert(t('common.error'), t('profile.unblockFailed'));
+                                }
+                              },
+                            },
+                          ],
+                        );
+                        return;
+                      }
                       Alert.alert(
                         t('profile.blockUser'),
                         t('profile.blockConfirmUser', { name: displayName }),
@@ -1021,6 +1058,7 @@ export default function UserProfileScreen() {
                             onPress: async () => {
                               try {
                                 await blockUser(userId);
+                                setBlockedByMe(true);
                                 Alert.alert(
                                   t('common.done'),
                                   t('profile.blockSuccess', { name: displayName }),
@@ -1048,7 +1086,7 @@ export default function UserProfileScreen() {
                       { color: '#EF4444', textAlign: isAr ? 'right' : 'left' }
                     ]}
                   >
-                    {t('profile.blockUser')}
+                    {blockedByMe ? t('profile.unblockUser') : t('profile.blockUser')}
                   </Text>
                   {isAr ? (
                     <ChevronLeft size={18} color={lu.colors.muted} />

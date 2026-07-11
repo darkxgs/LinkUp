@@ -169,7 +169,7 @@ export function RelationshipTimeline({
               </View>
             ) : (
               <View style={styles.lockedWrap}>
-                <TimelineLockedHeart size={LOCKED_SIZE} />
+                <TimelineLockedHeart size={LOCKED_SIZE} reached={reached} />
                 <Text style={[styles.num, reached && styles.numReached]}>{label}</Text>
               </View>
             )}
@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   numReached: {
-    color: '#A6A6AE',
+    color: REL_DESIGN.purple,
   },
   statusRow: {
     position: 'absolute',

@@ -146,6 +146,15 @@ export async function markSupportPriority(): Promise<boolean> {
 export async function sendAppWideMessage(text: string): Promise<{ ok: boolean; error?: string }> {
   const clean = text.trim();
   if (!clean) return { ok: false, error: 'النص مطلوب' };
+  // رقابة برمجية — البثّ العام أخطر قناة دعاية: ألفاظ مسيئة + تطبيقات منافسة
+  try {
+    const { assertCleanText } = await import('@/utils/textModeration');
+    assertCleanText(clean);
+    const { assertNoBannedTerms } = await import('@/utils/moderation');
+    assertNoBannedTerms(clean);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'هذه الرسالة تخالف إرشادات المجتمع' };
+  }
   try {
     const fn = httpsCallable<{ text: string }, { ok?: boolean }>(functions, 'svipSendAppMessage');
     await fn({ text: clean.slice(0, 200) });

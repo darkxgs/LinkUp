@@ -173,7 +173,6 @@ export const exchangeCurrency = async (
   }
 
   const isCasinoRoute = route === 'casino_to_coins' || route === 'casino_to_pearls';
-  const debitAmount = isCasinoRoute ? toStoredCasinoCoins(amount) : amount;
 
   const rates = await getExchangeRates();
   const { received, rate, rateMode, sourceLabel, targetLabel } = calculateExchange(
@@ -188,6 +187,11 @@ export const exchangeCurrency = async (
     }
     throw new Error('المبلغ غير كافٍ للتحويل');
   }
+
+  // في مسار القسمة (كوينز → ماسة) نخصم فقط ما يقابل الماس المكتسب فعلاً —
+  // الباقي (مثلاً 8,648 من 58,648) يبقى في رصيد المستخدم ولا يُحرق أبداً.
+  const spentAmount = rateMode === 'divide' ? received * rate : amount;
+  const debitAmount = isCasinoRoute ? toStoredCasinoCoins(spentAmount) : spentAmount;
 
   const { source, target, txType } = balanceKeyForRoute(route);
   const meRef = doc(firestore, 'users', me.uid);
@@ -243,7 +247,7 @@ export const exchangeCurrency = async (
   await addDoc(collection(firestore, 'transactions'), {
     uid: me.uid,
     type: txType,
-    amount: -amount,
+    amount: -spentAmount,
     received,
     rate,
     rateMode,
@@ -262,7 +266,7 @@ export const exchangeCurrency = async (
   return {
     ok: true,
     message: `تم! حصلت على ${received.toLocaleString()} ${targetLabel}`,
-    spent: amount,
+    spent: spentAmount,
     received,
     rate,
     rateMode,

@@ -44,7 +44,7 @@ import {
 } from '@/components/layout/TabScreenHeader';
 import { useAuth } from '@/hooks/useAuth';
 import { useRooms } from '@/hooks/useRooms';
-import { Room, isRoomLive, quickCreateRoom } from '@/services/firebase/rooms';
+import { Room, isRoomLive, isPersonalHostRoom, quickCreateRoom } from '@/services/firebase/rooms';
 import { spacing } from '@/theme';
 import { lu } from '@/theme/lu-brand';
 import { resolveDisplayName } from '@/utils/displayName';
@@ -57,7 +57,7 @@ import {
   type FavoriteRoom,
   type RecentRoom,
 } from '@/services/roomFeatures';
-import { enterAgencyRoomAndNavigate } from '@/utils/navigateToRoom';
+import { enterAgencyRoomAndNavigate, navigateToRoom } from '@/utils/navigateToRoom';
 import { getAgencyPeriodWeekKey } from '@/services/agencyService';
 import { getAgencyLevelProgress, type AgencyLevelsRuntimeConfig } from '@/services/agencyLevels';
 import { useAgencyLevelsConfig } from '@/hooks/useAgencyLevelsConfig';
@@ -101,6 +101,11 @@ function isAgencyInterest(room: { isAgencyRoom?: boolean; agencyId?: string }): 
 
 // cache على مستوى الموديول للوكالات — عرض فوري عند العودة للشاشة دون سبينر حاجب
 let agenciesMemCache: Agency[] | null = null;
+
+/** عنصر قائمة تبويب «الغرف» — وكالة أو غرفة شخصية عامة (مدموجتان) */
+type RoomsListEntry =
+  | { kind: 'agency'; agency: Agency }
+  | { kind: 'room'; room: Room };
 
 function resolveAgencySupportPercent(
   agency: Agency,
@@ -382,8 +387,35 @@ export default function RoomsScreen() {
     return list;
   }, [filteredAgencies, agencyRoomMap]);
 
+  // #2: الغرف الشخصية العامة تظهر مع الوكالات في تبويب «الغرف» —
+  // المقفلة/الخاصة لا تُعرض (دخولها بالدعوة أو المفضلة فقط)
+  const publicPersonalRooms = useMemo(() => {
+    const visible = rooms.filter((r) => {
+      if (!isPersonalHostRoom(r)) return false;
+      const mode = r.mode ?? (r.isPrivate ? 'locked' : 'public');
+      if (mode === 'locked') return false;
+      if (country !== 'WW' && r.country !== country) return false;
+      return true;
+    });
+    return visible.sort((a, b) => {
+      const liveA = isRoomLive(a) ? 1 : 0;
+      const liveB = isRoomLive(b) ? 1 : 0;
+      if (liveB !== liveA) return liveB - liveA;
+      const audA = toSafeInt(a.audienceCount);
+      const audB = toSafeInt(b.audienceCount);
+      if (audB !== audA) return audB - audA;
+      return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+    });
+  }, [rooms, country]);
+
   const listLoading = loading || agenciesLoading;
-  const listData = listLoading ? [] : displayAgencies;
+  const listData = useMemo((): RoomsListEntry[] => {
+    if (listLoading) return [];
+    return [
+      ...displayAgencies.map((agency): RoomsListEntry => ({ kind: 'agency', agency })),
+      ...publicPersonalRooms.map((room): RoomsListEntry => ({ kind: 'room', room })),
+    ];
+  }, [listLoading, displayAgencies, publicPersonalRooms]);
 
   const agencyLiveRoomIds = useMemo(() => {
     const ids = new Set<string>();
@@ -455,37 +487,60 @@ export default function RoomsScreen() {
     [router, t, user],
   );
 
+  const handlePersonalRoomPress = useCallback(
+    (room: Room) => {
+      if (!user) {
+        Alert.alert(t('rooms.loginRequired'), t('agencyApply.loginToEnter'));
+        return;
+      }
+      // navigateToRoom يحترم بوابة كلمة المرور لو تغيّر وضع الغرفة
+      void navigateToRoom(router, room.id);
+    },
+    [router, t, user],
+  );
+
   const renderAgencyItem = useCallback(
-    ({ item, index }: { item: Agency; index: number }) => {
-      const frameUrl = resolveAgencyCardFrameUrl(item, agencyFrames);
+    ({ item, index }: { item: RoomsListEntry; index: number }) => {
       const cardW = agencyViewMode === 'grid' ? roomColW : W - pad * 2;
-      const room = agencyRoomMap.get(item.id);
-      const roomId = room?.id ?? item.liveRoomId;
+      const wrapStyle =
+        agencyViewMode === 'grid'
+          ? {
+              width: roomColW,
+              marginBottom: roomGap,
+              marginEnd: index % 2 === 0 ? roomGap / 2 : 0,
+              marginStart: index % 2 === 1 ? roomGap / 2 : 0,
+            }
+          : { width: cardW, marginBottom: 0 };
+
+      if (item.kind === 'room') {
+        return (
+          <View style={wrapStyle}>
+            <PersonalRoomCard
+              room={item.room}
+              onPress={() => handlePersonalRoomPress(item.room)}
+            />
+          </View>
+        );
+      }
+
+      const agency = item.agency;
+      const frameUrl = resolveAgencyCardFrameUrl(agency, agencyFrames);
+      const room = agencyRoomMap.get(agency.id);
+      const roomId = room?.id ?? agency.liveRoomId;
       const presence = roomId ? presenceByRoomId[roomId] : undefined;
       const hasActiveLuckyBag = roomId ? !!luckyBagByRoomId[roomId] : false;
       return (
-        <View
-          style={
-            agencyViewMode === 'grid'
-              ? {
-                  width: roomColW,
-                  marginBottom: roomGap,
-                  marginEnd: index % 2 === 0 ? roomGap / 2 : 0,
-                  marginStart: index % 2 === 1 ? roomGap / 2 : 0,
-                }
-              : { width: cardW, marginBottom: 0 }
-          }
-        >
+        <View style={wrapStyle}>
           <AgencyRoomCard
-            agency={item}
+            agency={agency}
             room={room}
             width={cardW}
             layout={agencyViewMode}
-            supportPercent={resolveAgencySupportPercent(item, levelsConfig)}
+            supportPercent={resolveAgencySupportPercent(agency, levelsConfig)}
             frameUrl={frameUrl}
             hasActiveLuckyBag={hasActiveLuckyBag}
             presence={presence}
-            onPress={() => handleAgencyPress(item.id)}
+            onPress={() => handleAgencyPress(agency.id)}
           />
         </View>
       );
@@ -496,6 +551,7 @@ export default function RoomsScreen() {
       agencyRoomMap,
       levelsConfig,
       handleAgencyPress,
+      handlePersonalRoomPress,
       agencyViewMode,
       agencyFrames,
       luckyBagByRoomId,
@@ -597,7 +653,8 @@ export default function RoomsScreen() {
 
         <View style={[styles.sectionHead, { paddingHorizontal: pad, marginTop: 4 }]}>
           <View style={styles.sectionTitleRow}>
-            <RoomSectionTitle>{t('rooms.agenciesSection')}</RoomSectionTitle>
+            {/* #2: التبويب «الغرف» — وكالات + غرف شخصية عامة مدموجة */}
+            <RoomSectionTitle>{t('rooms.title')}</RoomSectionTitle>
             <Crown size={16} color="#F0C75A" fill="#F0C75A" strokeWidth={0} />
           </View>
           <Pressable onPress={() => router.push('/agencies' as any)}>
@@ -666,7 +723,9 @@ export default function RoomsScreen() {
       <FlashList
         data={listData}
         extraData={`${i18n.language}-${agencyViewMode}`}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) =>
+          item.kind === 'agency' ? item.agency.id : `room-${item.room.id}`
+        }
         renderItem={renderAgencyItem}
         numColumns={agencyViewMode === 'grid' ? 2 : 1}
         estimatedItemSize={agencyViewMode === 'grid' ? 300 : 120}
@@ -686,6 +745,85 @@ export default function RoomsScreen() {
     </LinearGradient>
   );
 }
+
+/** بطاقة غرفة شخصية عامة — تُعرض مدموجة مع بطاقات الوكالات في تبويب «الغرف» */
+const PersonalRoomCard = React.memo(function PersonalRoomCard({
+  room,
+  onPress,
+}: {
+  room: Room;
+  onPress: () => void;
+}) {
+  const { t } = useTranslation();
+  const cover = [room.banner, room.background, room.hostAvatar].find(
+    (v) => v && v.startsWith('http'),
+  );
+  const grad = pickGrad(room.id);
+  const live = isRoomLive(room);
+  const audience = toSafeInt(room.audienceCount);
+  const hostInitial = (room.hostName?.trim()?.[0] ?? '?').toUpperCase();
+  return (
+    <Pressable onPress={onPress} style={styles.gridCard}>
+      <View style={[styles.gridCover, { height: 120 }]}>
+        {cover ? (
+          <Image
+            source={{ uri: cover }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={cover}
+          />
+        ) : (
+          <LinearGradient
+            colors={grad}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
+        {live ? (
+          <View style={styles.gridLivePill}>
+            <Radio size={9} color="#fff" strokeWidth={3} />
+            <RNText style={styles.gridLiveText}>{t('rooms.liveBadge')}</RNText>
+          </View>
+        ) : null}
+        <View style={styles.gridAudiencePill}>
+          <Users size={10} color="#fff" strokeWidth={2.5} />
+          <RNText style={styles.gridAudienceText}>{audience}</RNText>
+        </View>
+        <View style={styles.gridHostRow}>
+          <View style={styles.gridHostAvatar}>
+            {room.hostAvatar?.startsWith('http') ? (
+              <Image
+                source={{ uri: room.hostAvatar }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={room.hostAvatar}
+              />
+            ) : (
+              <RNText style={styles.gridHostInitial}>{hostInitial}</RNText>
+            )}
+          </View>
+          <RNText style={styles.gridHostName} numberOfLines={1}>
+            {room.hostName}
+          </RNText>
+        </View>
+      </View>
+      <View style={styles.gridBody}>
+        <RNText style={styles.gridTitle} numberOfLines={2}>
+          {room.name}
+        </RNText>
+        <View style={styles.gridFooter}>
+          <View style={styles.roomKindBadge}>
+            <Mic2 size={10} color={lu.colors.purple} strokeWidth={2.5} />
+            <RNText style={styles.roomKindBadgeText}>{t('rooms.badgeRoom')}</RNText>
+          </View>
+        </View>
+      </View>
+    </Pressable>
+  );
+});
 
 const InterestRoomCard = React.memo(function InterestRoomCard({
   name,

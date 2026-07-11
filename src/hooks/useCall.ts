@@ -65,7 +65,11 @@ export function useCall({
     }
 
     void (async () => {
-      const fbUser = auth.currentUser ?? (await import('@/services/firebase/authReady')).waitForFirestoreAuth(8_000);
+      // await ناقص سابقاً: كانت fbUser وعداً (truthy دائماً) فلا انتظار للمصادقة
+      // إطلاقاً عند الرد من إشعار/إقلاع بارد — والاتصال يفشل فوراً «انتهت الجلسة»
+      const fbUser =
+        auth.currentUser ??
+        (await (await import('@/services/firebase/authReady')).waitForFirestoreAuth(8_000));
       if (cancelled) return;
       if (!fbUser) {
         const { SESSION_EXPIRED_MSG } = await import('@/services/firebase/authReady');

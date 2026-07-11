@@ -410,6 +410,11 @@ export function RoomSettingsSheet({
 
   const handleSave = async () => {
     if (!roomId || !canManage) return;
+    // غرفة مقفلة بلا كلمة مرور = غرفة مفتوحة فعلياً (البوابة تتجاوزها) — نمنع الحفظ
+    if (mode === 'locked' && !password.trim()) {
+      Alert.alert(t('roomSettings.roomMode'), t('roomSettings.passwordRequired'));
+      return;
+    }
     setSaving(true);
     try {
       await updateRoomManagedSettings(roomId, {

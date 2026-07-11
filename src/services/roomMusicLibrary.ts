@@ -1,9 +1,18 @@
 /**
- * مكتبة موسيقى الجلسة — مقاطعك الحالية فقط داخل الروم (لا حفظ دائم ولا مشاركة).
+ * مكتبة موسيقى الروم — جلستك الحالية + المقاطع المثبَّتة في صندوق الروم
+ * (roomMusicLibrary/{roomId} في RTDB — تبقى بعد الخروج والعودة وتُشارك مع الأعضاء).
  */
 import { Platform } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import {
+  ref as dbRef,
+  get as dbGet,
+  set as dbSet,
+  remove as dbRemove,
+  onValue,
+  off,
+} from 'firebase/database';
 
 import { withRoomMediaPickerGuard } from '@/utils/roomMediaPickerGuard';
 import {
@@ -11,7 +20,7 @@ import {
   ROOM_MUSIC_MAX_LIBRARY_TRACKS,
   ROOM_MUSIC_STORAGE_FOLDER,
 } from '@/constants/roomMusic';
-import { storage, auth } from './firebase/index';
+import { storage, auth, realtimeDb } from './firebase/index';
 import {
   addSessionMusicTrack,
   clearSessionMusicLibrary,
@@ -32,10 +41,67 @@ export interface UserMusicTrack {
   addedByUid?: string;
 }
 
+/** روابط قابلة للمشاركة فقط تُثبَّت في صندوق الروم — لا مسارات محلية/مؤقتة */
+function isPersistableTrackUrl(url: string | undefined): boolean {
+  return (
+    !!url &&
+    !url.startsWith('local://') &&
+    !url.startsWith('pending://') &&
+    !url.startsWith('file://')
+  );
+}
+
+function pinnedTrackRef(roomId: string, trackId: string) {
+  return dbRef(realtimeDb, `roomMusicLibrary/${roomId}/${trackId}`);
+}
+
+function normalizePinnedTrack(raw: unknown): UserMusicTrack | null {
+  const t = (raw ?? {}) as Partial<UserMusicTrack>;
+  if (!t.id || !t.url || !t.title) return null;
+  return {
+    id: String(t.id),
+    title: String(t.title),
+    url: String(t.url),
+    fileName: t.fileName ? String(t.fileName) : undefined,
+    addedAt: Number(t.addedAt) || 0,
+    addedByUid: t.addedByUid ? String(t.addedByUid) : undefined,
+  };
+}
+
+/** دمج المثبَّت مع الجلسة — نسخة الجلسة تتقدّم (فيها المسار المحلي = تشغيل فوري) */
+function mergeLibraryTracks(
+  pinned: UserMusicTrack[],
+  session: UserMusicTrack[],
+): UserMusicTrack[] {
+  const byId = new Map<string, UserMusicTrack>();
+  for (const t of pinned) byId.set(t.id, t);
+  for (const t of session) byId.set(t.id, t);
+  return Array.from(byId.values())
+    .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))
+    .slice(0, ROOM_MUSIC_MAX_LIBRARY_TRACKS);
+}
+
+async function fetchPinnedRoomLibrary(roomId: string): Promise<UserMusicTrack[]> {
+  try {
+    const snap = await dbGet(dbRef(realtimeDb, `roomMusicLibrary/${roomId}`));
+    if (!snap.exists()) return [];
+    const val = (snap.val() ?? {}) as Record<string, unknown>;
+    return Object.values(val)
+      .map(normalizePinnedTrack)
+      .filter((t): t is UserMusicTrack => t !== null);
+  } catch {
+    return [];
+  }
+}
+
 export async function loadRoomMusicLibrary(roomId: string): Promise<UserMusicTrack[]> {
   const uid = auth.currentUser?.uid;
   if (!roomId || !uid) return [];
-  return getSessionMusicLibrary(roomId, uid);
+  const [pinned, session] = await Promise.all([
+    fetchPinnedRoomLibrary(roomId),
+    Promise.resolve(getSessionMusicLibrary(roomId, uid)),
+  ]);
+  return mergeLibraryTracks(pinned, session);
 }
 
 export function subscribeToRoomMusicLibrary(
@@ -47,7 +113,33 @@ export function subscribeToRoomMusicLibrary(
     callback([]);
     return () => {};
   }
-  return subscribeSessionMusicLibrary(roomId, uid, callback);
+  let session: UserMusicTrack[] = getSessionMusicLibrary(roomId, uid);
+  let pinned: UserMusicTrack[] = [];
+  const emit = () => callback(mergeLibraryTracks(pinned, session));
+
+  const unsubSession = subscribeSessionMusicLibrary(roomId, uid, (tracks) => {
+    session = tracks;
+    emit();
+  });
+  const libRef = dbRef(realtimeDb, `roomMusicLibrary/${roomId}`);
+  const handler = onValue(
+    libRef,
+    (snap) => {
+      const val = (snap.val() ?? {}) as Record<string, unknown>;
+      pinned = Object.values(val)
+        .map(normalizePinnedTrack)
+        .filter((t): t is UserMusicTrack => t !== null);
+      emit();
+    },
+    () => {
+      pinned = [];
+      emit();
+    },
+  );
+  return () => {
+    unsubSession();
+    off(libRef, 'value', handler);
+  };
 }
 
 export async function addTrackToRoomLibrary(
@@ -56,7 +148,20 @@ export async function addTrackToRoomLibrary(
 ): Promise<void> {
   const uid = auth.currentUser?.uid;
   if (!uid || !roomId) return;
-  addSessionMusicTrack(roomId, uid, { ...track, addedByUid: track.addedByUid ?? uid });
+  const addedByUid = track.addedByUid ?? uid;
+  addSessionMusicTrack(roomId, uid, { ...track, addedByUid });
+
+  // تثبيت في صندوق الروم (RTDB) — يبقى بعد الخروج والعودة؛ الروابط السحابية فقط
+  if (isPersistableTrackUrl(track.url) && addedByUid === uid) {
+    void dbSet(pinnedTrackRef(roomId, track.id), {
+      id: track.id,
+      title: track.title,
+      url: track.url,
+      addedAt: track.addedAt,
+      addedByUid,
+      ...(track.fileName ? { fileName: track.fileName } : {}),
+    }).catch(() => {});
+  }
 }
 
 /** يحوّل مسار الجهاز المحلي إلى رابط سحابي جاهز للبث للجميع */
@@ -108,6 +213,8 @@ export async function removeTrackFromRoomLibrary(
   const uid = auth.currentUser?.uid;
   if (!uid || !roomId) return;
   removeSessionMusicTrack(roomId, uid, trackId);
+  // إزالة التثبيت من صندوق الروم — القواعد تسمح لصاحب المقطع أو الوكيل
+  void dbRemove(pinnedTrackRef(roomId, trackId)).catch(() => {});
 }
 
 /** @deprecated */
@@ -142,6 +249,18 @@ export async function uploadAudioFileToRoomStorage(
   onProgress?: (pct: number) => void,
   existingLocalUri?: string,
 ): Promise<{ url: string; title: string; fileName?: string; storagePath: string }> {
+  // الحارس يبقى نشطاً طوال الرفع — إضافة/رفع متكرر لا يمرّ بنافذة إفراغ المقعد
+  return withRoomMediaPickerGuard(() =>
+    uploadAudioFileToRoomStorageInner(roomId, picked, onProgress, existingLocalUri),
+  );
+}
+
+async function uploadAudioFileToRoomStorageInner(
+  roomId: string,
+  picked: DocumentPicker.DocumentPickerAsset,
+  onProgress?: (pct: number) => void,
+  existingLocalUri?: string,
+): Promise<{ url: string; title: string; fileName?: string; storagePath: string }> {
   const user = auth.currentUser;
   if (!user) throw new Error('يجب تسجيل الدخول');
   if (!picked.uri) throw new Error('ملف غير صالح');
@@ -159,9 +278,11 @@ export async function uploadAudioFileToRoomStorage(
   const fileRef = storageRef(storage, path);
 
   onProgress?.(45);
-  await uploadBytes(fileRef, blob, {
-    contentType: picked.mimeType ?? `audio/${ext}`,
-  });
+  // قواعد Storage تشترط contentType صوتياً — بعض المنتقيات تُرجع octet-stream
+  const contentType = picked.mimeType?.startsWith('audio/')
+    ? picked.mimeType
+    : `audio/${ext}`;
+  await uploadBytes(fileRef, blob, { contentType });
   onProgress?.(85);
   const url = await getDownloadURL(fileRef);
   onProgress?.(100);

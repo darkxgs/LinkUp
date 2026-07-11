@@ -22,6 +22,8 @@ type Props = {
   displayName?: string;
   disabled?: boolean;
   onResult: (result: KycSubmitResult) => void;
+  /** يُعلم الشاشة الأم بحالة الإرسال — يمنع تبديل الواجهة أثناء التحقق */
+  onBusyChange?: (busy: boolean) => void;
 };
 
 type PickedPhoto = {
@@ -33,7 +35,7 @@ type CaptureStage = 'idle' | 'hold' | 'gesture' | 'final' | 'uploading';
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Props) {
+export function KycFaceVerify({ fullName, displayName, disabled, onResult, onBusyChange }: Props) {
   const { t } = useTranslation();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
@@ -58,6 +60,11 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
       void requestPermission();
     }
   }, [permission, requestPermission, useCamera, picked]);
+
+  // إبلاغ الأم بحالة الانشغال — يشمل كل مسارات النجاح/الفشل
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
 
   const submitFrames = useCallback(
     async (frames: string[], gestureId?: string) => {

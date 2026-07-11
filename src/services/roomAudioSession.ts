@@ -200,6 +200,53 @@ function silenceRoomRemoteAudio(room: LkRoom): void {
   }
 }
 
+/**
+ * إسكات مسار المايك المحلي قسرياً — يعمل حتى لو تجاهل الجهاز setMicrophoneEnabled
+ * (بعض الأجهزة مثل Tecno تُظهر «مكتوم» بينما المسار يبث فعلاً).
+ */
+async function forceLocalMicMuted(room: LkRoom): Promise<void> {
+  const lp = room.localParticipant as unknown as {
+    getTrackPublications?: () => any[];
+  } | null;
+  if (!lp) return;
+  const pubs: any[] = lp.getTrackPublications?.() ?? [];
+  for (const pub of pubs) {
+    if (pub?.kind !== 'audio') continue;
+    try {
+      await pub.mute?.();
+    } catch { /* ignore */ }
+    const track = pub?.track ?? pub?.audioTrack;
+    try {
+      await track?.mute?.();
+    } catch { /* ignore */ }
+    try {
+      const mst = track?.mediaStreamTrack;
+      if (mst) mst.enabled = false;
+    } catch { /* ignore */ }
+  }
+}
+
+/** إيقاف التقاط المايك المحلي نهائياً عند القطع — حتى لو علِق room.disconnect() */
+function stopLocalMicForTeardown(room: LkRoom): void {
+  try {
+    const pubs: any[] =
+      (room.localParticipant as any)?.getTrackPublications?.() ?? [];
+    for (const pub of pubs) {
+      if (pub?.kind !== 'audio') continue;
+      const track = pub?.track ?? pub?.audioTrack;
+      try {
+        const mst = track?.mediaStreamTrack;
+        if (mst) mst.enabled = false;
+      } catch { /* ignore */ }
+      try {
+        track?.stop?.();
+      } catch { /* ignore */ }
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function mapParticipants(room: LkRoom): RoomParticipant[] {
   const result: RoomParticipant[] = [];
   const local = room.localParticipant;
@@ -396,6 +443,9 @@ class RoomAudioSessionManager {
    */
   private abandonRoomInstance(room: LkRoom): void {
     silenceRoomRemoteAudio(room);
+    // قتل التقاط المايك المحلي فوراً — لو علِق disconnect يبقى البث حياً
+    // وكان الآخرون يسمعون من «خرج» وهو خارج الروم (تسريب المايك)
+    stopLocalMicForTeardown(room);
     try {
       (room as unknown as { removeAllListeners?: () => void }).removeAllListeners?.();
     } catch {
@@ -411,6 +461,7 @@ class RoomAudioSessionManager {
         if (attempts < 3) {
           setTimeout(() => {
             silenceRoomRemoteAudio(room);
+            stopLocalMicForTeardown(room);
             void retry();
           }, 2500);
         }
@@ -830,8 +881,34 @@ class RoomAudioSessionManager {
     // استدعاء LiveKit آمن التكرار (idempotent) فلا كلفة لإعادة التطبيق.
     await enableMicrophoneWithRetry(room, !muted);
     this.isMuted = muted;
+    if (muted) {
+      // تحقّق فعلي بعد الكتم — بعض الأجهزة (Tecno وأمثالها) تُبقي المسار يبث
+      // رغم نجاح setMicrophoneEnabled(false) ظاهرياً؛ نفرض كتم المسار نفسه
+      await this.verifyMicActuallyMuted(room);
+    }
     this.participants = mapParticipants(room);
     this.emit();
+  }
+
+  /** يتأكد أن المايك معطَّل فعلاً بعد الكتم — وإلا يفرض كتم/تعطيل المسار مباشرة */
+  private async verifyMicActuallyMuted(room: LkRoom): Promise<void> {
+    const enforce = async () => {
+      try {
+        if (room.localParticipant?.isMicrophoneEnabled) {
+          await enableMicrophoneWithRetry(room, false, 2).catch(() => {});
+        }
+        await forceLocalMicMuted(room);
+      } catch {
+        // ignore
+      }
+    };
+    await withTimeout(enforce(), 2000);
+    // فحص متأخر — WebRTC على بعض الأجهزة يعيد تفعيل المسار بعد لحظات
+    const gen = this.connectGeneration;
+    setTimeout(() => {
+      if (gen !== this.connectGeneration || this.room !== room || !this.isMuted) return;
+      void enforce();
+    }, 800);
   }
 
   async setMuted(muted: boolean): Promise<void> {
@@ -864,6 +941,11 @@ class RoomAudioSessionManager {
 
   setRemoteAudioMuted(muted: boolean): void {
     this.remoteAudioMuted = muted;
+    // كتم صوت الروم يشمل موسيقى الروم المشتركة — تُشغَّل محلياً عبر expo-av
+    // لا عبر LiveKit، فكانت تبقى مسموعة رغم كتم الروم
+    void import('@/services/roomMusicPlaybackManager')
+      .then((m) => m.roomMusicPlaybackManager.setMutedAll(muted))
+      .catch(() => {});
     this.applyRemoteAudioVolume();
     this.scheduleRemoteVolumeResync();
   }

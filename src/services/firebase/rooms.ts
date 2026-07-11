@@ -1376,7 +1376,16 @@ export const joinSeat = async (
     }
   }
   const roomCountry = resolveRoomCountry(roomData, agencyCountry);
-  await assertStaffCanEnterRoom(roomId, user.uid);
+  // فحص نطاق دولة الموظف من البيانات المحمَّلة أعلاه مباشرة —
+  // assertStaffCanEnterRoom كانت تعيد جلب وثيقة المستخدم والغرفة من الشبكة
+  // (رحلتان زائدتان تبطئان أخذ المايك)
+  if (
+    staffFields.staffRole &&
+    staffFields.staffRole !== 'manager' &&
+    !staffCanEnterRoom(staffFields, roomCountry)
+  ) {
+    throw new Error('هذه الغرفة خارج نطاق دولتك');
+  }
   const managedMicLock = await getManagedMicSeatLock(roomId, user.uid);
   // المدير والمشرفون (أزرق/أصفر) لا يخضعون لقيد «الإضافة من المدير» إطلاقاً —
   // كان مشرف معه إشراف يُمنع من أخذ المايك بسبب قفل قديم من دعوة سابقة
@@ -1416,8 +1425,11 @@ export const joinSeat = async (
 
   // ===== رسم دخول للمقعد =====
   // seatFee = العدد المطلوب لدخول كل مقعد (يضعه المضيف) أو seatFees لكل مقعد
-  await assertNotBlockedFromRoom(roomId, user.uid);
-  await assertNotBlockedFromAgencyRoom(roomId, user.uid, roomData as Record<string, unknown>);
+  // فحصا الحظر مستقلان — بالتوازي بدل التسلسل (أسرع على الشبكات الضعيفة)
+  await Promise.all([
+    assertNotBlockedFromRoom(roomId, user.uid),
+    assertNotBlockedFromAgencyRoom(roomId, user.uid, roomData as Record<string, unknown>),
+  ]);
   if (seatIdx === 0 && !effectiveCanOccupyHostSeat(roomData, user.uid, staffFields, roomCountry)) {
     throw new Error('مقعد المضيف محجوز لصاحب الغرفة');
   }
@@ -1435,11 +1447,12 @@ export const joinSeat = async (
     throw new Error('المقعد مقفل');
   }
   const roomPerms = parseRoomPermissions(roomData);
-  const memberRole = await getRoomMicMemberRole(roomId, user.uid);
   const agencyId = String(roomData.agencyId ?? '');
-  const isAgencyMember = agencyId
-    ? await isUidAgencyMember(agencyId, user.uid)
-    : false;
+  // قراءتان مستقلتان — بالتوازي (كانتا متسلسلتين فتبطئان أخذ المايك)
+  const [memberRole, isAgencyMember] = await Promise.all([
+    getRoomMicMemberRole(roomId, user.uid),
+    agencyId ? isUidAgencyMember(agencyId, user.uid) : Promise.resolve(false),
+  ]);
   const hasMicAccess =
     canTakeMicSeat(isManager, memberRole, roomPerms, isAgencyMember) ||
     (staffMicFeeExempt(staffFields) && staffHasCountryAccess(staffFields, roomCountry));
@@ -1566,7 +1579,7 @@ export const changeSeat = async (
   ]);
   if (!allSeatsSnap.exists()) throw new Error('لا توجد مقاعد');
 
-  const seats = allSeatsSnap.val();
+  let seats = allSeatsSnap.val();
   let currentSeatKey: string | null = null;
   let currentSeatData: any = null;
   for (const [key, s] of Object.entries(seats)) {
@@ -1575,6 +1588,21 @@ export const changeSeat = async (
       currentSeatData = s;
       break;
     }
+  }
+  if (!currentSeatKey) {
+    // «أنت لست على مقعد» مباشرة بعد أخذ المقعد — كتابة المقعد قد لا تكون
+    // انتشرت بعد؛ مهلة سماح قصيرة ثم قراءة ثانية قبل الفشل
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const retrySnap = await get(ref(realtimeDb, `rooms/${roomId}/seats`));
+    const retrySeats = (retrySnap.val() ?? {}) as Record<string, any>;
+    for (const [key, s] of Object.entries(retrySeats)) {
+      if ((s as any).uid === user.uid) {
+        currentSeatKey = key;
+        currentSeatData = s;
+        break;
+      }
+    }
+    if (currentSeatKey) seats = retrySeats;
   }
   if (!currentSeatKey) throw new Error('أنت لست على مقعد');
   const currentSeatIdx = parseInt(String(currentSeatKey).replace('seat_', ''), 10);
@@ -1720,11 +1748,6 @@ export const leaveSeat = async (
 ): Promise<void> => {
   const user = auth.currentUser;
 
-  await cancelSeatOnDisconnect(roomId, seatIdx);
-  if (user) {
-    await remove(ref(realtimeDb, `roomSeatHold/${roomId}/${user.uid}`)).catch(() => {});
-    await set(ref(realtimeDb, `rooms/${roomId}/seatSupport/${user.uid}`), null).catch(() => {});
-  }
   if (
     seatDisconnectBound?.roomId === roomId &&
     seatDisconnectBound.seatIdx === seatIdx
@@ -1732,13 +1755,27 @@ export const leaveSeat = async (
     seatDisconnectBound = null;
   }
   const seatRef = ref(realtimeDb, `rooms/${roomId}/seats/seat_${seatIdx}`);
+  // إفراغ المقعد فوراً وبالتوازي مع بقية التنظيف — كان تسلسل 4 رحلات شبكة
+  // يؤخّر النزول المرئي من المايك عند الجميع (بطء أخذ/ترك المقعد)
   // استخدم empty string بدل null لتجنب مشاكل undefined
-  await set(seatRef, { uid: '' });
+  await Promise.all([
+    set(seatRef, { uid: '' }),
+    cancelSeatOnDisconnect(roomId, seatIdx),
+    user
+      ? remove(ref(realtimeDb, `roomSeatHold/${roomId}/${user.uid}`)).catch(() => {})
+      : Promise.resolve(),
+    user
+      ? set(ref(realtimeDb, `rooms/${roomId}/seatSupport/${user.uid}`), null).catch(() => {})
+      : Promise.resolve(),
+  ]);
   if (user) {
-    const managedMicLock = await getManagedMicSeatLock(roomId, user.uid);
-    if (managedMicLock?.active && managedMicLock.seatIdx === seatIdx) {
-      await setManagedMicSeatLock(roomId, user.uid, seatIdx, false).catch(() => {});
-    }
+    // تنظيف قفل «الإضافة من المدير» بالخلفية — لا يؤخّر ظهور النزول
+    void (async () => {
+      const managedMicLock = await getManagedMicSeatLock(roomId, user.uid);
+      if (managedMicLock?.active && managedMicLock.seatIdx === seatIdx) {
+        await setManagedMicSeatLock(roomId, user.uid, seatIdx, false).catch(() => {});
+      }
+    })().catch(() => {});
   }
   scheduleReconcileAudienceCount(roomId);
 };
@@ -2093,7 +2130,9 @@ export async function pruneStaleRoomSeats(roomId: string): Promise<number> {
   const SEAT_AUDIENCE_GRACE_MS = 120_000;
   // مهلة سماح بعد انقطاع RTDB — onDisconnect يضع علامة disconnectedAt بدل الإفراغ
   // الفوري؛ من عاد خلال المهلة يبقى على مايكه (اتصال LiveKit مستقل عن RTDB).
-  const SEAT_DISCONNECT_GRACE_MS = 60_000;
+  // رُفعت 60ث → 180ث: الدقيقة الواحدة كانت تُنزِل متحدثين نشطين من المايك عند
+  // تقطع شبكة أطول قليلاً بينما صوتهم عبر LiveKit ما زال شغالاً (نزول ذاتي مفاجئ)
+  const SEAT_DISCONNECT_GRACE_MS = 180_000;
 
   for (const [key, seat] of Object.entries(seats)) {
     const uid = seat?.uid;
@@ -2459,6 +2498,9 @@ export const sendMessage = async (
   // رقابة برمجية — منع الألفاظ المسيئة في دردشة الغرفة
   const { assertCleanText } = await import('@/utils/textModeration');
   assertCleanText(text);
+  // منع الدعاية لتطبيقات منافسة (config/moderation.bannedTerms)
+  const { assertNoBannedTerms } = await import('@/utils/moderation');
+  assertNoBannedTerms(text);
   await assertUserCanSendRoomChat(roomId, user.uid);
 
   const { name: displayName, avatar } = await resolveSenderProfile(sender);
@@ -2771,6 +2813,17 @@ export const updateRoomSettings = async (
   }
 
   const roomData = snap.val();
+
+  // غرفة مقفلة بلا كلمة مرور تتجاوزها بوابة الدخول — نرفض الحفظ
+  if (updates.mode === 'locked') {
+    const finalPassword = String(
+      updates.password !== undefined ? updates.password ?? '' : roomData.password ?? '',
+    ).trim();
+    if (!finalPassword) {
+      throw new Error('يجب تعيين كلمة مرور للغرفة المقفلة');
+    }
+  }
+
   const cleanUpdates: Record<string, any> = {
     updatedAt: Date.now(),
   };

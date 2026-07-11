@@ -883,6 +883,15 @@ export async function updateRoomManagedSettings(
     patch.isPrivate = updates.mode === 'locked';
   }
   if (updates.password !== undefined) patch.password = updates.password ?? '';
+  // غرفة مقفلة بلا كلمة مرور تتجاوزها بوابة الدخول — نرفض الحفظ
+  if (updates.mode === 'locked') {
+    const finalPassword = String(
+      updates.password !== undefined ? updates.password ?? '' : roomData.password ?? '',
+    ).trim();
+    if (!finalPassword) {
+      throw new Error('يجب تعيين كلمة مرور للغرفة المقفلة');
+    }
+  }
   if (updates.seatsCount != null) {
     const maxAllowed = await resolveEffectiveMaxSeatsCount(roomData);
     if (updates.seatsCount > maxAllowed) {

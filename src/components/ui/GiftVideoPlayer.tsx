@@ -41,27 +41,43 @@ export function GiftVideoPlayer({
 
   useEffect(() => {
     if (useAvFallback || !uri) return;
-    player.replace(uri);
-    player.playbackRate = playbackRate;
-    player.play();
+    // استدعاء replace/play على مشغّل حُرِّر أصلاً (إغلاق سريع للأنيميشن) يرمي
+    // «player has been released» ويُسقط التطبيق كاملاً — نلتقطه ونكمل بالـ fallback
+    try {
+      player.replace(uri);
+      player.playbackRate = playbackRate;
+      player.play();
+    } catch (e) {
+      console.warn('GiftVideoPlayer play failed', e);
+      setUseAvFallback(true);
+    }
   }, [uri, player, useAvFallback, playbackRate]);
 
   useEffect(() => {
     if (useAvFallback) return;
-    const endSub = player.addListener('playToEnd', () => onEnd());
-    const statusSub = player.addListener('statusChange', ({ status, error }) => {
-      if (status === 'readyToPlay' && player.duration > 0) {
-        onDuration?.(player.duration);
-      }
-      if (status === 'error') {
-        setUseAvFallback(true);
-        onError?.(error?.message ?? 'expo-video');
-      }
-    });
-    return () => {
-      endSub.remove();
-      statusSub.remove();
-    };
+    try {
+      const endSub = player.addListener('playToEnd', () => onEnd());
+      const statusSub = player.addListener('statusChange', ({ status, error }) => {
+        if (status === 'readyToPlay') {
+          try {
+            if (player.duration > 0) onDuration?.(player.duration);
+          } catch {
+            // المشغّل قد يكون حُرِّر بين الحدث والقراءة
+          }
+        }
+        if (status === 'error') {
+          setUseAvFallback(true);
+          onError?.(error?.message ?? 'expo-video');
+        }
+      });
+      return () => {
+        endSub.remove();
+        statusSub.remove();
+      };
+    } catch (e) {
+      console.warn('GiftVideoPlayer listeners failed', e);
+      return undefined;
+    }
   }, [player, onEnd, onDuration, onError, useAvFallback]);
 
   const handleAvStatus = (status: AVPlaybackStatus) => {

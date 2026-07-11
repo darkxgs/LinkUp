@@ -5,12 +5,30 @@ type RoomSound = import('expo-av').Audio.Sound;
 
 class RoomMusicPlaybackManager {
   private sound: RoomSound | null = null;
+  /** كتم صوت الروم — يشمل الموسيقى المشتركة المشغَّلة محلياً */
+  private muted = false;
 
   attach(sound: RoomSound): void {
     if (this.sound && this.sound !== sound) {
       void this.stopSound(this.sound);
     }
     this.sound = sound;
+    // مقطع جديد يُحمَّل أثناء كتم الروم — يبدأ مكتوماً بدل مستوى كامل
+    if (this.muted) {
+      void sound.setIsMutedAsync(true).catch(() => {});
+    }
+  }
+
+  /** كتم/فك كتم الموسيقى محلياً دون إيقاف التشغيل (كتم صوت الروم) */
+  async setMutedAll(muted: boolean): Promise<void> {
+    this.muted = muted;
+    const active = this.sound;
+    if (!active) return;
+    try {
+      await active.setIsMutedAsync(muted);
+    } catch {
+      // ignore
+    }
   }
 
   getActiveSound(): RoomSound | null {

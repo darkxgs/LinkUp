@@ -15,6 +15,8 @@ const SCREEN_W = Dimensions.get('window').width;
 
 interface Props {
   name: string;
+  /** صورة الداخل — تُعرض بدل أيقونة الشرارة */
+  avatar?: string | null;
   visible: boolean;
   onDone: () => void;
   isPrince?: boolean;
@@ -22,7 +24,7 @@ interface Props {
   entryImageUrl?: string | null;
 }
 
-export function RoomEntryWelcomeBanner({ name, visible, onDone, isPrince, isStaff, entryImageUrl }: Props) {
+export function RoomEntryWelcomeBanner({ name, avatar, visible, onDone, isPrince, isStaff, entryImageUrl }: Props) {
   const { t } = useTranslation();
   const translateX = useRef(new Animated.Value(SCREEN_W)).current;
   const opacity = useRef(new Animated.Value(0)).current;
@@ -64,6 +66,7 @@ export function RoomEntryWelcomeBanner({ name, visible, onDone, isPrince, isStaf
       : (['rgba(225, 20, 20,0.92)', 'rgba(225, 20, 20,0.92)'] as const);
 
   const showEntryThumb = Boolean(entryImageUrl?.startsWith('http'));
+  const showAvatar = !showEntryThumb && Boolean(avatar?.startsWith('http'));
 
   return (
     <View style={styles.wrap} pointerEvents="none">
@@ -71,6 +74,9 @@ export function RoomEntryWelcomeBanner({ name, visible, onDone, isPrince, isStaf
         <LinearGradient colors={[...colors]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
         {showEntryThumb ? (
           <Image source={{ uri: entryImageUrl! }} style={styles.entryThumb} contentFit="contain" />
+        ) : showAvatar ? (
+          // صورة الداخل بدل الأيقونة — «إيموجي بدل صورة واسم»
+          <Image source={{ uri: avatar! }} style={styles.entryAvatar} contentFit="cover" />
         ) : isPrince ? (
           <Crown size={14} color="#fff" />
         ) : (
@@ -124,4 +130,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.25)',
   },
   entryThumb: { width: 22, height: 22 },
+  entryAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.55)',
+  },
 });

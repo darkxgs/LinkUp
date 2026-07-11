@@ -426,6 +426,8 @@ export default function RoomScreen() {
     // اقفل السماع فوراً قبل أي تنقّل حتى لا يتسرّب صوت الروم خارج الشاشة.
     useRoomSessionStore.getState().setListenMuted(true);
     roomAudioSession.setRemoteAudioMuted(true);
+    // واقتل المايك فوراً أيضاً — «خروج» يجب ألا يترك المايك يبث لحين اكتمال القطع
+    void roomAudioSession.setMuted(true).catch(() => {});
     void (async () => {
       await stopRoomMusicPlayback().catch(() => {});
       if (roomId && user?.uid) {
@@ -441,6 +443,13 @@ export default function RoomScreen() {
   useFocusEffect(
     useCallback(() => {
       leavingRoomRef.current = false;
+      // عودة عبر الفقاعة/الرجوع — أخرج من وضع التصغير حتى تختفي الفقاعة
+      if (roomId) {
+        const s = useRoomSessionStore.getState();
+        if (s.audioPinned && s.roomId === roomId && s.isMinimized) {
+          useRoomSessionStore.getState().expand();
+        }
+      }
       return () => {
         // أغلق قائمة الأدوات عند مغادرة التركيز — مودالها الأصلي يطفو فوق أي
         // شاشة تالية (تعديل الروم مثلاً) ويعلق كطبقة لا تستجيب للمس.
@@ -449,10 +458,27 @@ export default function RoomScreen() {
         // المغادرة الكاملة يجب أن تكون صريحة فقط (زر خروج/طرد/تبديل روم).
         if (!roomId) return;
         // عند "احتفظ" يجب استمرار السماع بدون كتم حتى لا يظهر تأخير/انقطاع صوت.
-        if (keepRoomAliveRef.current) return;
+        if (keepRoomAliveRef.current) {
+          // جلسة مثبتة (على المايك/احتفظ) تغادر الشاشة — أظهر الفقاعة العائمة
+          // دائماً: كان الصوت والمايك يبقيان شغالين «خفيةً» خارج الروم بلا أي
+          // مؤشر مرئي (تسريب الصوت الذي بلّغ عنه المختبرون).
+          if (!leavingRoomRef.current) {
+            const session = useRoomSessionStore.getState();
+            if (session.audioPinned && session.roomId === roomId && !session.isMinimized) {
+              useRoomSessionStore.getState().minimize({
+                roomId,
+                roomName: session.roomName || t('room.voiceRoom'),
+                roomBanner: session.roomBanner,
+                canPublish: session.canPublish,
+                micSeatIndex: session.micSeatIndex,
+              });
+            }
+          }
+          return;
+        }
         roomAudioSession.setRemoteAudioMuted(true);
       };
-    }, [roomId]),
+    }, [roomId, t]),
   );
   const insets = useSafeAreaInsets();
   const [toolbarHeight, setToolbarHeight] = useState(0);
@@ -522,6 +548,7 @@ export default function RoomScreen() {
   const [seatUser, setSeatUser] = useState<RoomSeatUser | null>(null);
   const [welcomeEntry, setWelcomeEntry] = useState<{
     name: string;
+    avatar?: string | null;
     key: number;
     isPrince?: boolean;
     isStaff?: boolean;
@@ -1257,9 +1284,12 @@ export default function RoomScreen() {
         if (onMicKeepAliveRef.current) {
           keepRoomAliveRef.current = true;
           const snap = useRoomSessionStore.getState();
-          useRoomSessionStore.getState().pinMembership({
+          // minimize (لا pinMembership): إغلاق الشاشة وأنت على المايك يجب أن
+          // يُظهر الفقاعة العائمة — جلسة صوت حية بلا مؤشر مرئي = تسريب صوت
+          useRoomSessionStore.getState().minimize({
             roomId,
             roomName: snap.roomName || 'LinkUp',
+            roomBanner: snap.roomBanner,
             canPublish: true,
             micSeatIndex: useRoomSessionStore.getState().micSeatIndex,
           });
@@ -1824,6 +1854,12 @@ export default function RoomScreen() {
             const userData = (await getUser(member.uid!)) as unknown as Record<string, unknown> | null;
             const staffBadge = resolveStaffEntryBadgeUrl(userData ?? undefined);
             const isStaff = Boolean(parseStaffFromUserData(userData).staffRole);
+            // الاسم/الصورة قد لا يكونان محلولين لحظة الدخول — نحلّهما من ملف المستخدم
+            const entryName = resolveDisplayName({
+              displayName: (userData?.displayName as string | undefined) ?? member.name,
+            });
+            const entryAvatar =
+              resolveOfficialUserAvatar(userData ?? {}, member.uid!) || member.avatar || '';
 
             // امتياز SVIP «تأثير صوتي مميز» — صوت دخول
             void resolveEntrySoundUrl(member.uid).then((soundUrl) => {
@@ -1848,7 +1884,8 @@ export default function RoomScreen() {
               });
               if (isAgencyRoom) {
                 setWelcomeEntry({
-                  name: displayName,
+                  name: entryName,
+                  avatar: entryAvatar,
                   key: nextEntryOverlayKey(),
                   isPrince,
                   isStaff,
@@ -1869,7 +1906,8 @@ export default function RoomScreen() {
               });
               if (isAgencyRoom) {
                 setWelcomeEntry({
-                  name: displayName,
+                  name: entryName,
+                  avatar: entryAvatar,
                   key: nextEntryOverlayKey(),
                   isPrince,
                   isStaff,
@@ -1881,7 +1919,8 @@ export default function RoomScreen() {
 
             if (isAgencyRoom) {
               setWelcomeEntry({
-                name: displayName,
+                name: entryName,
+                avatar: entryAvatar,
                 key: nextEntryOverlayKey(),
                 isPrince,
                 isStaff,
@@ -1903,6 +1942,7 @@ export default function RoomScreen() {
           );
           setWelcomeEntry({
             name: displayName,
+            avatar: member.avatar ?? null,
             key: nextEntryOverlayKey(),
             isPrince,
             entryImageUrl: isPrince ? (agencyPrince?.entryImageUrl ?? null) : null,
@@ -3282,9 +3322,25 @@ export default function RoomScreen() {
     if (!mySeat || !roomId) return;
     const nextMuted = !(mySeat.isMuted === true);
     micSyncSuppressRef.current = Date.now();
+    if (nextMuted) {
+      // كتم النفس لا يُرفض إدارياً — اكتم LiveKit فوراً وبالتوازي مع كتابة RTDB
+      // (كان التسلسل يترك المايك يبث حتى اكتمال رحلة الشبكة)
+      const lkMute = roomAudioSession.setMuted(true).catch(() => {});
+      try {
+        await toggleMute(roomId, mySeat.seatIndex, true);
+      } catch (e) {
+        showAlert({
+          type: 'warning',
+          title: t('common.error'),
+          message: e instanceof Error ? e.message : t('room.actionFailed'),
+        });
+      }
+      await lkMute;
+      return;
+    }
     try {
       // RTDB أولاً — يفحص الكتم الإداري (mutedBy) ويرفض فك الكتم الذاتي
-      await toggleMute(roomId, mySeat.seatIndex, nextMuted);
+      await toggleMute(roomId, mySeat.seatIndex, false);
     } catch (e) {
       showAlert({
         type: 'warning',
@@ -3294,7 +3350,7 @@ export default function RoomScreen() {
       return;
     }
     try {
-      await roomAudioSession.setMuted(nextMuted);
+      await roomAudioSession.setMuted(false);
     } catch {
       // صامت — لا alert أثناء انتظار الاتصال
     }
@@ -5001,6 +5057,7 @@ export default function RoomScreen() {
         <RoomEntryWelcomeBanner
           key={welcomeEntry.key}
           name={welcomeEntry.name}
+          avatar={welcomeEntry.avatar}
           visible
           isPrince={welcomeEntry.isPrince}
           isStaff={welcomeEntry.isStaff}
@@ -5221,8 +5278,8 @@ export default function RoomScreen() {
         messageCount={privateUnreadCount}
         onMessages={handleOpenPrivateChats}
         onGift={() => {
-          const target = regularSeats.find((s) => s.uid && s.uid !== myUid) ?? hostSeat;
-          setGiftInitialRecipientUid(target?.uid ?? null);
+          // لا اختيار موضعي تلقائي — كان أول مقعد مشغول يُختار فتذهب الهدية لغير المقصود
+          setGiftInitialRecipientUid(null);
           setShowGifts(true);
         }}
         onMore={() => {
@@ -5603,13 +5660,15 @@ export default function RoomScreen() {
                   </Text>
                 </Pressable>
                 
+                {/* «تصغير» بلون محايد — كان أحمر مثل «خروج» فيختلط الزران ويضغط
+                    المستخدم «احتفظ» ظناً أنه خروج ويبقى الصوت شغالاً */}
                 <Pressable onPress={handleKeepRoomInBackground} style={styles.keepBtn}>
                   <LinearGradient
-                    colors={['rgba(225, 20, 20, 0.2)', 'rgba(176, 14, 14, 0.4)']}
+                    colors={['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.16)']}
                     style={StyleSheet.absoluteFill}
                   />
                   <View style={styles.keepBtnBorder} />
-                  <Text variant="button" color="#FECACA" weight="bold">
+                  <Text variant="button" color={colors.white} weight="bold">
                     {t('room.keepInRoom')}
                   </Text>
                 </Pressable>
@@ -6008,6 +6067,7 @@ export default function RoomScreen() {
         onOpenGifts={() => {
           setShowRocketModal(false);
           setRocketViewLaunch(null);
+          setGiftInitialRecipientUid(null);
           setShowGifts(true);
         }}
         roomId={roomId!}
@@ -6027,7 +6087,10 @@ export default function RoomScreen() {
           myUid={user?.uid ?? ''}
           myContribution={myThroneContribution}
           canManageRoom={isHost || supervisorPerms.manageMic}
-          onSendGift={() => setShowGifts(true)}
+          onSendGift={() => {
+            setGiftInitialRecipientUid(null);
+            setShowGifts(true);
+          }}
         />
       ) : null}
 
@@ -7742,6 +7805,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     borderRadius: 26,
     borderWidth: 1,
-    borderColor: 'rgba(225, 20, 20, 0.5)',
+    borderColor: 'rgba(255, 255, 255, 0.35)',
   },
 });
