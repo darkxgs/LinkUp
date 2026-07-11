@@ -28,6 +28,3 @@ firebase deploy --only firestore:rules,database
 
 ## تعليق الحسابات المؤقت
 - `functions/src/loginSession.ts` — يمنع تسجيل الدخول أثناء فترة التعليق (`isSuspended`/`suspendedUntil`)، ويرفع التعليق تلقائياً بعد انتهاء المدة.
-
-## الملصقات المتحركة
-- `storage.rules` — قواعد قراءة/كتابة ملفات حزم الملصقات (`config/stickers/{packId}/{itemId}/{fileName}`).

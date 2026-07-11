@@ -2013,7 +2013,7 @@ const VALID_PERMISSION_KEYS = new Set([
   'wallet', 'withdrawals', 'bot',
   'packages', 'gifts', 'store', 'lucky-bag', 'room-throne', 'vip', 'aristocracy',
   'rewards-center', 'host-tasks', 'titles', 'gift-privileges', 'privacy', 'call-pricing',
-  'posts', 'games', 'stickers', 'relationships', 'chat-backgrounds', 'notifications',
+  'posts', 'games', 'relationships', 'chat-backgrounds', 'notifications',
   'about-pages', 'support', 'reports',
   'settings', 'app-release',
 ]);
