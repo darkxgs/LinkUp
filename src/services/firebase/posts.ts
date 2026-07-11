@@ -612,6 +612,9 @@ export const createPost = async (
   // رقابة برمجية — منع نشر الألفاظ المسيئة
   const { assertCleanText } = await import('@/utils/textModeration');
   assertCleanText(trimmed);
+  // منع الدعاية لتطبيقات منافسة (config/moderation.bannedTerms)
+  const { assertNoBannedTerms } = await import('@/utils/moderation');
+  assertNoBannedTerms(trimmed);
 
   let uploadedUrls: string[] = remoteImageUrls ?? [];
   if (localImageUris && localImageUris.length > 0) {
@@ -771,6 +774,9 @@ export const addComment = async (
   // رقابة برمجية — منع التعليقات المسيئة
   const { assertCleanText } = await import('@/utils/textModeration');
   assertCleanText(trimmed);
+  // منع الدعاية لتطبيقات منافسة (config/moderation.bannedTerms)
+  const { assertNoBannedTerms } = await import('@/utils/moderation');
+  assertNoBannedTerms(trimmed);
 
   const postSnap = await getDoc(doc(firestore, 'posts', postId));
   if (!postSnap.exists()) throw new Error('المنشور غير موجود');

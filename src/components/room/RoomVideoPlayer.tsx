@@ -175,23 +175,29 @@ export function RoomVideoPlayer({
     if (canControl) return; // المتحكّم لا يحتاج
     const expected = calculateActualTime(video);
 
-    // YouTube
-    if (video.sourceType === 'youtube' && ytPlayerRef.current) {
-      ytPlayerRef.current.getCurrentTime().then((current: number) => {
-        if (Math.abs(current - expected) > DRIFT_THRESHOLD) {
-          ytPlayerRef.current.seekTo(expected, true);
-        }
-      }).catch(() => {});
-    }
-    // Expo Video
-    else if (expoPlayerRef.current?.getStatusAsync) {
-      expoPlayerRef.current.getStatusAsync().then((status: any) => {
-        if (!status?.isLoaded) return;
-        const current = (status.positionMillis ?? 0) / 1000;
-        if (Math.abs(current - expected) > DRIFT_THRESHOLD) {
-          expoPlayerRef.current.setPositionAsync(expected * 1000);
-        }
-      }).catch(() => {});
+    // YouTube — مكتبة youtube-iframe ترمي استثناءً متزامناً إذا حُرِّر الـ WebView
+    // الداخلي لحظة الاستدعاء (إغلاق الفيديو/الخروج) → كان يُسقط التطبيق كاملاً
+    try {
+      if (video.sourceType === 'youtube' && ytPlayerRef.current) {
+        ytPlayerRef.current.getCurrentTime().then((current: number) => {
+          const yt = ytPlayerRef.current;
+          if (yt && Math.abs(current - expected) > DRIFT_THRESHOLD) {
+            yt.seekTo(expected, true);
+          }
+        }).catch(() => {});
+      }
+      // Expo Video
+      else if (expoPlayerRef.current?.getStatusAsync) {
+        expoPlayerRef.current.getStatusAsync().then((status: any) => {
+          if (!status?.isLoaded) return;
+          const current = (status.positionMillis ?? 0) / 1000;
+          if (Math.abs(current - expected) > DRIFT_THRESHOLD) {
+            expoPlayerRef.current?.setPositionAsync?.(expected * 1000)?.catch?.(() => {});
+          }
+        }).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('room video sync failed', e);
     }
   }, [video.currentTime, video.isPlaying, video.lastUpdatedAt, canControl]);
 
@@ -397,6 +403,18 @@ function ExpoVideoPlayer({
     );
   }
 
+  // حارس مصدر فارغ — source بلا رابط كان يرمي خطأ native على أندرويد
+  const sourceUri = (video.url ?? '').trim();
+  if (!sourceUri) {
+    return (
+      <View style={styles.fallback}>
+        <Text variant="caption" color="#9CA3AF">
+          رابط الفيديو غير صالح
+        </Text>
+      </View>
+    );
+  }
+
   const Video = AV.Video;
   const ResizeMode = AV.ResizeMode;
 
@@ -405,7 +423,7 @@ function ExpoVideoPlayer({
       ref={(r: any) => {
         playerRef.current = r;
       }}
-      source={{ uri: video.url }}
+      source={{ uri: sourceUri }}
       style={StyleSheet.absoluteFill}
       shouldPlay={video.isPlaying}
       isMuted={muted}
@@ -505,18 +523,23 @@ function YouTubePlayer({
         }}
       onReady={() => {
         onReady();
-        // اضبط الموقع
-        const expected = calculateActualTime(video);
-        if (expected > 0 && playerRef.current?.seekTo) {
-          playerRef.current.seekTo(expected, true);
-        }
-        // اقرأ duration
-        if (canControl && playerRef.current?.getDuration) {
-          playerRef.current.getDuration().then((d: number) => {
-            if (d && d > 0) {
-              updateVideoPlayback(roomId, { duration: d }).catch(() => {});
-            }
-          });
+        // seekTo/getDuration يرميان استثناءً متزامناً لو حُرِّر الـ WebView — لا نُسقط التطبيق
+        try {
+          // اضبط الموقع
+          const expected = calculateActualTime(video);
+          if (expected > 0 && playerRef.current?.seekTo) {
+            playerRef.current.seekTo(expected, true);
+          }
+          // اقرأ duration
+          if (canControl && playerRef.current?.getDuration) {
+            playerRef.current.getDuration().then((d: number) => {
+              if (d && d > 0) {
+                updateVideoPlayback(roomId, { duration: d }).catch(() => {});
+              }
+            }).catch(() => {});
+          }
+        } catch (e) {
+          console.warn('YT onReady sync failed', e);
         }
       }}
       onChangeState={(state: string) => {

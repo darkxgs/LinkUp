@@ -24,6 +24,7 @@ import {
   subscribeToIncomingCalls,
   answerCall,
   rejectCall,
+  INCOMING_CALL_RING_WINDOW_MS,
   type IncomingCall,
 } from '@/services/incomingCalls';
 import { logChatCallMessage } from '@/services/firebase/chatCallLogs';
@@ -55,6 +56,19 @@ export function IncomingCallModal() {
       void rejectCall(call.id).then(() => setCall(null));
     }
   }, [call?.id, user]);
+
+  // انتهاء نافذة الرنين — المتصل لا يحذف الوثيقة عند الاستسلام، فبدون هذا
+  // المؤقّت كان المودال يظل يرنّ إلى ما لا نهاية بعد إقفال المتصل
+  useEffect(() => {
+    if (!call) return;
+    const remaining = call.createdAt + INCOMING_CALL_RING_WINDOW_MS - Date.now();
+    if (remaining <= 0) {
+      setCall(null);
+      return;
+    }
+    const timer = setTimeout(() => setCall(null), remaining);
+    return () => clearTimeout(timer);
+  }, [call?.id]);
 
   // اهتزاز ونبض الحلقة عند الرنين
   useEffect(() => {

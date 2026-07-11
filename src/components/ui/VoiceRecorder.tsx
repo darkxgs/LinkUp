@@ -18,6 +18,7 @@ import { Trash2 } from 'lucide-react-native';
 
 import { Text } from './Text';
 import { useAlert } from './CustomAlert';
+import { configureSoundEffectsAudio, isRoomVoiceSessionActive } from '@/utils/playRoomSound';
 import { lu } from '@/theme/lu-brand';
 import { LuMicIcon, LuSendIcon } from '@/components/icons/LuDesignIcons';
 import { TAB_DESIGN } from '@/components/navigation/TabBarNavigationSvg';
@@ -101,7 +102,14 @@ export function VoiceRecorder({
         recordingRef.current = null;
       }
       if (AVRef.current) {
-        AVRef.current.Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(() => {});
+        // أثناء جلسة صوت الغرفة لا نطفئ التسجيل — allowsRecordingIOS: false
+        // يقلب فئة AVAudioSession فيقتل مايك LiveKit لمن هو على المقعد
+        // (المسجّل يظهر داخل شات الروم المدمج)
+        if (isRoomVoiceSessionActive()) {
+          configureSoundEffectsAudio(true).catch(() => {});
+        } else {
+          AVRef.current.Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(() => {});
+        }
       }
     };
   }, []);
@@ -194,7 +202,12 @@ export function VoiceRecorder({
       await recording.stopAndUnloadAsync();
       const AV = AVRef.current;
       if (AV) {
-        await AV.Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+        // نفس حماية جلسة الغرفة أعلاه — لا نقلب فئة الصوت والمايك على المقعد
+        if (isRoomVoiceSessionActive()) {
+          await configureSoundEffectsAudio(true).catch(() => {});
+        } else {
+          await AV.Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+        }
       }
       const uri = recording.getURI();
 

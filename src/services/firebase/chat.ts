@@ -21,6 +21,9 @@ import {
   writeBatch,
   runTransaction,
   deleteField,
+  type FieldValue,
+  type QuerySnapshot,
+  type DocumentData,
 } from 'firebase/firestore';
 import { firestore, auth } from './index';
 import { resolveDisplayName } from '@/utils/displayName';
@@ -367,7 +370,13 @@ function attachConversationsListener(
   const displayNameCache = new Map<string, string>();
   const avatarCache = new Map<string, string>();
 
+  // حارس ترتيب اللقطات — الإثراء غير المتزامن (جلب مستندات الأطراف) كان يسمح
+  // للقطة قديمة أن تكتمل بعد الأحدث فتستقر شارة «غير مقروء» وهمية/قديمة
+  // (تظهر خصوصاً في شارة الرسائل داخل الروم رغم تصفير العدّاد فعلياً)
+  let snapshotSeq = 0;
+
   return onSnapshot(q, async (snap) => {
+    const seq = ++snapshotSeq;
     const baseConvs = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Conversation);
 
     await waitForFirestoreAuth(12_000);
@@ -418,6 +427,9 @@ function attachConversationsListener(
         }),
       );
     }
+
+    // لقطة أحدث بدأت أثناء الإثراء — تجاهل هذه النتيجة القديمة كلياً
+    if (seq !== snapshotSeq) return;
 
     // ادمج isOnline + أسماء حقيقية + صور محدّثة
     const now = Date.now();
@@ -487,22 +499,48 @@ function attachConversationsListener(
   });
 }
 
-/** متابعة محادثة واحدة — لإيصالات القراءة اللحظية (lastReadAt) */
+/** متابعة محادثة واحدة — لإيصالات القراءة اللحظية (lastReadAt)
+ *  آمنة ضد سباق الإقلاع: الاشتراك قبل استعادة الجلسة كان يفشل نهائياً بلا إعادة محاولة */
 export const subscribeToConversation = (
   conversationId: string,
   callback: (conv: Conversation | null) => void,
 ): (() => void) => {
-  return onSnapshot(
-    doc(firestore, 'conversations', conversationId),
-    (snap) => {
-      if (!snap.exists()) {
-        callback(null);
-        return;
-      }
-      callback({ id: snap.id, ...snap.data() } as Conversation);
+  let fsUnsub: (() => void) | null = null;
+  let attachedUid: string | null = null;
+  let disposed = false;
+
+  const authUnsub = subscribeWhenAuthenticated(
+    (user) => {
+      if (disposed || attachedUid === user.uid) return;
+      fsUnsub?.();
+      attachedUid = user.uid;
+      fsUnsub = onSnapshot(
+        doc(firestore, 'conversations', conversationId),
+        (snap) => {
+          if (!snap.exists()) {
+            callback(null);
+            return;
+          }
+          callback({ id: snap.id, ...snap.data() } as Conversation);
+        },
+        () => callback(null),
+      );
     },
-    () => callback(null),
+    () => {
+      if (disposed) return;
+      fsUnsub?.();
+      fsUnsub = null;
+      attachedUid = null;
+      callback(null);
+    },
   );
+
+  return () => {
+    disposed = true;
+    authUnsub();
+    fsUnsub?.();
+    fsUnsub = null;
+  };
 };
 
 /** تعيين خلفية المحادثة للمستخدم الحالي فقط */
@@ -530,8 +568,13 @@ export const getOrCreateConversation = async (
   const sortedUids = [user.uid, otherUid].sort();
   const convId = `${sortedUids[0]}_${sortedUids[1]}`;
 
-  const meDoc = await getUser(user.uid);
-  const otherDoc = await getUser(otherUid);
+  const convRef = doc(firestore, 'conversations', convId);
+  // ⚡ الجلبات الثلاث بالتوازي — كانت متسلسلة (3 رحلات شبكة) فيتأخر فتح الشاشة
+  const [meDoc, otherDoc, existingSnap] = await Promise.all([
+    getUser(user.uid),
+    getUser(otherUid),
+    getDoc(convRef),
+  ]);
 
   const myName = resolveDisplayName({
     displayName: meDoc?.displayName ?? user.displayName,
@@ -543,8 +586,6 @@ export const getOrCreateConversation = async (
       email: otherDoc?.email,
     });
 
-  const convRef = doc(firestore, 'conversations', convId);
-  const existingSnap = await getDoc(convRef);
   const participantNames = {
     [user.uid]: myName,
     [otherUid]: theirName,
@@ -565,11 +606,12 @@ export const getOrCreateConversation = async (
   };
 
   if (existingSnap.exists()) {
-    await updateDoc(convRef, {
+    // تحديث الأسماء/الصور تجميلي — لا نحجب فتح المحادثة على رحلة كتابة إضافية
+    void updateDoc(convRef, {
       participants: sortedUids,
       participantNames,
       participantAvatars,
-    });
+    }).catch(() => {});
     const existing = existingSnap.data() as Conversation;
     if (!(existing.lastMessage ?? '').trim()) {
       scheduleLastMessageRepair(convId);
@@ -676,7 +718,7 @@ async function chargeForChatMessage(
 const blockCheckCache = new Map<string, { blocked: boolean; at: number }>();
 const BLOCK_CHECK_TTL_MS = 30 * 1000;
 
-async function isBlockedBetweenCached(uid: string, toUid: string): Promise<boolean> {
+export async function isBlockedBetweenCached(uid: string, toUid: string): Promise<boolean> {
   const key = `${uid}_${toUid}`;
   const hit = blockCheckCache.get(key);
   if (hit && Date.now() - hit.at < BLOCK_CHECK_TTL_MS) return hit.blocked;
@@ -697,6 +739,9 @@ export const sendChatMessage = async (
   // رقابة برمجية — منع الألفاظ المسيئة قبل أي خصم أو إرسال
   const { assertCleanText } = await import('@/utils/textModeration');
   assertCleanText(text);
+  // منع الدعاية لتطبيقات منافسة (config/moderation.bannedTerms)
+  const { assertNoBannedTerms } = await import('@/utils/moderation');
+  assertNoBannedTerms(text);
   // ⚡ الفحصان مكاشان — بعد أول رسالة يصيران فوريين بلا رحلات شبكية
   // (الحظر قبل الرسوم حتى لا يُخصم من مرسل محظور)
   if (await isBlockedBetweenCached(user.uid, toUid)) {
@@ -773,7 +818,10 @@ async function syncConversationListPreview(
   if (incrementOtherUnread) {
     patch[`unreadBy.${otherUid}`] = increment(1);
   }
-  await updateDoc(doc(firestore, 'conversations', convId), patch);
+  await updateDoc(
+    doc(firestore, 'conversations', convId),
+    patch as Record<string, FieldValue | string | number | boolean>,
+  );
 }
 
 /**
@@ -1109,7 +1157,9 @@ export const archiveConversation = async (
   });
 };
 
-/** حذف المحادثة من قائمتك (soft delete) */
+/** حذف المحادثة من قائمتك (soft delete)
+ *  «حذف الدردشة» يخفي أيضاً كل الرسائل الحالية لي (نفس آلية المسح الشامل) —
+ *  بدونها كانت المحادثة تعود من الخارج بمعاينة آخر رسالة وسجلّها كاملاً من الداخل */
 export const hideConversationForUser = async (conversationId: string): Promise<void> => {
   const user = auth.currentUser;
   if (!user) throw new Error('غير مسجل');
@@ -1122,7 +1172,39 @@ export const hideConversationForUser = async (conversationId: string): Promise<v
     [`hiddenBy.${user.uid}`]: true,
     [`deletedAtBy.${user.uid}`]: Date.now(),
     [`pinnedBy.${user.uid}`]: false,
+    // تصفير عدّاد غير المقروء — الرسائل المحذوفة كانت تُبقي نقطة حمراء وهمية
+    [`unreadBy.${user.uid}`]: 0,
   });
+
+  // إخفاء رسائل المحادثة لي فقط (حقول per-user — نسخة الطرف الآخر لا تُمسّ)
+  // في الخلفية حتى لا يتأخر اختفاء المحادثة من القائمة
+  void (async () => {
+    try {
+      const msgSnap = await getDocs(
+        query(
+          collection(firestore, 'messages'),
+          where('conversationId', '==', conversationId),
+          limit(500),
+        ),
+      );
+      let batch = writeBatch(firestore);
+      let batchCount = 0;
+      for (const msgDoc of msgSnap.docs) {
+        const m = msgDoc.data() as ChatMessage;
+        if (m.deleted || m.hiddenFor?.[user.uid]) continue;
+        batch.update(msgDoc.ref, { [`hiddenFor.${user.uid}`]: true });
+        batchCount += 1;
+        if (batchCount >= 450) {
+          await batch.commit();
+          batch = writeBatch(firestore);
+          batchCount = 0;
+        }
+      }
+      if (batchCount > 0) await batch.commit();
+    } catch (e) {
+      console.warn('hideConversationForUser messages:', e);
+    }
+  })();
 
   if (peerUid) {
     const { dismissChatMessageNotifications } = await import('./notifications');
@@ -1172,17 +1254,43 @@ export async function quickClearOldChatMessages(olderThanDays: QuickClearDays): 
       query(collection(firestore, 'messages'), where('conversationId', '==', convId), limit(500)),
     );
 
+    let clearedHere = 0;
+    let visibleLeft = 0;
     for (const msgDoc of msgSnap.docs) {
       const m = { id: msgDoc.id, ...msgDoc.data() } as ChatMessage;
       if (m.deleted) continue;
       if (m.hiddenFor?.[user.uid]) continue;
-      if (!clearAll && (m.createdAt ?? 0) >= cutoff) continue;
-      if (!clearAll && isImportantChatMessage(m)) continue;
+      if (
+        (!clearAll && (m.createdAt ?? 0) >= cutoff) ||
+        (!clearAll && isImportantChatMessage(m))
+      ) {
+        visibleLeft += 1;
+        continue;
+      }
 
       batch.update(msgDoc.ref, { [`hiddenFor.${user.uid}`]: true });
       batchCount += 1;
       cleared += 1;
+      clearedHere += 1;
 
+      if (batchCount >= 450) await flush();
+    }
+
+    if (clearedHere > 0) {
+      // تحديث قائمتي أنا فقط (حقول per-user) — نسخة الطرف الآخر لا تُمسّ:
+      // • تصفير عدّاد غير المقروء (الرسائل المخفية كانت تُبقي نقطة حمراء وهمية)
+      // • إن لم تبقَ أي رسالة ظاهرة لي: إخفاء المحادثة من قائمتي بالكامل
+      //   (كان الاسم + معاينة آخر رسالة يظلان ظاهرين من الخارج بعد المسح الشامل)
+      const convPatch: Record<string, unknown> = {
+        [`unreadBy.${user.uid}`]: 0,
+      };
+      if (visibleLeft === 0) {
+        convPatch[`hiddenBy.${user.uid}`] = true;
+        convPatch[`deletedAtBy.${user.uid}`] = Date.now();
+        convPatch[`pinnedBy.${user.uid}`] = false;
+      }
+      batch.update(convDoc.ref, convPatch as Record<string, FieldValue | string | number | boolean>);
+      batchCount += 1;
       if (batchCount >= 450) await flush();
     }
   }
@@ -1220,39 +1328,91 @@ export const subscribeToMessages = (
   conversationId: string,
   callback: (messages: ChatMessage[]) => void,
 ): (() => void) => {
-  const user = auth.currentUser;
-  const q = query(
-    collection(firestore, 'messages'),
-    where('conversationId', '==', conversationId),
-    limit(200),
-  );
-  return onSnapshot(
-    q,
-    (snap) => {
-      const msgs = snap.docs
-        .map((d) => {
-          // ترتيب بساعة الخادم — ساعة جهاز المرسل قد تكون منحرفة فتختلط الرسائل
-          const data = d.data({ serverTimestamps: 'estimate' }) as Record<string, unknown>;
-          const serverAt = data.serverAt as { toMillis?: () => number } | undefined;
-          const sortAt =
-            typeof serverAt?.toMillis === 'function'
-              ? serverAt.toMillis()
-              : Number(data.createdAt ?? 0);
-          return { id: d.id, ...data, sortAt } as ChatMessage & { sortAt: number };
-        })
-        .filter((m) => {
-          if (m.deleted) return false;
-          if (user && m.hiddenFor?.[user.uid]) return false;
-          return true;
-        });
-      msgs.sort((a, b) => (a.sortAt || a.createdAt || 0) - (b.sortAt || b.createdAt || 0));
-      callback(msgs);
+  const handleSnapshot = (snap: QuerySnapshot<DocumentData>) => {
+    // نقرأ المستخدم لحظة كل snapshot — قراءته مرة عند الاشتراك كانت null في
+    // سباق الإقلاع فتتعطّل فلترة «حُذفت لي» (hiddenFor) وتعود الرسائل المحذوفة
+    const user = auth.currentUser;
+    const msgs = snap.docs
+      .map((d) => {
+        // ترتيب بساعة الخادم — ساعة جهاز المرسل قد تكون منحرفة فتختلط الرسائل
+        const data = d.data({ serverTimestamps: 'estimate' }) as Record<string, unknown>;
+        const serverAt = data.serverAt as { toMillis?: () => number } | undefined;
+        const sortAt =
+          typeof serverAt?.toMillis === 'function'
+            ? serverAt.toMillis()
+            : Number(data.createdAt ?? 0);
+        return { id: d.id, ...data, sortAt } as ChatMessage & { sortAt: number };
+      })
+      .filter((m) => {
+        if (m.deleted) return false;
+        if (user && m.hiddenFor?.[user.uid]) return false;
+        return true;
+      });
+    msgs.sort((a, b) => (a.sortAt || a.createdAt || 0) - (b.sortAt || b.createdAt || 0));
+    callback(msgs);
+  };
+
+  // ⚡ أحدث 100 رسالة بترتيب الخادم — الاستعلام القديم بلا orderBy كان يجلب
+  // «أول 200 مستند حسب معرّف الوثيقة» فيثقل المحادثات الطويلة على الشبكة
+  // وقد يُسقط الرسائل الأحدث كلياً عند تجاوز 200 رسالة.
+  // الفهرس المركّب (conversationId + createdAt DESC) موجود في firestore.indexes.json؛
+  // وعند غيابه من المشروع المنشور نرجع تلقائياً للاستعلام القديم بدل كسر الشات.
+  let disposed = false;
+  let unsub: () => void = () => {};
+
+  const attach = (ordered: boolean) => {
+    const q = ordered
+      ? query(
+          collection(firestore, 'messages'),
+          where('conversationId', '==', conversationId),
+          orderBy('createdAt', 'desc'),
+          limit(100),
+        )
+      : query(
+          collection(firestore, 'messages'),
+          where('conversationId', '==', conversationId),
+          limit(200),
+        );
+    unsub = onSnapshot(
+      q,
+      handleSnapshot,
+      (err) => {
+        if (ordered && !disposed) {
+          // غالباً فهرس غير منشور (failed-precondition) — fallback شفاف
+          console.warn('subscribeToMessages (ordered) fallback:', err?.message ?? err);
+          attach(false);
+          return;
+        }
+        console.error('subscribeToMessages:', err);
+        callback([]);
+      },
+    );
+  };
+
+  // نفس إصلاح سباق الإقلاع في subscribeToConversations: الاشتراك قبل اكتمال
+  // استعادة الجلسة كان يفشل بـ permission-denied فتبقى الشاشة فارغة حتى إعادة الفتح
+  let attachedUid: string | null = null;
+  const authUnsub = subscribeWhenAuthenticated(
+    (user) => {
+      if (disposed || attachedUid === user.uid) return;
+      unsub();
+      attachedUid = user.uid;
+      attach(true);
     },
-    (err) => {
-      console.error('subscribeToMessages:', err);
+    () => {
+      if (disposed) return;
+      unsub();
+      unsub = () => {};
+      attachedUid = null;
       callback([]);
     },
   );
+
+  return () => {
+    disposed = true;
+    authUnsub();
+    unsub();
+  };
 };
 
 // === Seed demo conversations ===

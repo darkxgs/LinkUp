@@ -112,6 +112,12 @@ export interface AppSettings {
   inAppRechargeEnabled: boolean;
   challengeWinnerPercent: number;  // % نسبة الفائز من إجمالي رهان التحديات
   challengeAppCommission: number;  // % عمولة التطبيق من تحديات الألعاب
+  /**
+   * فلترة المحتوى — مصطلحات محظورة (أسماء تطبيقات منافسة…) تمنع إرسال الرسالة.
+   * تُدمج مع القائمة الافتراضية في utils/moderation.ts (مطابقة غير حساسة
+   * لحالة الأحرف/التشكيل، عربي + لاتيني). تصل للخدمات عبر ConfigContext.
+   */
+  moderation: { bannedTerms: string[] };
 }
 
 // ==================== DEFAULTS (Fallback) ====================
@@ -185,6 +191,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   inAppRechargeEnabled: false,
   challengeWinnerPercent: 80,
   challengeAppCommission: 20,
+  // فارغة = الاكتفاء بالقائمة الافتراضية في utils/moderation.ts حتى يضبط الأدمن قائمته
+  moderation: { bannedTerms: [] },
 };
 
 // ==================== REAL-TIME SUBSCRIPTIONS ====================

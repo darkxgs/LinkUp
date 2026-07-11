@@ -479,6 +479,8 @@ export const purchaseStoreItem = async (item: StoreItem): Promise<void> => {
 
   const userRef = doc(firestore, 'users', user.uid);
 
+  // معاملة ذرّية واحدة: فحص الرصيد + الخصم + منح العنصر + سجل المعاملة —
+  // كان المنح يتم بعد المعاملة فينفصل عن الخصم عند أي فشل جزئي
   await runTransaction(firestore, async (transaction) => {
     const userDoc = await transaction.get(userRef);
     if (!userDoc.exists()) throw new Error('المستخدم غير موجود');
@@ -498,35 +500,39 @@ export const purchaseStoreItem = async (item: StoreItem): Promise<void> => {
       userRef,
       buildBalanceIncrementPatch(item.currency, -item.price),
     );
-  });
 
-  // إضافة للمخزون
-  await addDoc(collection(firestore, 'inventory'), {
-    uid: user.uid,
-    itemId: item.id,
-    itemType: item.type,
-    itemName: item.name,
-    iconName: item.iconName,
-    iconColor: item.iconColor,
-    imageUrl: item.imageUrl ?? null,
-    quantity: 1,
-    isEquipped: false,
-    acquiredAt: Date.now(),
-    expiresAt: item.validityDays
-      ? Date.now() + item.validityDays * 24 * 60 * 60 * 1000
-      : null,
-  });
+    const now = Date.now();
 
-  // تسجيل المعاملة
-  await addDoc(collection(firestore, 'transactions'), {
-    uid: user.uid,
-    type: 'purchase',
-    amount: -item.price,
-    currency: item.currency,
-    itemId: item.id,
-    itemName: item.name,
-    status: 'completed',
-    createdAt: Date.now(),
+    // إضافة للمخزون — داخل نفس المعاملة
+    const invRef = doc(collection(firestore, 'inventory'));
+    transaction.set(invRef, {
+      uid: user.uid,
+      itemId: item.id,
+      itemType: item.type,
+      itemName: item.name,
+      iconName: item.iconName,
+      iconColor: item.iconColor,
+      imageUrl: item.imageUrl ?? null,
+      quantity: 1,
+      isEquipped: false,
+      acquiredAt: now,
+      expiresAt: item.validityDays
+        ? now + item.validityDays * 24 * 60 * 60 * 1000
+        : null,
+    });
+
+    // تسجيل المعاملة — داخل نفس المعاملة
+    const txRef = doc(collection(firestore, 'transactions'));
+    transaction.set(txRef, {
+      uid: user.uid,
+      type: 'purchase',
+      amount: -item.price,
+      currency: item.currency,
+      itemId: item.id,
+      itemName: item.name,
+      status: 'completed',
+      createdAt: now,
+    });
   });
 };
 
@@ -714,12 +720,13 @@ async function executeBuyAndSendGift(
 
     if (recipientAmount > 0) {
       const balanceKey = recipientIsHostess ? 'pearls' : 'coins';
+      // مستوى الثروة من الإنفاق فقط — منح المستلم XP بكامل قيمة الهدية كان
+      // يجعل مستواه يطابق مستوى المُرسِل (تدوير الكوينز بالهدايا يضخّم
+      // المستويين معاً بلا حد فتظهر حسابات المستخدمين بنفس اللفل)
       const recipientStats = statsFromFirestoreDoc(recipientData);
-      const recipientXp = applyXpGain(recipientStats.level, recipientStats.xp, totalPrice);
-      recipientLevel = recipientXp.level;
+      recipientLevel = recipientStats.level;
       transaction.update(recipientRef, {
         ...buildBalanceIncrementPatch(balanceKey, recipientAmount),
-        ...buildWealthXpFirestoreUpdate(recipientXp.level, recipientXp.xp),
       });
     }
 

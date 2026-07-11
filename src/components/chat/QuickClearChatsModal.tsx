@@ -8,8 +8,9 @@ import {
   Modal,
   Pressable,
   ActivityIndicator,
-  I18nManager,
+  ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
 import { Text, useAlert } from '@/components/ui';
@@ -26,6 +27,7 @@ interface Props {
 
 export function QuickClearChatsModal({ visible, onClose, onDone }: Props) {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const { showAlert } = useAlert();
   const [selected, setSelected] = useState<QuickClearDays>(14);
   const [busy, setBusy] = useState(false);
@@ -57,7 +59,15 @@ export function QuickClearChatsModal({ visible, onClose, onDone }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
+      <Pressable
+        style={[
+          styles.overlay,
+          // هوامش أمان — كانت البطاقة تفيض عن الشاشة على الأجهزة الصغيرة
+          // أو مع تكبير الخط فيختفي زر «موافق» تحت الحافة
+          { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 },
+        ]}
+        onPress={onClose}
+      >
         <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
           <Text variant="h4" weight="bold" color={lu.colors.ink} style={styles.title}>
             {t('chat.quickClearTitle')}
@@ -66,7 +76,13 @@ export function QuickClearChatsModal({ visible, onClose, onDone }: Props) {
             {t('chat.quickClearHint')}
           </Text>
 
-          <View style={styles.options}>
+          {/* الخيارات قابلة للتمرير — الأزرار footer ثابت يظهر دائماً */}
+          <ScrollView
+            style={styles.optionsScroll}
+            contentContainerStyle={styles.options}
+            bounces={false}
+            showsVerticalScrollIndicator={false}
+          >
             {OPTIONS.map((days) => {
               const active = selected === days;
               return (
@@ -86,7 +102,7 @@ export function QuickClearChatsModal({ visible, onClose, onDone }: Props) {
                 </Pressable>
               );
             })}
-          </View>
+          </ScrollView>
 
           <View style={styles.actions}>
             <Pressable
@@ -125,6 +141,8 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 360,
+    maxHeight: '100%',
+    flexShrink: 1,
     backgroundColor: '#fff',
     borderRadius: 20,
     paddingHorizontal: 22,
@@ -139,6 +157,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: 18,
+  },
+  optionsScroll: {
+    // يتقلّص عند ضيق الشاشة بدل أن يدفع أزرار «موافق/إلغاء» خارج البطاقة
+    flexGrow: 0,
+    flexShrink: 1,
   },
   options: {
     gap: 4,
@@ -186,7 +209,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   btnPrimary: {
-    backgroundColor: '#E5E7EB',
+    // لون العلامة — كان رمادياً فاتحاً بنص أبيض فيبدو زر «موافق» غير موجود
+    backgroundColor: lu.colors.purple,
   },
   btnGhost: {
     backgroundColor: '#FEE2E2',

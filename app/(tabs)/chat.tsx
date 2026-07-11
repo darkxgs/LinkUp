@@ -246,7 +246,8 @@ export default function ChatListScreen() {
     try {
       const chatFriends = await getChatFriendUids(currentUser.uid);
       setFriendUids(chatFriends);
-      const ids = [...chatFriends].slice(0, 12);
+      // كل الأصدقاء (كان مقصوصاً على 12 فيختلف العدد عن باقي الشاشات)
+      const ids = [...chatFriends].slice(0, 60);
       const users = await Promise.all(ids.map((id) => getUser(id)));
       setFriends(users.filter((u): u is UserDoc => u != null));
     } catch {
@@ -456,12 +457,10 @@ export default function ChatListScreen() {
     const active = conversations.filter(
       (c) => !c.archivedBy?.[uid] && conversationHasThreadActivity(c),
     );
-    const isFriendConv = (c: Conversation) => {
-      const otherUid = c.participants.find((p) => p !== uid) ?? '';
-      return otherUid !== '' && friendUids.has(otherUid);
-    };
     return {
-      friends: active.filter(isFriendConv).length,
+      // عدد الأصدقاء الكلي (متابعة متبادلة) — نفس مصدر باقي الشاشات،
+      // كان يَعُدّ محادثات الأصدقاء فقط فيخالف عدد الأصدقاء بالحساب
+      friends: friendUids.size,
       unread: active.reduce((sum, c) => sum + (c.unreadBy?.[uid] ?? 0), 0),
       online: active.filter((c) => c.isOnline).length,
       pinned: active.filter((c) => c.pinnedBy?.[uid] === true).length,

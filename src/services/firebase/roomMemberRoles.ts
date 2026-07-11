@@ -303,7 +303,17 @@ export function canTakeMicSeat(
 ): boolean {
   if (isManager) return true;
   if (memberRole === 'cancelled') return false;
-  if (memberRole === 'red_member') return true;
+  // أي دور مسجّل في الغرفة (عضو أزرق/إشراف أصفر/عضو أحمر) يتجاوز بوابة الضيف —
+  // مشرف الوكالة كان يُطالَب بشراء عضوية عندما لا يكون في coHosts ولا في
+  // agencyMembers (تأخّر مزامنة أو تعيين عبر memberRoles فقط) رغم أن قواعد
+  // RTDB تسمح له بالمقعد («لا يمكن رفع مايك في بعض الوكالات رغم وجود إشراف»)
+  if (
+    memberRole === 'yellow_supervisor' ||
+    memberRole === 'blue_supervisor' ||
+    memberRole === 'red_member'
+  ) {
+    return true;
+  }
   const audience = isAgencyMember ? 'member' : 'guest';
   return hasRoomFeaturePermission(perms, 'takeMic', audience);
 }
@@ -883,6 +893,15 @@ export async function updateRoomManagedSettings(
     patch.isPrivate = updates.mode === 'locked';
   }
   if (updates.password !== undefined) patch.password = updates.password ?? '';
+  // غرفة مقفلة بلا كلمة مرور تتجاوزها بوابة الدخول — نرفض الحفظ
+  if (updates.mode === 'locked') {
+    const finalPassword = String(
+      updates.password !== undefined ? updates.password ?? '' : roomData.password ?? '',
+    ).trim();
+    if (!finalPassword) {
+      throw new Error('يجب تعيين كلمة مرور للغرفة المقفلة');
+    }
+  }
   if (updates.seatsCount != null) {
     const maxAllowed = await resolveEffectiveMaxSeatsCount(roomData);
     if (updates.seatsCount > maxAllowed) {

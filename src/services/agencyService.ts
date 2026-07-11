@@ -275,13 +275,17 @@ export const updateAgencyImages = async (
   await updateDoc(agencyRef, update);
 };
 
-/** مفتاح الفترة الحالية (آخر 7 أيام — مطابق لتحليلات الوكالة) */
+/**
+ * مفتاح فترة الدعم الأسبوعية — مطابق حرفياً لدالة السيرفر getAgencyPeriodWeekKey.
+ * ⚠️ الصيغة القديمة (منتصف ليل اليوم - 6 أيام) كانت تتغيّر كل يوم وتختلف بين
+ * منطقة جهاز المستخدم وتوقيت خادم UTC، فكان العدّاد يُصفَّر يومياً والعميل
+ * يعرض دائماً 0 (المساهمة لا تزيد والمستوى عالق). الصيغة الجديدة سلة أسبوعية
+ * ثابتة بتوقيت الرياض (+3) لا تعتمد على منطقة الجهاز ولا الخادم.
+ */
 export function getAgencyPeriodWeekKey(ms = Date.now()): string {
   const DAY = 86400000;
-  const d = new Date(ms);
-  d.setHours(0, 0, 0, 0);
-  const weekStart = d.getTime() - 6 * DAY;
-  return `w${weekStart}`;
+  const TZ_OFFSET_MS = 3 * 60 * 60 * 1000; // Asia/Riyadh ثابت
+  return `wk${Math.floor((ms + TZ_OFFSET_MS) / (7 * DAY))}`;
 }
 
 async function loadAgencyLevelsConfigDoc(): Promise<AgencyLevelsRuntimeConfig> {
@@ -1164,15 +1168,42 @@ export function subscribeToMyReceivedAgencyInvites(
   );
 }
 
+/** غرفة الوكالة موجودة مسبقاً؟ — دخول مباشر بدون المرور بالدالة السحابية */
+async function resolveExistingAgencyLiveRoomId(agencyId: string): Promise<string | null> {
+  try {
+    const snap = await getDoc(doc(firestore, 'agencies', agencyId));
+    const liveRoomId = snap.exists() ? String(snap.data()?.liveRoomId ?? '') : '';
+    if (!liveRoomId) return null;
+    const roomSnap = await get(ref(realtimeDb, `rooms/${liveRoomId}`));
+    return roomSnap.exists() ? liveRoomId : null;
+  } catch {
+    return null;
+  }
+}
+
 /** غرفة الوكالة العامة — إنشاء/جلب عبر Cloud Function ثم الدخول كمستمع */
 export const enterAgencyLiveRoom = async (agencyId: string): Promise<string> => {
-  const fn = httpsCallable<{ agencyId: string }, { roomId: string }>(
-    functions,
-    'enterAgencyLiveRoom',
-  );
-  const res = await fn({ agencyId: agencyId.trim() });
-  if (!res.data?.roomId) throw new Error('تعذّر فتح غرفة الوكالة');
-  return res.data.roomId;
+  const id = agencyId.trim();
+  try {
+    // #10: httpsCallable وحده غير موثوق على React Native (Gen2) — كان يفشل
+    // بـ «internal» فيمنع العودة لنفس الروم. HTTP+Bearer مع fallback للSDK.
+    const user = await ensureCallableAuth();
+    const token = await user.getIdToken();
+    const res = await callCallableWithAuth<{ agencyId: string }, { roomId: string }>(
+      'enterAgencyLiveRoom',
+      { agencyId: id },
+      token,
+    );
+    if (res?.roomId) return res.roomId;
+  } catch (e) {
+    // الدخول لا يُحجب على الدالة السحابية — الغرفة القائمة معروفة في Firestore
+    const existing = await resolveExistingAgencyLiveRoomId(id);
+    if (existing) return existing;
+    throw new Error(translateCallableError(e));
+  }
+  const existing = await resolveExistingAgencyLiveRoomId(id);
+  if (existing) return existing;
+  throw new Error('تعذّر فتح غرفة الوكالة');
 };
 
 /** جلب دعوات BD — عبر Cloud Function (بدون فهرس Firestore على التطبيق) */

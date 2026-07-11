@@ -8,7 +8,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { Image } from 'expo-image';
 import { ShieldCheck, RotateCcw } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -22,25 +21,20 @@ type Props = {
   displayName?: string;
   disabled?: boolean;
   onResult: (result: KycSubmitResult) => void;
-};
-
-type PickedPhoto = {
-  uri: string;
-  base64: string;
+  /** يُعلم الشاشة الأم بحالة الإرسال — يمنع تبديل الواجهة أثناء التحقق */
+  onBusyChange?: (busy: boolean) => void;
 };
 
 type CaptureStage = 'idle' | 'hold' | 'gesture' | 'final' | 'uploading';
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Props) {
+export function KycFaceVerify({ fullName, displayName, disabled, onResult, onBusyChange }: Props) {
   const { t } = useTranslation();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [picked, setPicked] = useState<PickedPhoto | null>(null);
-  const [useCamera, setUseCamera] = useState(true);
   const [stage, setStage] = useState<CaptureStage>('idle');
   const [gestureText, setGestureText] = useState('');
 
@@ -53,11 +47,15 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
   ];
 
   useEffect(() => {
-    if (!useCamera || picked) return;
     if (!permission?.granted && permission?.canAskAgain !== false) {
       void requestPermission();
     }
-  }, [permission, requestPermission, useCamera, picked]);
+  }, [permission, requestPermission]);
+
+  // إبلاغ الأم بحالة الانشغال — يشمل كل مسارات النجاح/الفشل
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
 
   const submitFrames = useCallback(
     async (frames: string[], gestureId?: string) => {
@@ -101,15 +99,9 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
     }
   }, []);
 
+  // كاميرا حية فقط — لا رفع من الاستوديو ولا أي ملفات (أمر المالك: تصوير مباشر حصراً)
   const captureAndVerify = useCallback(async () => {
     if (busy || disabled) return;
-
-    if (picked?.base64) {
-      setBusy(true);
-      await submitFrames([picked.base64]);
-      return;
-    }
-
     if (!cameraRef.current) return;
     setBusy(true);
     setError(null);
@@ -149,18 +141,11 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
       setStage('idle');
       setGestureText('');
     }
-  }, [busy, disabled, picked, submitFrames, snapFrame, gestures, t]);
+  }, [busy, disabled, submitFrames, snapFrame, gestures, t]);
 
-  const resetPhoto = useCallback(() => {
-    setPicked(null);
-    setUseCamera(true);
-    setError(null);
-  }, []);
-
-  const showCamera = useCamera && !picked;
   const capturing = stage === 'hold' || stage === 'gesture' || stage === 'final';
 
-  if (showCamera && !permission) {
+  if (!permission) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={lu.colors.pink} />
@@ -168,7 +153,7 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
     );
   }
 
-  if (showCamera && !permission?.granted) {
+  if (!permission?.granted) {
     return (
       <View style={styles.wrap}>
         <View style={styles.permissionBox}>
@@ -189,42 +174,34 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
   return (
     <View style={styles.wrap}>
       <View style={styles.cameraFrame}>
-        {picked ? (
-          <Image source={{ uri: picked.uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
-        ) : showCamera ? (
-          <>
-            <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" />
-            <View style={styles.faceOval} pointerEvents="none" />
-            {capturing ? (
-              <View style={styles.gestureOverlay} pointerEvents="none">
-                <View style={styles.gestureBanner}>
-                  <Text variant="body" weight="bold" color="#fff" align="center">
-                    {gestureText}
-                  </Text>
-                  <View style={styles.dotsRow}>
-                    {(['hold', 'gesture', 'final'] as const).map((s, i) => {
-                      const activeIdx = stage === 'hold' ? 0 : stage === 'gesture' ? 1 : 2;
-                      return (
-                        <View
-                          key={s}
-                          style={[styles.dot, i <= activeIdx && styles.dotActive]}
-                        />
-                      );
-                    })}
-                  </View>
-                </View>
+        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" />
+        <View style={styles.faceOval} pointerEvents="none" />
+        {capturing ? (
+          <View style={styles.gestureOverlay} pointerEvents="none">
+            <View style={styles.gestureBanner}>
+              <Text variant="body" weight="bold" color="#fff" align="center">
+                {gestureText}
+              </Text>
+              <View style={styles.dotsRow}>
+                {(['hold', 'gesture', 'final'] as const).map((s, i) => {
+                  const activeIdx = stage === 'hold' ? 0 : stage === 'gesture' ? 1 : 2;
+                  return (
+                    <View
+                      key={s}
+                      style={[styles.dot, i <= activeIdx && styles.dotActive]}
+                    />
+                  );
+                })}
               </View>
-            ) : null}
-          </>
+            </View>
+          </View>
         ) : null}
       </View>
 
       <Text variant="caption" color="rgba(255,255,255,0.65)" align="center" style={styles.hint}>
-        {picked
-          ? t('kyc.faceGalleryPreviewHint')
-          : capturing
-            ? t('kyc.faceLivenessHint', 'التقاط تلقائي — اتبعي التعليمة فقط')
-            : t('kyc.faceHint')}
+        {capturing
+          ? t('kyc.faceLivenessHint', 'التقاط تلقائي — اتبعي التعليمة فقط')
+          : t('kyc.faceHint')}
       </Text>
 
       {error ? (
@@ -257,16 +234,7 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult }: Pro
         </LinearGradient>
       </Pressable>
 
-      {picked ? (
-        <Pressable onPress={resetPhoto} disabled={busy} style={styles.retryLink}>
-          <RotateCcw size={14} color="#FCA5A5" />
-          <Text variant="caption" weight="semibold" color="#FCA5A5">
-            {t('kyc.faceRetakePhoto')}
-          </Text>
-        </Pressable>
-      ) : null}
-
-      {error && !picked ? (
+      {error ? (
         <Pressable onPress={() => setError(null)} style={styles.retryLink}>
           <RotateCcw size={14} color="#FCA5A5" />
           <Text variant="caption" weight="semibold" color="#FCA5A5">

@@ -116,6 +116,11 @@ export default function EditRoomScreen() {
       Alert.alert('تنبيه', 'اسم الروم مطلوب');
       return;
     }
+    // غرفة مقفلة بلا كلمة مرور = غرفة مفتوحة فعلياً (البوابة تتجاوزها) — نمنع الحفظ
+    if (mode === 'locked' && !password.trim()) {
+      Alert.alert('تنبيه', 'يجب تعيين كلمة مرور للغرفة المقفلة');
+      return;
+    }
     setSaving(true);
     try {
       await updateRoomSettings(roomId, {

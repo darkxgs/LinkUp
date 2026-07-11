@@ -231,6 +231,13 @@ export default function ExchangeScreen() {
     [activeRoute, numAmount, rates],
   );
 
+  // المبلغ الفعلي الذي سيُخصم — في مسار كوينز→ماسة يُقرَّب لأسفل لأقرب مضاعف للمعدّل
+  // (مثال: 58,648 كوينز ⇐ يُستبدل 50,000 فقط ويبقى 8,648 في الرصيد)
+  const effectiveSpent =
+    activeRoute === 'coins_to_pearls' ? calc.received * calc.rate : numAmount;
+  const roundedRemainder = Math.max(0, numAmount - effectiveSpent);
+  const remainingAfter = Math.max(0, sourceBalance - effectiveSpent);
+
   const canExchange =
     numAmount > 0 &&
     numAmount <= sourceBalance &&
@@ -239,10 +246,17 @@ export default function ExchangeScreen() {
 
   const handleExchange = () => {
     if (!canExchange) return;
+    const spendText = `${effectiveSpent.toLocaleString()} ${sourceLabel}`;
+    const receiveText = `${calc.received.toLocaleString()} ${targetLabel}`;
+    const remainText = `${remainingAfter.toLocaleString()} ${sourceLabel}`;
+    const roundHint =
+      activeRoute === 'coins_to_pearls' && roundedRemainder > 0
+        ? `\n\nملاحظة: تم تقريب المبلغ لأسفل لأقرب مضاعف لـ ${calc.rate.toLocaleString()} — الـ ${roundedRemainder.toLocaleString()} ${sourceLabel} الزائدة تبقى في رصيدك ولا تُخصم.`
+        : '';
     showAlert({
       type: 'warning',
       title: 'تأكيد عملية التحويل',
-      message: `سيتم استبدال ${numAmount.toLocaleString()} ${sourceLabel} والحصول على ${calc.received.toLocaleString()} ${targetLabel}\n\nتتم العملية فوراً وبدون عمولات إضافية.`,
+      message: `سيتم استبدال ${spendText} مقابل ${receiveText} — سيتبقى لديك ${remainText}.${roundHint}\n\nتتم العملية فوراً وبدون عمولات إضافية.`,
       buttons: [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -250,11 +264,11 @@ export default function ExchangeScreen() {
           onPress: async () => {
             setSubmitting(true);
             try {
-              await exchangeCurrency(activeRoute, numAmount);
+              await exchangeCurrency(activeRoute, effectiveSpent);
               showAlert({
                 type: 'success',
                 title: 'عملية ناجحة!',
-                message: `لقد حصلت على ${calc.received.toLocaleString()} ${targetLabel} بنجاح.`,
+                message: `تم استبدال ${spendText} مقابل ${receiveText} — رصيدك المتبقي ${remainText}.`,
                 buttons: [
                   {
                     text: 'حسناً',
@@ -493,21 +507,28 @@ export default function ExchangeScreen() {
           </Text>
           <View style={styles.quickRow}>
             {[
-              { label: '25%', val: Math.floor(sourceBalance * 0.25) },
-              { label: '50%', val: Math.floor(sourceBalance * 0.5) },
-              { label: '75%', val: Math.floor(sourceBalance * 0.75) },
-              { label: 'الكل MAX', val: sourceBalance },
-            ].map((q) => (
-              <Pressable
-                key={q.label}
-                onPress={() => setAmount(String(q.val))}
-                style={[styles.quickGlassChip, amount === String(q.val) && { borderColor: routeDef.themeColor, backgroundColor: routeDef.themeColor + '11' }]}
-              >
-                <Text variant="caption" color={amount === String(q.val) ? routeDef.themeColor : '#4B5563'} weight="bold">
-                  {q.label}
-                </Text>
-              </Pressable>
-            ))}
+              { label: '25%', pct: 0.25 },
+              { label: '50%', pct: 0.5 },
+              { label: '75%', pct: 0.75 },
+              { label: 'الكل MAX', pct: 1 },
+            ].map((q) => {
+              // نُقرِّب النسبة لأسفل لأقرب مضاعف صالح للمعدّل حتى لا يظهر مبلغ لا يُستبدل بالكامل
+              let val = Math.floor(sourceBalance * q.pct);
+              if (activeRoute === 'coins_to_pearls') {
+                val = Math.floor(val / calc.rate) * calc.rate;
+              }
+              return (
+                <Pressable
+                  key={q.label}
+                  onPress={() => setAmount(String(val))}
+                  style={[styles.quickGlassChip, amount === String(val) && { borderColor: routeDef.themeColor, backgroundColor: routeDef.themeColor + '11' }]}
+                >
+                  <Text variant="caption" color={amount === String(val) ? routeDef.themeColor : '#4B5563'} weight="bold">
+                    {q.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
 
           {/* Info & Warnings */}
@@ -525,6 +546,26 @@ export default function ExchangeScreen() {
               <Info size={20} color="#D97706" />
               <Text variant="body" color="#92400E" weight="bold">
                 الحد الأدنى للتحويل هو {calc.rate.toLocaleString()} كوينز لربح 1 ماسة
+              </Text>
+            </View>
+          )}
+
+          {activeRoute === 'coins_to_pearls' &&
+            numAmount >= calc.rate &&
+            roundedRemainder > 0 &&
+            numAmount <= sourceBalance && (
+            <View style={[styles.warnCard, { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }]}>
+              <Info size={20} color="#D97706" />
+              <Text variant="body" color="#92400E" weight="bold" style={{ flex: 1 }}>
+                يُستبدل فقط بمضاعفات {calc.rate.toLocaleString()} كوينز — سيتم استبدال {effectiveSpent.toLocaleString()} كوينز، والـ {roundedRemainder.toLocaleString()} كوينز الزائدة تبقى في رصيدك
+              </Text>
+            </View>
+          )}
+
+          {canExchange && (
+            <View style={styles.summaryCard}>
+              <Text variant="body" color="#065F46" weight="bold" style={{ flex: 1, textAlign: 'center' }}>
+                سيتم استبدال {effectiveSpent.toLocaleString()} {sourceLabel} مقابل {calc.received.toLocaleString()} {targetLabel} — سيتبقى لديك {remainingAfter.toLocaleString()} {sourceLabel}
               </Text>
             </View>
           )}
@@ -826,6 +867,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2',
     borderWidth: 1,
     borderColor: '#FCA5A5',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 24,
+  },
+  summaryCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
     borderRadius: 20,
     padding: 16,
     marginBottom: 24,

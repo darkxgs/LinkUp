@@ -79,9 +79,10 @@ export function sumPrivateUnreadCount(
   uid: string | undefined,
 ): number {
   if (!uid) return 0;
-  return conversations
-    .filter((c) => !c.archivedBy?.[uid] && !c.hiddenBy?.[uid])
-    .reduce((sum, c) => sum + (c.unreadBy?.[uid] ?? 0), 0);
+  // نفس حساب شارة تبويب الدردشة خارج الروم (unreadStore): مجموع unreadBy على
+  // القائمة الواصلة من subscribeToConversations (مفلترة مسبقاً من المخفية/المحذوفة).
+  // استثناء المؤرشفة هنا كان يجعل العدد داخل الروم مختلفاً عن الرقم الصحيح خارجه.
+  return conversations.reduce((sum, c) => sum + (c.unreadBy?.[uid] ?? 0), 0);
 }
 
 type ActiveThread = {

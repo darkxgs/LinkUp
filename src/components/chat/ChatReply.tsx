@@ -12,6 +12,8 @@ import { radius, spacing } from '@/theme';
 
 type ReplyLabels = {
   you: string;
+  /** نص بديل يظهر عند حذف الرسالة الأصلية */
+  deletedMessage?: string;
 };
 
 function replyAuthorName(
@@ -67,6 +69,7 @@ export function ChatReplyQuote({
   isMine,
   onPress,
   labels,
+  deleted = false,
 }: {
   replyTo: ChatReplySnapshot;
   peerName: string;
@@ -74,10 +77,13 @@ export function ChatReplyQuote({
   isMine: boolean;
   onPress?: () => void;
   labels: ReplyLabels;
+  /** الرسالة الأصلية حُذفت — نعرض «رسالة محذوفة» بدل الـ snapshot المخزَّن */
+  deleted?: boolean;
 }) {
   const isRTL = I18nManager.isRTL;
   const author = replyAuthorName(replyTo, myUid, peerName, labels);
   const quoteFromPeer = replyTo.fromUid !== myUid;
+  const quoteText = deleted ? (labels.deletedMessage ?? 'رسالة محذوفة') : replyTo.text;
 
   return (
     <Pressable
@@ -110,8 +116,9 @@ export function ChatReplyQuote({
           variant="caption"
           numberOfLines={2}
           color={isMine ? 'rgba(255,255,255,0.82)' : lu.colors.muted}
+          style={deleted ? styles.quoteDeleted : undefined}
         >
-          {replyTo.text}
+          {quoteText}
         </Text>
       </View>
     </Pressable>
@@ -178,5 +185,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 2,
+  },
+  quoteDeleted: {
+    fontStyle: 'italic',
+    opacity: 0.8,
   },
 });

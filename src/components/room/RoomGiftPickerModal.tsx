@@ -142,6 +142,10 @@ export function RoomGiftPickerModal({
   const [quantity, setQuantity] = useState(1);
   const [showQty, setShowQty] = useState(false);
   const [selectedUids, setSelectedUids] = useState<Set<string>>(new Set());
+  // خصم تفاؤلي للرصيد المعروض — يُصفَّر عند وصول الرصيد الحقيقي من الأعلى
+  const [spentLocally, setSpentLocally] = useState(0);
+  // هل لمس المستخدم قائمة المستلمين يدوياً؟ (يمنع الاختيار التلقائي المتأخر)
+  const userTouchedRecipientsRef = useRef(false);
 
   const [comboGiftId, setComboGiftId] = useState<string | null>(null);
   const [comboCount, setComboCount] = useState<number>(0);
@@ -246,14 +250,16 @@ export function RoomGiftPickerModal({
     setSelectedGift(null);
     setQuantity(1);
     setShowQty(false);
+    setSpentLocally(0);
+    userTouchedRecipientsRef.current = false;
+    // الاختيار مربوط بالـ uid حصراً: لا نختار «أول شخص» تلقائياً —
+    // كان الاختيار الافتراضي الموضعي يرسل الهدية لغير المقصود عند تبدّل الحضور
     const initial = new Set<string>();
     if (
       initialRecipientUid &&
       recipients.some((r) => r.uid === initialRecipientUid)
     ) {
       initial.add(initialRecipientUid);
-    } else if (recipients[0]?.uid) {
-      initial.add(recipients[0].uid);
     }
     setSelectedUids(initial);
   }, [visible, recipientIdsKey, initialRecipientUid, recipients, resetCombo]);
@@ -279,6 +285,22 @@ export function RoomGiftPickerModal({
     if (changed) setSelectedUids(cleaned);
   }, [visible, recipientIdsKey]);
 
+  // إذا فُتحت النافذة على شخص لم يظهر بعد في قائمة الحضور (تأخر التحميل)،
+  // نختاره بالـ uid فور ظهوره — ما دام المستخدم لم يختر أحداً بنفسه
+  useEffect(() => {
+    if (!visible || !initialRecipientUid) return;
+    if (userTouchedRecipientsRef.current || selectedUids.size > 0) return;
+    if (recipientIds.includes(initialRecipientUid)) {
+      setSelectedUids(new Set([initialRecipientUid]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, initialRecipientUid, recipientIdsKey]);
+
+  // وصل رصيد جديد من الأعلى (refreshUser بعد الشراء) — نصفّر الخصم التفاؤلي
+  useEffect(() => {
+    setSpentLocally(0);
+  }, [balance]);
+
   useEffect(() => {
     if (!visible || !selectedGift || !giftHasSound(selectedGift)) return;
     void preloadGiftSound(selectedGift.soundUrl!.trim());
@@ -291,14 +313,27 @@ export function RoomGiftPickerModal({
 
   const recipientCount = selectedUids.size;
   const totalPrice = selectedGift ? selectedGift.price * quantity * recipientCount : 0;
-  const canAfford = balance >= totalPrice;
+  const displayedBalance = Math.max(0, balance - spentLocally);
+  const canAfford = displayedBalance >= totalPrice;
   const canSend =
     selectedGift &&
     canAfford &&
     recipientCount > 0 &&
     !sending;
 
+  // أسماء المستلمين المختارين — تظهر على زر الإرسال حتى يتأكد المرسل من الهدف
+  const selectedNamesLabel = useMemo(() => {
+    if (selectedUids.size === 0) return '';
+    if (allSelected && recipients.length > 1) return t('common.all');
+    const names = recipients
+      .filter((r) => selectedUids.has(r.uid))
+      .map((r) => (r.isMe ? t('leaderboard.you') : r.name));
+    const shown = names.slice(0, 2).join('، ');
+    return names.length > 2 ? `${shown} +${names.length - 2}` : shown;
+  }, [selectedUids, recipients, allSelected, t]);
+
   const toggleRecipient = (uid: string) => {
+    userTouchedRecipientsRef.current = true;
     setSelectedUids((prev) => {
       const next = new Set(prev);
       if (next.has(uid)) {
@@ -311,6 +346,7 @@ export function RoomGiftPickerModal({
   };
 
   const toggleAll = () => {
+    userTouchedRecipientsRef.current = true;
     if (allSelected) {
       if (recipients[0]) setSelectedUids(new Set([recipients[0].uid]));
       return;
@@ -321,7 +357,7 @@ export function RoomGiftPickerModal({
   const handleComboSend = () => {
     if (!selectedGift || recipientCount === 0 || sending || !comboActive) return;
     const singleBatchPrice = selectedGift.price * quantity * recipientCount;
-    if (balance < singleBatchPrice) {
+    if (displayedBalance < singleBatchPrice) {
       resetCombo();
       onRecharge?.();
       return;
@@ -329,7 +365,11 @@ export function RoomGiftPickerModal({
     pulseComboGlow();
     setComboCount((prev) => prev + quantity);
     startComboTimer();
-    void onSend(selectedGift, quantity, [...selectedUids], { isCombo: true });
+    // خصم فوري من الرصيد المعروض — يتراجع لو فشل الإرسال فعلياً
+    setSpentLocally((prev) => prev + singleBatchPrice);
+    void Promise.resolve(
+      onSend(selectedGift, quantity, [...selectedUids], { isCombo: true }),
+    ).catch(() => setSpentLocally((prev) => Math.max(0, prev - singleBatchPrice)));
   };
 
   const handleSend = async () => {
@@ -337,10 +377,13 @@ export function RoomGiftPickerModal({
     setComboGiftId(selectedGift.id);
     setComboCount(quantity);
     startComboTimer();
+    // خصم فوري من الرصيد المعروض — كان الرصيد يبقى كما هو حتى إغلاق النافذة
+    setSpentLocally((prev) => prev + totalPrice);
     try {
       await onSend(selectedGift, quantity, [...selectedUids], { isCombo: false });
     } catch (e) {
       console.warn('Combo initial send failed:', e);
+      setSpentLocally((prev) => Math.max(0, prev - totalPrice));
       resetCombo();
     }
   };
@@ -529,7 +572,7 @@ export function RoomGiftPickerModal({
           <View style={styles.footer}>
             <Pressable style={styles.balanceChip} onPress={onRecharge}>
               <LuCoinIcon size={18} color={lu.colors.gold} />
-              <RNText style={styles.balanceText}>{balance.toLocaleString('en-US')}</RNText>
+              <RNText style={styles.balanceText}>{displayedBalance.toLocaleString('en-US')}</RNText>
               <ChevronDown size={14} color="rgba(255,255,255,0.45)" style={{ transform: [{ rotate: '-90deg' }] }} />
             </Pressable>
 
@@ -570,9 +613,13 @@ export function RoomGiftPickerModal({
                       },
                     ]}
                   />
+                  {/* onPressIn بدل onPress: يعمل لحظة اللمس — على الأجهزة الضعيفة كانت
+                      إعادة الرسم كل 100ms وأنيميشن التكبير يلغيان إيماءة onPress فلا يستجيب الزر */}
                   <Pressable
-                    onPress={handleComboSend}
+                    onPressIn={handleComboSend}
                     disabled={sending}
+                    hitSlop={14}
+                    pressRetentionOffset={24}
                     style={[styles.comboCircleBtn, sending && styles.comboCircleBtnDisabled]}
                   >
                   <LinearGradient
@@ -635,15 +682,15 @@ export function RoomGiftPickerModal({
                 {sending ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <RNText style={styles.sendText}>
-                    {selectedGift
-                      ? recipientCount > 1
-                        ? t('room.sendGiftMulti', {
+                  <RNText style={styles.sendText} numberOfLines={1}>
+                    {!selectedGift
+                      ? t('chat.selectGiftFirst')
+                      : recipientCount === 0
+                        ? t('room.selectRecipientFirst', 'اختر المستلم')
+                        : t('room.sendGiftToName', {
+                            name: selectedNamesLabel,
                             price: totalPrice.toLocaleString('en-US'),
-                            count: recipientCount,
-                          })
-                        : t('chat.sendGiftBtn', { price: totalPrice.toLocaleString('en-US') })
-                      : t('chat.selectGiftFirst')}
+                          })}
                   </RNText>
                 )}
               </Pressable>

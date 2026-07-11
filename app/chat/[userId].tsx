@@ -103,7 +103,7 @@ import {
 } from '@/services/firebase/chat';
 import { resolveGiftAnimationPayload } from '@/components/ui/giftUtils';
 import { isOfficialSystemAccount, isSupportAccount, isOfficialHiddenInChatList, SUPPORT_UID, SUPPORT_CHAT_DISPLAY_NAME, AGENCY_SUPPORT_HINT } from '@/services/supportAccount';
-import { isBlockedBetween, blockUser } from '@/services/firebase/blocks';
+import { isBlockedBetween, isBlocked, blockUser, unblockUser } from '@/services/firebase/blocks';
 import { copyToClipboard } from '@/utils/copyToClipboard';
 import { getMessageReportPath } from '@/services/firebase/reports';
 import { sendLockedMediaMessage, resolveLockedMessagePrice, type LockedMediaType } from '@/services/lockedMedia';
@@ -227,6 +227,8 @@ function PersonalChatScreen({ userId }: { userId: string }) {
   const [relationship, setRelationship] = useState<Relationship | null>(null);
   const [levelUpAnimation, setLevelUpAnimation] = useState<number | null>(null);
   const [chatBlocked, setChatBlocked] = useState(false);
+  // هل أنا من حظر الطرف الآخر؟ — لعرض «إلغاء الحظر» بدل «حظر المستخدم»
+  const [blockedByMe, setBlockedByMe] = useState(false);
   const [showGiftPicker, setShowGiftPicker] = useState(false);
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [savingBackground, setSavingBackground] = useState(false);
@@ -250,6 +252,9 @@ function PersonalChatScreen({ userId }: { userId: string }) {
 
   const listRef = useRef<FlatList>(null);
   const lastGiftMsgIdRef = useRef<string | null>(null);
+  // مفاتيح ثابتة للقائمة — الرسالة الحقيقية ترث مفتاح نسختها التفاؤلية فلا يُعاد
+  // بناء الفقاعة (remount) لحظة وصولها من Firestore (كان يسبب وميضاً/قفزة بالقائمة)
+  const pendingKeyByRealIdRef = useRef(new Map<string, string>());
   const pendingInitialScrollRef = useRef(true);
   const stickToBottomRef = useRef(true);
   // يُنفّذ بعد اكتمال إغلاق مودال اختيار الوسائط (مهم على iOS: لا يمكن فتح المعرض
@@ -318,6 +323,24 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     const setup = async () => {
       if (!userId || !user) return;
       try {
+        // ⚡ معرّف المحادثة حتمي (uid_uid مرتّبة) — نثبّته فوراً قبل أي رحلة شبكة
+        // فيشترك مستمع الرسائل مباشرة وتظهر الرسائل من الكاش/أول snapshot.
+        // كان الفتح ينتظر getUser ثم getOrCreateConversation + العلاقة متسلسلةً
+        // (٣+ رحلات شبكة) فيصل التأخير ٤٠ ثانية على الشبكات الضعيفة.
+        const sortedUids = [user.uid, userId].sort();
+        setConversationId(`${sortedUids[0]}_${sortedUids[1]}`);
+        // ضمان وجود وثيقة المحادثة وتحديث الأسماء/الصور — في الخلفية، لا يحجب الفتح
+        void getOrCreateConversation(userId, '', '').catch(() => {});
+
+        // ⚡ فحص الحظر بالتوازي مع جلب المستخدم — كانا متسلسلين فيتأخر فتح الشاشة
+        const blocksPromise: Promise<readonly [boolean, boolean]> =
+          !isSupportAccount(userId)
+            ? Promise.all([
+                isBlockedBetween(user.uid, userId),
+                isBlocked(user.uid, userId),
+              ])
+            : Promise.resolve([false, false] as const);
+
         // 1. Load other user
         let other = await getUser(userId);
         if (!other) {
@@ -349,26 +372,18 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         const resolvedAvatar = resolveUserDocAvatar(other as unknown as Record<string, unknown>, userId);
         setOtherUser({ ...other, displayName: resolvedName, avatar: resolvedAvatar });
 
-        if (!isSupportAccount(userId) && user) {
-          const blocked = await isBlockedBetween(user.uid, userId);
-          setChatBlocked(blocked);
-        } else {
-          setChatBlocked(false);
-        }
-
-        // 2. Get or create conversation
-        const convId = await getOrCreateConversation(
-          userId,
-          resolvedName,
-          resolvedAvatar,
-        );
-        setConversationId(convId);
-
-        // 3. Get or create relationship (يتطور تلقائياً)
-        const rel = await getOrCreateRelationship(userId, resolvedName, resolvedAvatar);
-        setRelationship(rel);
-
+        // ⚡ الشاشة تُعرض فور جلب بيانات الطرف الآخر — الرسائل تصل من المستمع
+        // المشترك أعلاه؛ لا ننتظر وثيقة المحادثة ولا العلاقة (كانتا تحجبان الفتح)
         setLoading(false);
+
+        // العلاقة (شارة المستوى/الخلفيات) — في الخلفية، لا تحجب الفتح
+        void getOrCreateRelationship(userId, resolvedName, resolvedAvatar)
+          .then(setRelationship)
+          .catch((e) => console.warn('relationship load:', e));
+
+        const [blocked, mineBlocked] = await blocksPromise;
+        setChatBlocked(blocked);
+        setBlockedByMe(mineBlocked);
       } catch (e) {
         console.error(e);
         setLoading(false);
@@ -383,6 +398,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     pendingInitialScrollRef.current = true;
     stickToBottomRef.current = true;
     lastGiftMsgIdRef.current = null;
+    pendingKeyByRealIdRef.current.clear();
   }, [conversationId]);
 
   useEffect(() => {
@@ -416,7 +432,15 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         lastGiftMsgIdRef.current = latestGift.id;
       }
 
-      markConversationAsRead(conversationId, userId).catch(() => {});
+      // ⚡ نصفّر فقط عند وجود وارد غير مقروء فعلاً — كان يُنفَّذ على كل snapshot
+      // (حتى عند إرسالي أنا) = قراءة حتى 100 رسالة + كتابة batch مع كل تحديث،
+      // وهو سبب رئيسي لبطء الدردشة الخاصة وتأخر علامتَي القراءة
+      const hasUnreadIncoming = msgs.some(
+        (m) => m.fromUid !== user?.uid && m.isRead !== true,
+      );
+      if (hasUnreadIncoming) {
+        markConversationAsRead(conversationId, userId).catch(() => {});
+      }
       if (pendingInitialScrollRef.current) {
         scrollToLatest(false);
       } else if (stickToBottomRef.current) {
@@ -426,32 +450,61 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     return unsub;
   }, [conversationId, user?.uid, catalogGifts, otherUser?.displayName, t, scrollToLatest]);
 
-  // مفتاح محتوى للمطابقة بين الرسالة التفاؤلية والحقيقية
-  const contentKey = (m: ChatMessage) => `${m.fromUid}|${m.type}|${m.text}`;
+  // مطابقة الرسالة التفاؤلية مع الحقيقية — نافذة زمنية + استهلاك رسالة حقيقية
+  // واحدة لكل تفاؤلية. (المطابقة بمفتاح المحتوى وحده كانت تُسقط النسختين معاً عند
+  // إرسال رسالتين متتاليتين بنفس النص فتختفي الثانية وتعود = خلل/ركاكة بالإرسال)
+  const filterStillPending = useCallback(
+    (pending: ChatMessage[], real: ChatMessage[]) => {
+      if (pending.length === 0) return pending;
+      const consumed = new Set<string>();
+      return pending.filter((p) => {
+        const match = real.find(
+          (m) =>
+            !consumed.has(m.id)
+            && !m.id.startsWith('temp-')
+            && m.fromUid === p.fromUid
+            && m.type === p.type
+            && m.text === p.text
+            && (m.createdAt ?? 0) >= p.createdAt - 15_000,
+        );
+        if (match) {
+          consumed.add(match.id);
+          pendingKeyByRealIdRef.current.set(match.id, p.id);
+          return false;
+        }
+        return true;
+      });
+    },
+    [],
+  );
 
-  // أزل الرسالة التفاؤلية بمجرد وصول الحقيقية (نفس المحتوى) عبر onSnapshot
+  // أزل الرسالة التفاؤلية بمجرد وصول الحقيقية المقابلة لها عبر onSnapshot
   useEffect(() => {
     if (pendingSends.length === 0) return;
-    const existing = new Set(messages.map(contentKey));
     setPendingSends((prev) => {
-      const next = prev.filter((p) => !existing.has(contentKey(p)));
+      const next = filterStillPending(prev, messages);
       return next.length === prev.length ? prev : next;
     });
-  }, [messages]);
+  }, [messages, filterStillPending, pendingSends.length]);
 
   // أزل وسائط قيد الرفع عند وصول الرسالة الحقيقية من Firestore
   useEffect(() => {
     if (pendingMediaUploads.length === 0) return;
     setPendingMediaUploads((prev) => {
-      const next = prev.filter((pending) =>
-        !messages.some(
+      const next = prev.filter((pending) => {
+        const real = messages.find(
           (m) =>
             !m.id.startsWith('temp-media-')
             && m.fromUid === pending.fromUid
             && m.type === pending.type
             && m.createdAt >= pending.createdAt - 3000,
-        ),
-      );
+        );
+        if (real) {
+          pendingKeyByRealIdRef.current.set(real.id, pending.id);
+          return false;
+        }
+        return true;
+      });
       return next.length === prev.length ? prev : next;
     });
   }, [messages, pendingMediaUploads.length]);
@@ -460,17 +513,26 @@ function PersonalChatScreen({ userId }: { userId: string }) {
   const displayMessages = useMemo(() => {
     let merged = messages;
     if (pendingSends.length > 0) {
-      const existing = new Set(messages.map(contentKey));
-      const stillPending = pendingSends.filter((p) => !existing.has(contentKey(p)));
+      const stillPending = filterStillPending(pendingSends, messages);
       if (stillPending.length > 0) merged = [...merged, ...stillPending];
     }
     if (pendingMediaUploads.length > 0) {
+      // نرتّب بساعة الخادم (sortAt) حيث توفّرت — الترتيب بساعة الجهاز وحدها كان
+      // يعيد خلط الرسائل الحقيقية أثناء رفع الوسائط فتقفز الفقاعات والصورة الرمزية
+      const sortKey = (m: ChatMessage) =>
+        ((m as ChatMessage & { sortAt?: number }).sortAt || m.createdAt || 0);
       merged = [...merged, ...pendingMediaUploads].sort(
-        (a, b) => a.createdAt - b.createdAt,
+        (a, b) => sortKey(a) - sortKey(b),
       );
     }
     return merged;
-  }, [messages, pendingSends, pendingMediaUploads]);
+  }, [messages, pendingSends, pendingMediaUploads, filterStillPending]);
+
+  // معرّفات الرسائل المحمّلة — للكشف عن حذف الرسالة الأصلية في اقتباسات الرد
+  const loadedMessageIds = useMemo(
+    () => new Set(messages.map((m) => m.id)),
+    [messages],
+  );
 
   const invertedMessages = useMemo(() => {
     return [...displayMessages].reverse();
@@ -494,6 +556,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     () => ({
       you: t('chat.replyYou'),
       replyingTo: t('chat.replyingTo'),
+      deletedMessage: t('chat.replyDeletedMessage'),
     }),
     [t],
   );
@@ -539,8 +602,12 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     }
   };
 
-  const isMessageReadByPeer = (msg: ChatMessage) =>
-    msg.isRead === true || (msg.createdAt > 0 && msg.createdAt <= peerLastReadAt);
+  // useCallback — تُمرَّر لصفوف القائمة؛ ثباتها شرط لعدم إعادة رسم كل الفقاعات
+  const isMessageReadByPeer = useCallback(
+    (msg: ChatMessage) =>
+      msg.isRead === true || (msg.createdAt > 0 && msg.createdAt <= peerLastReadAt),
+    [peerLastReadAt],
+  );
 
   const handleSend = () => {
     const text = inputText.trim();
@@ -799,7 +866,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
   const handleEmojiSelect = (emoji: string) => {
     setInputText((prev) => prev + emoji);
   };
-  const handleCall = async (type: 'voice' | 'video') => {
+  const handleCall = useCallback(async (type: 'voice' | 'video') => {
     if (!userId || !user?.uid || !otherUser) return;
     if (!canMakeCalls) {
       Alert.alert(
@@ -843,7 +910,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     } catch (e: any) {
       Alert.alert(t('common.error'), e?.message ?? t('chat.callStartFailed'));
     }
-  };
+  }, [userId, user, otherUser, canMakeCalls, relationship, router, t]);
 
   // ملاحظة: يجب أن تبقى كل الـ hooks قبل شروط الخروج المبكّر (loading / !otherUser)
   const playGiftAnimationFromMessage = useCallback(
@@ -866,172 +933,26 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     [catalogGifts, otherUser, user, t],
   );
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.brand.primary} />
-      </View>
-    );
-  }
-
-  if (!otherUser) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text variant="body">{t('chat.userNotFound')}</Text>
-      </View>
-    );
-  }
-
-  const otherAvatarUri = resolveUserDocAvatar(
-    otherUser as unknown as Record<string, unknown>,
-    userId,
+  // ⚡ قيَم مشتقة ثابتة الهوية — تُستخدم داخل renderItem؛ حسابها inline كان
+  // يجعل كل ضغطة حرف بحقل الإدخال تعيد رسم كل فقاعات الرسائل المعروضة
+  const otherAvatarUri = useMemo(
+    () =>
+      otherUser
+        ? resolveUserDocAvatar(otherUser as unknown as Record<string, unknown>, userId)
+        : '',
+    [otherUser, userId],
   );
-  const peerDisplayName = resolveDisplayName({
-    displayName: isSupportAccount(userId ?? '')
-      ? SUPPORT_CHAT_DISPLAY_NAME
-      : otherUser.displayName,
-  });
-  const lastSeenMs = resolveLastSeenMs(
-    otherUser.lastSeen,
-    userId ? presenceMap[userId] : undefined,
+  const peerDisplayName = useMemo(
+    () =>
+      resolveDisplayName({
+        displayName: isSupportAccount(userId ?? '')
+          ? SUPPORT_CHAT_DISPLAY_NAME
+          : otherUser?.displayName,
+      }),
+    [userId, otherUser?.displayName],
   );
-  const peerHidesOnline = isOnlineHidden(
-    otherUser as unknown as Record<string, unknown>,
-    vipSystem,
-  );
-  const isOnline = !peerHidesOnline && isUserOnline(lastSeenMs, presenceNow);
-  const presenceLabel = peerHidesOnline
-    ? t('common.offline')
-    : isOnline
-      ? t('chat.onlineNow')
-      : lastSeenMs
-        ? t('chat.lastSeen', {
-            time: formatLastSeenTime(lastSeenMs, i18n.language, t, presenceNow),
-          })
-        : t('common.offline');
-  const userAge = otherUser.birthYear
-    ? new Date().getFullYear() - otherUser.birthYear
-    : null;
-  // عضوا وكالة واحدة — الدردشة مجانية (نفس إعفاء chargeForChatMessage)
-  const myAgencyId = String((user as unknown as { agencyId?: string | null })?.agencyId ?? '').trim();
-  const peerAgencyId = String((otherUser as unknown as { agencyId?: string | null })?.agencyId ?? '').trim();
-  const sameAgencyFreeChat = Boolean(myAgencyId) && myAgencyId === peerAgencyId;
-  const handleMoreMenu = () => {
-    if (!conversationId || !userId) return;
-    showActionSheet({
-      title: t('chat.more'),
-      buttons: [
-        {
-          text: t('profile.viewProfile'),
-          onPress: () => router.push(`/profile/${userId}` as any),
-        },
-        {
-          text: t('chat.viewTasks'),
-          onPress: () => router.push(`/relationships?userId=${userId}` as any),
-        },
-        {
-          text: t('chat.chatBackground'),
-          onPress: () => setShowBackgroundPicker(true),
-        },
-        {
-          text: t('chat.archiveChat'),
-          onPress: () => {
-            archiveConversation(conversationId, true)
-              .then(() => {
-                showAlert({
-                  type: 'success',
-                  title: t('common.done'),
-                  message: t('chat.archiveChat'),
-                });
-                router.back();
-              })
-              .catch((e: any) => {
-                showAlert({
-                  type: 'error',
-                  title: t('common.error'),
-                  message: e?.message ?? t('chat.archiveFailed'),
-                });
-              });
-          },
-        },
-        {
-          text: t('chat.reportUser'),
-          onPress: () =>
-            router.push(
-              `/report?type=user&target=${userId}&source=chat&conversationId=${conversationId}` as any,
-            ),
-        },
-        {
-          text: t('chat.blockUser'),
-          style: 'destructive',
-          onPress: () => {
-            showAlert({
-              type: 'warning',
-              title: t('chat.blockUser'),
-              message: t('chat.blockUserConfirm'),
-              buttons: [
-                { text: t('common.cancel'), style: 'cancel' },
-                {
-                  text: t('chat.blockUser'),
-                  style: 'destructive',
-                  onPress: async () => {
-                    try {
-                      await blockUser(userId);
-                      setChatBlocked(true);
-                      showAlert({
-                        type: 'success',
-                        title: t('common.done'),
-                        message: t('profile.blockedSuccess'),
-                      });
-                    } catch (e: any) {
-                      showAlert({
-                        type: 'error',
-                        title: t('common.error'),
-                        message: e?.message ?? t('chat.blockFailed'),
-                      });
-                    }
-                  },
-                },
-              ],
-            });
-          },
-        },
-        {
-          text: t('chat.deleteChat'),
-          style: 'destructive',
-          onPress: () => {
-            showAlert({
-              type: 'warning',
-              title: t('chat.deleteChat'),
-              message: t('chat.deleteChatConfirm'),
-              buttons: [
-                { text: t('common.cancel'), style: 'cancel' },
-                {
-                  text: t('common.delete'),
-                  style: 'destructive',
-                  onPress: async () => {
-                    try {
-                      await hideConversationForUser(conversationId);
-                      router.back();
-                    } catch (e: any) {
-                      showAlert({
-                        type: 'error',
-                        title: t('common.error'),
-                        message: e?.message ?? t('chat.deleteChatFailed'),
-                      });
-                    }
-                  },
-                },
-              ],
-            });
-          },
-        },
-        { text: t('common.cancel'), style: 'cancel' },
-      ],
-    });
-  };
 
-  const handleMessageActions = (item: ChatMessage) => {
+  const handleMessageActions = useCallback((item: ChatMessage) => {
     const isMe = item.fromUid === user?.uid;
     const isPending = item.id.startsWith('temp-');
     const buttons: {
@@ -1131,6 +1052,424 @@ function PersonalChatScreen({ userId }: { userId: string }) {
       title: t('chat.messageActions'),
       message: previewText ? `"${previewText.slice(0, 80)}${previewText.length > 80 ? '…' : ''}"` : undefined,
       buttons,
+    });
+  }, [user?.uid, conversationId, t, router, showAlert, showToast, showActionSheet]);
+
+  // ⚡ keyExtractor + renderItem بهوية ثابتة — CellRenderer في FlatList مكوّن
+  // PureComponent، فثباتهما يمنع إعادة رسم كل الفقاعات مع كل ضغطة حرف/تغيير حالة
+  const keyExtractor = useCallback(
+    (item: ChatMessage) => pendingKeyByRealIdRef.current.get(item.id) ?? item.id,
+    [],
+  );
+
+  const renderItem = useCallback(
+    ({ item, index }: { item: ChatMessage; index: number }) => {
+      const isMe = item.fromUid === user?.uid;
+      const isPendingUpload = item.id.startsWith('temp-media-');
+      const showAvatar =
+        index === invertedMessages.length - 1 ||
+        invertedMessages[index + 1]?.fromUid !== item.fromUid;
+      const avatarUri = isMe ? user?.profile?.avatar : otherAvatarUri;
+      return (
+        <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
+          {!isMe && (
+            showAvatar ? (
+              <ChatMsgAvatar avatarUri={avatarUri} />
+            ) : (
+              <View style={styles.msgAvatarSpacer} />
+            )
+          )}
+          {item.type === 'call' ? (
+            <Pressable
+              style={[styles.msgGiftContainer, isMe ? styles.msgGiftAlignEnd : styles.msgGiftAlignStart]}
+            >
+              <ChatCallBubble
+                msg={item}
+                isMine={isMe}
+                onPress={() => handleCall(item.callType === 'video' ? 'video' : 'voice')}
+              />
+              <View style={styles.msgMetaRow}>
+                <Text
+                  variant="caption"
+                  color={isMe ? lu.colors.muted : colors.text.tertiary}
+                  style={{ fontSize: 10 }}
+                >
+                  {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </Text>
+                {isMe ? (
+                  <MessageReadTicks isRead={isMessageReadByPeer(item)} />
+                ) : null}
+              </View>
+            </Pressable>
+          ) : item.type === 'gift' ? (
+            <Pressable
+              onPress={() => playGiftAnimationFromMessage(item)}
+              onLongPress={() => handleMessageActions(item)}
+              delayLongPress={350}
+              style={[styles.msgGiftContainer, isMe ? styles.msgGiftAlignEnd : styles.msgGiftAlignStart]}
+            >
+              <ChatGiftBubble
+                msg={item}
+                gift={catalogGifts.find((g) => g.id === item.giftId) ?? null}
+                isMine={isMe}
+              />
+              <View style={styles.msgMetaRow}>
+                <Text
+                  variant="caption"
+                  color={isMe ? lu.colors.muted : colors.text.tertiary}
+                  style={{ fontSize: 10 }}
+                >
+                  {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </Text>
+                {isMe ? (
+                  <MessageReadTicks isRead={isMessageReadByPeer(item)} />
+                ) : null}
+              </View>
+            </Pressable>
+          ) : item.type === 'room_invite' || item.type === 'agency_invite' || item.type === 'party_invite' || item.type === 'post_share' ? (
+            <View>
+              <ChatInviteCard msg={item} isMine={isMe} />
+              <View style={styles.msgMetaRow}>
+                <Text
+                  variant="caption"
+                  color={isMe ? lu.colors.muted : colors.text.tertiary}
+                  style={{ fontSize: 10 }}
+                >
+                  {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </Text>
+                {isMe ? (
+                  <MessageReadTicks isRead={isMessageReadByPeer(item)} />
+                ) : null}
+              </View>
+            </View>
+          ) : item.type === 'game_invite' ? (
+            <View>
+              <ChatGameInviteCard msg={item} isMine={isMe} />
+              <View style={styles.msgMetaRow}>
+                <Text
+                  variant="caption"
+                  color={isMe ? lu.colors.muted : colors.text.tertiary}
+                  style={{ fontSize: 10 }}
+                >
+                  {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </Text>
+                {isMe ? (
+                  <MessageReadTicks isRead={isMessageReadByPeer(item)} />
+                ) : null}
+              </View>
+            </View>
+          ) : (
+          <SwipeReplyable
+            enabled={!isPendingUpload}
+            isMine={isMe}
+            onReply={() => setReplyingTo(item)}
+          >
+          <Pressable
+            onPress={() => !isPendingUpload && handleMessageActions(item)}
+            onLongPress={() => !isPendingUpload && handleMessageActions(item)}
+            delayLongPress={350}
+            disabled={isPendingUpload}
+            style={[
+              styles.msgBubble,
+              isMe ? styles.msgBubbleMe : styles.msgBubbleOther,
+              (item.type === 'image' || item.type === 'video') && { padding: 4 },
+              isPendingUpload && styles.msgBubbleUploading,
+            ]}
+          >
+            {(item.type === 'image' || item.type === 'voice' || item.type === 'video') ? (
+              <LockedMediaBubble
+                msg={item}
+                myUid={user?.uid ?? ''}
+                isMine={isMe}
+                onOpenFullImage={(url) => setFullImage(url)}
+                onOpenVideo={(url) => setFullVideo(url)}
+              />
+            ) : (
+              <>
+                {item.replyTo ? (
+                  <ChatReplyQuote
+                    replyTo={item.replyTo}
+                    peerName={peerDisplayName}
+                    myUid={user?.uid}
+                    isMine={isMe}
+                    labels={replyLabels}
+                    // الأصلية حُذفت (حذف للجميع/لي) — نعرض «رسالة محذوفة» بدل الـ snapshot
+                    deleted={!loadedMessageIds.has(item.replyTo.messageId)}
+                    onPress={() => scrollToMessage(item.replyTo!.messageId)}
+                  />
+                ) : null}
+                <Text
+                  variant="bodySmall"
+                  color={isMe ? '#FFFFFF' : lu.colors.ink}
+                  style={{ lineHeight: 22, fontSize: 14 }}
+                >
+                  {item.text}
+                </Text>
+              </>
+            )}
+            <View style={styles.msgMetaRow}>
+              <Text
+                variant="caption"
+                color={isMe ? 'rgba(255,255,255,0.7)' : colors.text.tertiary}
+                style={{ fontSize: 10 }}
+              >
+                {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </Text>
+              {isMe ? (
+                isPendingUpload ? (
+                  <View style={styles.msgPendingTick}>
+                    <ActivityIndicator size={10} color="rgba(255,255,255,0.85)" />
+                  </View>
+                ) : (
+                  <MessageReadTicks isRead={isMessageReadByPeer(item)} />
+                )
+              ) : null}
+            </View>
+          </Pressable>
+          </SwipeReplyable>
+          )}
+          {isMe && isPendingUpload ? (
+            <View style={styles.mediaUploadIndicator}>
+              <ActivityIndicator size="small" color={TAB_DESIGN.purple} />
+            </View>
+          ) : null}
+          {isMe ? (
+            showAvatar ? (
+              <ChatMsgAvatar avatarUri={avatarUri} />
+            ) : (
+              // فاصل بعرض الصورة — بدونه فقاعات المجموعة الواحدة لا تصطفّ على
+              // حافة واحدة فتبدو الصورة وكأنها «تقفز» مع كل رسالة جديدة
+              <View style={styles.msgAvatarSpacer} />
+            )
+          ) : null}
+        </View>
+      );
+    },
+    [
+      invertedMessages,
+      user,
+      otherAvatarUri,
+      timeLocale,
+      catalogGifts,
+      handleCall,
+      handleMessageActions,
+      playGiftAnimationFromMessage,
+      isMessageReadByPeer,
+      peerDisplayName,
+      replyLabels,
+      loadedMessageIds,
+      scrollToMessage,
+    ],
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.brand.primary} />
+      </View>
+    );
+  }
+
+  if (!otherUser) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text variant="body">{t('chat.userNotFound')}</Text>
+      </View>
+    );
+  }
+
+  const lastSeenMs = resolveLastSeenMs(
+    otherUser.lastSeen,
+    userId ? presenceMap[userId] : undefined,
+  );
+  const peerHidesOnline = isOnlineHidden(
+    otherUser as unknown as Record<string, unknown>,
+    vipSystem,
+  );
+  const isOnline = !peerHidesOnline && isUserOnline(lastSeenMs, presenceNow);
+  const presenceLabel = peerHidesOnline
+    ? t('common.offline')
+    : isOnline
+      ? t('chat.onlineNow')
+      : lastSeenMs
+        ? t('chat.lastSeen', {
+            time: formatLastSeenTime(lastSeenMs, i18n.language, t, presenceNow),
+          })
+        : t('common.offline');
+  const userAge = otherUser.birthYear
+    ? new Date().getFullYear() - otherUser.birthYear
+    : null;
+  // عضوا وكالة واحدة — الدردشة مجانية (نفس إعفاء chargeForChatMessage)
+  const myAgencyId = String((user as unknown as { agencyId?: string | null })?.agencyId ?? '').trim();
+  const peerAgencyId = String((otherUser as unknown as { agencyId?: string | null })?.agencyId ?? '').trim();
+  const sameAgencyFreeChat = Boolean(myAgencyId) && myAgencyId === peerAgencyId;
+  const handleMoreMenu = () => {
+    if (!conversationId || !userId) return;
+    showActionSheet({
+      title: t('chat.more'),
+      buttons: [
+        {
+          text: t('profile.viewProfile'),
+          onPress: () => router.push(`/profile/${userId}` as any),
+        },
+        {
+          text: t('chat.viewTasks'),
+          onPress: () => router.push(`/relationships?userId=${userId}` as any),
+        },
+        {
+          text: t('chat.chatBackground'),
+          onPress: () => setShowBackgroundPicker(true),
+        },
+        {
+          text: t('chat.archiveChat'),
+          onPress: () => {
+            archiveConversation(conversationId, true)
+              .then(() => {
+                showAlert({
+                  type: 'success',
+                  title: t('common.done'),
+                  message: t('chat.archiveChat'),
+                });
+                router.back();
+              })
+              .catch((e: any) => {
+                showAlert({
+                  type: 'error',
+                  title: t('common.error'),
+                  message: e?.message ?? t('chat.archiveFailed'),
+                });
+              });
+          },
+        },
+        {
+          text: t('chat.reportUser'),
+          onPress: () =>
+            router.push(
+              `/report?type=user&target=${userId}&source=chat&conversationId=${conversationId}` as any,
+            ),
+        },
+        blockedByMe
+          ? {
+              text: t('chat.unblockUser'),
+              onPress: () => {
+                showAlert({
+                  type: 'warning',
+                  title: t('chat.unblockUser'),
+                  message: t('chat.unblockUserConfirm'),
+                  buttons: [
+                    { text: t('common.cancel'), style: 'cancel' },
+                    {
+                      text: t('chat.unblockUser'),
+                      onPress: async () => {
+                        try {
+                          await unblockUser(userId);
+                          setBlockedByMe(false);
+                          // قد يبقى الشات محظوراً إن كان الطرف الآخر حاظرني
+                          const stillBlocked = user
+                            ? await isBlockedBetween(user.uid, userId)
+                            : false;
+                          setChatBlocked(stillBlocked);
+                          showAlert({
+                            type: 'success',
+                            title: t('common.done'),
+                            message: t('chat.unblockSuccess'),
+                          });
+                        } catch (e: any) {
+                          showAlert({
+                            type: 'error',
+                            title: t('common.error'),
+                            message: e?.message ?? t('chat.unblockFailed'),
+                          });
+                        }
+                      },
+                    },
+                  ],
+                });
+              },
+            }
+          : {
+              text: t('chat.blockUser'),
+              style: 'destructive' as const,
+              onPress: () => {
+                showAlert({
+                  type: 'warning',
+                  title: t('chat.blockUser'),
+                  message: t('chat.blockUserConfirm'),
+                  buttons: [
+                    { text: t('common.cancel'), style: 'cancel' },
+                    {
+                      text: t('chat.blockUser'),
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          await blockUser(userId);
+                          setChatBlocked(true);
+                          setBlockedByMe(true);
+                          showAlert({
+                            type: 'success',
+                            title: t('common.done'),
+                            message: t('profile.blockedSuccess'),
+                          });
+                        } catch (e: any) {
+                          showAlert({
+                            type: 'error',
+                            title: t('common.error'),
+                            message: e?.message ?? t('chat.blockFailed'),
+                          });
+                        }
+                      },
+                    },
+                  ],
+                });
+              },
+            },
+        {
+          text: t('chat.deleteChat'),
+          style: 'destructive',
+          onPress: () => {
+            showAlert({
+              type: 'warning',
+              title: t('chat.deleteChat'),
+              message: t('chat.deleteChatConfirm'),
+              buttons: [
+                { text: t('common.cancel'), style: 'cancel' },
+                {
+                  text: t('common.delete'),
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      await hideConversationForUser(conversationId);
+                      router.back();
+                    } catch (e: any) {
+                      showAlert({
+                        type: 'error',
+                        title: t('common.error'),
+                        message: e?.message ?? t('chat.deleteChatFailed'),
+                      });
+                    }
+                  },
+                },
+              ],
+            });
+          },
+        },
+        { text: t('common.cancel'), style: 'cancel' },
+      ],
     });
   };
 
@@ -1361,7 +1700,8 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         // inverted فقط مع وجود رسائل — القائمة المقلوبة الفارغة تعكس مكوّن
         // «ابدأ المحادثة» بـ scaleY فتتكسّر الحروف العربية على أندرويد
         inverted={invertedMessages.length > 0}
-        keyExtractor={(item) => item.id}
+        // مفتاح ثابت عبر انتقال «تفاؤلية → حقيقية» — يمنع إعادة بناء الفقاعة وقفزة الصورة
+        keyExtractor={keyExtractor}
         onContentSizeChange={() => {
           if (displayMessages.length === 0) return;
           if (pendingInitialScrollRef.current) {
@@ -1389,195 +1729,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         updateCellsBatchingPeriod={50}
         windowSize={11}
         removeClippedSubviews
-        renderItem={({ item, index }) => {
-          const isMe = item.fromUid === user?.uid;
-          const isPendingUpload = item.id.startsWith('temp-media-');
-          const showAvatar =
-            index === invertedMessages.length - 1 ||
-            invertedMessages[index + 1]?.fromUid !== item.fromUid;
-          const avatarUri = isMe ? user?.profile?.avatar : otherAvatarUri;
-          return (
-            <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
-              {!isMe && (
-                showAvatar ? (
-                  <ChatMsgAvatar avatarUri={avatarUri} />
-                ) : (
-                  <View style={styles.msgAvatarSpacer} />
-                )
-              )}
-              {item.type === 'call' ? (
-                <Pressable
-                  style={[styles.msgGiftContainer, isMe ? styles.msgGiftAlignEnd : styles.msgGiftAlignStart]}
-                >
-                  <ChatCallBubble
-                    msg={item}
-                    isMine={isMe}
-                    onPress={() => handleCall(item.callType === 'video' ? 'video' : 'voice')}
-                  />
-                  <View style={styles.msgMetaRow}>
-                    <Text
-                      variant="caption"
-                      color={isMe ? lu.colors.muted : colors.text.tertiary}
-                      style={{ fontSize: 10 }}
-                    >
-                      {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </Text>
-                    {isMe ? (
-                      <MessageReadTicks isRead={isMessageReadByPeer(item)} />
-                    ) : null}
-                  </View>
-                </Pressable>
-              ) : item.type === 'gift' ? (
-                <Pressable
-                  onPress={() => playGiftAnimationFromMessage(item)}
-                  onLongPress={() => handleMessageActions(item)}
-                  delayLongPress={350}
-                  style={[styles.msgGiftContainer, isMe ? styles.msgGiftAlignEnd : styles.msgGiftAlignStart]}
-                >
-                  <ChatGiftBubble
-                    msg={item}
-                    gift={catalogGifts.find((g) => g.id === item.giftId) ?? null}
-                    isMine={isMe}
-                  />
-                  <View style={styles.msgMetaRow}>
-                    <Text
-                      variant="caption"
-                      color={isMe ? lu.colors.muted : colors.text.tertiary}
-                      style={{ fontSize: 10 }}
-                    >
-                      {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </Text>
-                    {isMe ? (
-                      <MessageReadTicks isRead={isMessageReadByPeer(item)} />
-                    ) : null}
-                  </View>
-                </Pressable>
-              ) : item.type === 'room_invite' || item.type === 'agency_invite' || item.type === 'party_invite' || item.type === 'post_share' ? (
-                <View>
-                  <ChatInviteCard msg={item} isMine={isMe} />
-                  <View style={styles.msgMetaRow}>
-                    <Text
-                      variant="caption"
-                      color={isMe ? lu.colors.muted : colors.text.tertiary}
-                      style={{ fontSize: 10 }}
-                    >
-                      {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </Text>
-                    {isMe ? (
-                      <MessageReadTicks isRead={isMessageReadByPeer(item)} />
-                    ) : null}
-                  </View>
-                </View>
-              ) : item.type === 'game_invite' ? (
-                <View>
-                  <ChatGameInviteCard msg={item} isMine={isMe} />
-                  <View style={styles.msgMetaRow}>
-                    <Text
-                      variant="caption"
-                      color={isMe ? lu.colors.muted : colors.text.tertiary}
-                      style={{ fontSize: 10 }}
-                    >
-                      {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </Text>
-                    {isMe ? (
-                      <MessageReadTicks isRead={isMessageReadByPeer(item)} />
-                    ) : null}
-                  </View>
-                </View>
-              ) : (
-              <SwipeReplyable
-                enabled={!isPendingUpload}
-                isMine={isMe}
-                onReply={() => setReplyingTo(item)}
-              >
-              <Pressable
-                onPress={() => !isPendingUpload && handleMessageActions(item)}
-                onLongPress={() => !isPendingUpload && handleMessageActions(item)}
-                delayLongPress={350}
-                disabled={isPendingUpload}
-                style={[
-                  styles.msgBubble,
-                  isMe ? styles.msgBubbleMe : styles.msgBubbleOther,
-                  (item.type === 'image' || item.type === 'video') && { padding: 4 },
-                  isPendingUpload && styles.msgBubbleUploading,
-                ]}
-              >
-                {(item.type === 'image' || item.type === 'voice' || item.type === 'video') ? (
-                  <LockedMediaBubble
-                    msg={item}
-                    myUid={user?.uid ?? ''}
-                    isMine={isMe}
-                    onOpenFullImage={(url) => setFullImage(url)}
-                    onOpenVideo={(url) => setFullVideo(url)}
-                  />
-                ) : (
-                  <>
-                    {item.replyTo ? (
-                      <ChatReplyQuote
-                        replyTo={item.replyTo}
-                        peerName={peerDisplayName}
-                        myUid={user?.uid}
-                        isMine={isMe}
-                        labels={replyLabels}
-                        onPress={() => scrollToMessage(item.replyTo!.messageId)}
-                      />
-                    ) : null}
-                    <Text
-                      variant="bodySmall"
-                      color={isMe ? '#FFFFFF' : lu.colors.ink}
-                      style={{ lineHeight: 22, fontSize: 14 }}
-                    >
-                      {item.text}
-                    </Text>
-                  </>
-                )}
-                <View style={styles.msgMetaRow}>
-                  <Text
-                    variant="caption"
-                    color={isMe ? 'rgba(255,255,255,0.7)' : colors.text.tertiary}
-                    style={{ fontSize: 10 }}
-                  >
-                    {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </Text>
-                  {isMe ? (
-                    isPendingUpload ? (
-                      <View style={styles.msgPendingTick}>
-                        <ActivityIndicator size={10} color="rgba(255,255,255,0.85)" />
-                      </View>
-                    ) : (
-                      <MessageReadTicks isRead={isMessageReadByPeer(item)} />
-                    )
-                  ) : null}
-                </View>
-              </Pressable>
-              </SwipeReplyable>
-              )}
-              {isMe && isPendingUpload ? (
-                <View style={styles.mediaUploadIndicator}>
-                  <ActivityIndicator size="small" color={TAB_DESIGN.purple} />
-                </View>
-              ) : null}
-              {isMe && showAvatar ? (
-                <ChatMsgAvatar avatarUri={avatarUri} />
-              ) : null}
-            </View>
-          );
-        }}
+        renderItem={renderItem}
         contentContainerStyle={styles.messagesContent}
         ListEmptyComponent={
           <View style={styles.emptyChat}>
@@ -2350,6 +2502,10 @@ const styles = StyleSheet.create({
     fontFamily: lu.fonts.body,
     paddingVertical: 8,
     maxHeight: 100,
+    // التطبيق عربي أولاً — الكتابة تبدأ من اليمين دائماً حتى على
+    // الأجهزة التي لا يُفعَّل عليها وضع RTL للنظام
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   emojiBtn: {
     width: 30,

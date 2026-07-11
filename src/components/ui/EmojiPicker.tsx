@@ -299,7 +299,10 @@ function RoomReactionsPicker({
     if (!reactionPacks.length) return;
     if (
       activeReactionPack === ALL_REACTION_PACKS_ID ||
-      activeReactionPack === ROOM_DEFAULT_EMOJI_TAB_ID
+      activeReactionPack === ROOM_DEFAULT_EMOJI_TAB_ID ||
+      // تبويب الطبلة ليس من حزم الملصقات — بدون هذا الاستثناء كانت قائمة
+      // المؤثرات تظهر ثم تختفي فوراً (يُعاد التعيين لتبويب الإيموجي)
+      activeReactionPack === SOUNDS_TAB_ID
     ) {
       return;
     }

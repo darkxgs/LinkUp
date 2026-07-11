@@ -62,7 +62,7 @@ interface RoomSeatProps {
   isVIP?: boolean;
   level?: number;
   coins?: number;
-  size?: 'xsmall' | 'small' | 'medium' | 'large';
+  size?: 'tiny' | 'xsmall' | 'small' | 'medium' | 'large';
   onPress?: () => void;
   empty?: boolean;
   overlayEmoji?: string;
@@ -113,12 +113,15 @@ export const RoomSeat = memo(
     const corner = (sizePx: number) => (shape === 'rounded' ? Math.max(12, Math.round(sizePx * 0.28)) : sizePx / 2);
 
     const sizes = {
+      // tiny: dense live-room grids (18–20 guest seats) — keeps stage height stable
+      tiny: { avatar: 28, pulse: 36, mic: 10, micIcon: 6 },
       xsmall: { avatar: 34, pulse: 44, mic: 12, micIcon: 7 },
       small: { avatar: 40, pulse: 50, mic: 14, micIcon: 8 },
       medium: { avatar: 46, pulse: 58, mic: 16, micIcon: 9 },
       large: { avatar: 62, pulse: 78, mic: 18, micIcon: 10 },
     };
     const supportChip = {
+      tiny: { h: 12, minW: 18, px: 2.5, font: 6.5, radius: 6, mt: 1 },
       xsmall: { h: 14, minW: 20, px: 3, font: 7, radius: 7, mt: 2 },
       small: { h: 15, minW: 22, px: 3.5, font: 7.5, radius: 7.5, mt: 2 },
       medium: { h: 16, minW: 24, px: 4, font: 8, radius: 8, mt: 2 },
@@ -164,11 +167,16 @@ export const RoomSeat = memo(
               color={isLocked ? 'rgba(239,68,68,0.85)' : 'rgba(255,255,255,0.5)'}
               align="center"
               numberOfLines={1}
-              style={{ fontSize: 10, lineHeight: 14, marginTop: 6, maxWidth: s.pulse + 8 }}
+              style={{
+                fontSize: size === 'tiny' ? 8 : 10,
+                lineHeight: size === 'tiny' ? 11 : 14,
+                marginTop: size === 'tiny' ? 3 : 6,
+                maxWidth: s.pulse + 8,
+              }}
             >
               {isLocked
                 ? t('room.seatLockedShort')
-                : (emptySeatLabel ?? `${t('room.seat')} ${seatIndex}`)}
+                : (emptySeatLabel ?? String(seatIndex))}
             </Text>
           ) : null}
         </Pressable>
@@ -335,9 +343,9 @@ export const RoomSeat = memo(
             numberOfLines={1}
             ellipsizeMode="tail"
             style={{
-              fontSize: size === 'large' ? 11 : 10,
-              lineHeight: size === 'large' ? 14 : 13,
-              marginTop: showCoins ? 5 : 8,
+              fontSize: size === 'large' ? 11 : size === 'tiny' ? 8 : 10,
+              lineHeight: size === 'large' ? 14 : size === 'tiny' ? 11 : 13,
+              marginTop: showCoins ? (size === 'tiny' ? 3 : 5) : size === 'tiny' ? 4 : 8,
               // عرض ثابت بدل maxWidth — القياس المرن مع أسماء مختلطة الاتجاه
               // كان يطويها إلى «...» بلا أي حرف على أندرويد
               width: wrapWidth + 12,

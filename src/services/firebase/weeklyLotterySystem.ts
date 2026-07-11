@@ -26,7 +26,7 @@ export interface WeeklyLotteryDraw {
   drawnAt: number;
 }
 
-export type LotteryPhase = 'selling' | 'announcing' | 'waiting_new_round';
+export type LotteryPhase = 'selling' | 'sales_closed' | 'announcing' | 'waiting_new_round';
 
 export interface WeeklyLotteryServerState {
   serverNowMs: number;
@@ -34,6 +34,8 @@ export interface WeeklyLotteryServerState {
   phase: LotteryPhase;
   salesOpen: boolean;
   countdownTargetMs: number;
+  /** يُغلق بيع التذاكر السبت 11:00 (الرياض) — السحب 12:00 والجولة الجديدة بعده مباشرة */
+  salesCloseAtMs?: number;
   drawAtMs: number;
   nextRoundStartMs: number;
   totalTickets: number;
@@ -72,12 +74,13 @@ export function projectServerCountdown(
 }
 
 /**
- * موعد السحب القادم محلياً — السبت 11:00 بتوقيت الرياض (UTC+3).
+ * موعد السحب القادم محلياً — السبت 12:00 بتوقيت الرياض (UTC+3).
+ * (يُغلق بيع التذاكر 11:00، السحب 12:00، والجولة الجديدة تبدأ بعده مباشرة.)
  * يُستخدم كبديل عندما يتعذّر نداء الخادم كي لا يبقى العدّاد 00:00:00.
  */
 export function computeLocalNextDrawMs(now = Date.now()): number {
   const RIYADH_OFFSET_MS = 3 * 3_600_000;
-  const DRAW_HOUR = 11;
+  const DRAW_HOUR = 12;
   const r = new Date(now + RIYADH_OFFSET_MS); // ساعة حائط الرياض ممثلة كـ UTC
   let daysAhead = (6 - r.getUTCDay() + 7) % 7; // 6 = السبت
   if (daysAhead === 0 && r.getUTCHours() >= DRAW_HOUR) daysAhead = 7;
@@ -103,6 +106,7 @@ export const fetchWeeklyLotteryState = async (): Promise<WeeklyLotteryServerStat
     phase: data.phase,
     salesOpen: data.salesOpen,
     countdownTargetMs: data.countdownTargetMs,
+    salesCloseAtMs: data.salesCloseAtMs,
     drawAtMs: data.drawAtMs,
     nextRoundStartMs: data.nextRoundStartMs,
     totalTickets: data.totalTickets,
@@ -111,6 +115,41 @@ export const fetchWeeklyLotteryState = async (): Promise<WeeklyLotteryServerStat
     countdown: data.countdown,
   };
 };
+
+export interface LotteryRoundDoc {
+  weekId: string;
+  salesOpen: boolean;
+  salesClosedAt?: number;
+  salesCloseAtMs?: number;
+  drawAtMs?: number;
+}
+
+/**
+ * وثيقة الجولة lotteryState/currentRound — يكتبها السيرفر:
+ * مجدول 11:00 يقفل البيع (salesOpen=false)، ومجدول السحب 12:00 يفتح
+ * الجولة الجديدة فور السحب. العميل يقفل/يفتح الشراء فورياً عبرها.
+ */
+export const subscribeToLotteryRound = (
+  cb: (round: LotteryRoundDoc | null) => void,
+): (() => void) =>
+  onSnapshot(
+    doc(firestore, 'lotteryState', 'currentRound'),
+    (snap) => {
+      if (!snap.exists()) {
+        cb(null);
+        return;
+      }
+      const d = snap.data() as Partial<LotteryRoundDoc>;
+      cb({
+        weekId: String(d.weekId ?? ''),
+        salesOpen: d.salesOpen !== false,
+        salesClosedAt: Number(d.salesClosedAt) || undefined,
+        salesCloseAtMs: Number(d.salesCloseAtMs) || undefined,
+        drawAtMs: Number(d.drawAtMs) || undefined,
+      });
+    },
+    () => cb(null),
+  );
 
 export const subscribeToFeaturedLotteryWinner = (
   cb: (winner: WeeklyLotteryDraw | null) => void,

@@ -25,6 +25,10 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { firestore, auth } from './firebase/index';
+import { subscribeWhenAuthenticated } from './firebase/authReady';
+
+/** نافذة الرنين — بعدها تُعتبر المكالمة فائتة ويُخفى مودال الرد */
+export const INCOMING_CALL_RING_WINDOW_MS = 60_000;
 
 export interface IncomingCall {
   id: string;
@@ -105,21 +109,13 @@ export const ringUser = async (
   return callId;
 };
 
-/**
- * الاستماع للمكالمات الواردة لي
- */
-export const subscribeToIncomingCalls = (
+function attachIncomingCallsListener(
+  uid: string,
   callback: (calls: IncomingCall[]) => void,
-): (() => void) => {
-  const me = auth.currentUser;
-  if (!me) {
-    callback([]);
-    return () => {};
-  }
-
-  // نستمع فقط للمكالمات التي ما زالت ترنّ (آخر 60 ثانية)
+): () => void {
+  // نستمع فقط للمكالمات التي ما زالت ترنّ (ضمن نافذة الرنين)
   const ref = query(
-    collection(firestore, 'incomingCalls', me.uid, 'calls'),
+    collection(firestore, 'incomingCalls', uid, 'calls'),
     orderBy('createdAt', 'desc'),
     limit(5),
   );
@@ -130,12 +126,50 @@ export const subscribeToIncomingCalls = (
       const now = Date.now();
       const calls = snap.docs
         .map((d) => ({ id: d.id, ...d.data() } as IncomingCall))
-        // فقط المكالمات الترنّ + آخر 60 ثانية (تجاهل القديمة)
-        .filter((c) => c.status === 'ringing' && now - c.createdAt < 60_000);
+        // فقط المكالمات الترنّ + ضمن النافذة (تجاهل القديمة)
+        .filter((c) => c.status === 'ringing' && now - c.createdAt < INCOMING_CALL_RING_WINDOW_MS);
       callback(calls);
     },
     () => callback([]),
   );
+}
+
+/**
+ * الاستماع للمكالمات الواردة لي
+ * نفس إصلاح سباق الإقلاع في chat.ts: قراءة auth.currentUser لحظة الاستدعاء كانت
+ * تُرجع noop إذا رُكِّب المستمع قبل اكتمال استعادة الجلسة (المودال يُركَّب في
+ * _layout مع مستخدم الكاش المحلي) — فلا يرنّ الهاتف إطلاقاً طوال الجلسة
+ * ويصل المستقبِل «مكالمة فائتة» فقط بعد أن يقفل المتصل.
+ */
+export const subscribeToIncomingCalls = (
+  callback: (calls: IncomingCall[]) => void,
+): (() => void) => {
+  let fsUnsub: (() => void) | null = null;
+  let attachedUid: string | null = null;
+  let disposed = false;
+
+  const authUnsub = subscribeWhenAuthenticated(
+    (user) => {
+      if (disposed || attachedUid === user.uid) return;
+      fsUnsub?.();
+      attachedUid = user.uid;
+      fsUnsub = attachIncomingCallsListener(user.uid, callback);
+    },
+    () => {
+      if (disposed) return;
+      fsUnsub?.();
+      fsUnsub = null;
+      attachedUid = null;
+      callback([]);
+    },
+  );
+
+  return () => {
+    disposed = true;
+    authUnsub();
+    fsUnsub?.();
+    fsUnsub = null;
+  };
 };
 
 /**

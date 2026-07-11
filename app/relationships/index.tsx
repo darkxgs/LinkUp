@@ -117,12 +117,15 @@ export default function RelationshipsScreen() {
     [current],
   );
 
-  const displayLevel = viewingLevel ?? levelInfo?.level ?? 1;
+  // المستوى المُنجَز فعلياً — الأعلى بين المحسوب من النقاط والمحفوظ في وثيقة العلاقة
+  // (كان الحساب من النقاط وحده يقفل مستوى وصله المستخدم سابقاً)
+  const achievedLevel = Math.max(levelInfo?.level ?? 0, current?.level ?? 0);
+  const displayLevel = viewingLevel ?? (achievedLevel || 1);
   const displayLevelInfo = useMemo(
     () => RELATIONSHIP_LEVELS.find((l) => l.level === displayLevel) ?? RELATIONSHIP_LEVELS[0]!,
     [displayLevel],
   );
-  const isReachedLevel = (levelInfo?.level ?? 0) >= displayLevel;
+  const isReachedLevel = achievedLevel >= displayLevel;
 
   const progressCurrent = useMemo(() => {
     if (!current || !levelInfo) return { current: 0, total: 100, pct: 0, toNext: 0 };
@@ -325,7 +328,7 @@ export default function RelationshipsScreen() {
         <RelationshipTimeline
           levels={timelineLevels}
           displayLevel={displayLevel}
-          currentLevel={levelInfo.level}
+          currentLevel={achievedLevel}
           levelLabel={`${t('relationships.level')} ${String(displayLevel).padStart(2, '0')}`}
           statusLabel={isReachedLevel ? t('relationships.reached') : t('relationships.locked')}
           isReached={isReachedLevel}

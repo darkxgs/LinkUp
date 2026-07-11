@@ -31,6 +31,7 @@ import {
   type VipSystemConfig,
 } from '@/services/firebase/vipSystem';
 import { GIFTS_CATALOG, setCachedGiftCommission, type Gift, type GiftCategoryConfig } from '@/services/firebase/shop';
+import { setRemoteBannedTerms } from '@/utils/moderation';
 import {
   subscribeToGamesConfig,
   subscribeToGamesGlobal,
@@ -251,6 +252,13 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     setCachedGiftCommission(settings.giftCommission);
   }, [settings.giftCommission]);
+
+  // ⚡ تغذية فلتر المصطلحات المحظورة (منع الدعاية لتطبيقات منافسة) بقائمة اللوحة
+  //    من config/settings → moderation.bannedTerms حتى تفحص خدمات الإرسال فوراً
+  //    بلا جلب إضافي — انظر utils/moderation.ts.
+  useEffect(() => {
+    setRemoteBannedTerms(settings.moderation?.bannedTerms);
+  }, [settings.moderation]);
 
   // ⚡ تثبيت قيمة الـ Provider بـ useMemo حتى لا يُعاد رسم كل مستهلكي useConfig
   //    إلا عند تغيّر حقل فعلاً (كان كائناً جديداً بالمرجع في كل رسم).

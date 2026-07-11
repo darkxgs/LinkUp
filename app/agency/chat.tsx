@@ -488,6 +488,9 @@ const styles = StyleSheet.create({
     borderRadius: lu.radius.pill, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11,
     fontSize: 14.5, color: lu.colors.ink, fontFamily: lu.fonts.body,
     borderWidth: 1, borderColor: lu.colors.line,
+    // التطبيق عربي أولاً — الكتابة تبدأ من اليمين دائماً حتى على
+    // الأجهزة التي لا يُفعَّل عليها وضع RTL للنظام
+    textAlign: 'right', writingDirection: 'rtl',
   },
   sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', ...lu.shadows.grad, shadowOpacity: 0.3 },
 

@@ -3,7 +3,7 @@
  * مع حالة اتصال حقيقية من Firestore lastSeen + RTDB presence
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getFollowing, getFollowers } from '@/services/firebase/follow';
+import { getFollowGraph } from '@/services/firebase/chatFriends';
 import { getUser } from '@/services/firebase/users';
 import { useAuth } from '@/hooks/useAuth';
 import { usePresenceForUids } from '@/hooks/usePresence';
@@ -26,13 +26,8 @@ export type ChallengeInviteContactFilter = 'all' | 'friends' | 'followers' | 'fo
 async function fetchContactProfiles(
   myUid: string,
 ): Promise<Omit<ChallengeInviteContact, 'isOnline'>[]> {
-  const [following, followers] = await Promise.all([
-    getFollowing(myUid, 200),
-    getFollowers(myUid, 200),
-  ]);
-
-  const followerSet = new Set(followers);
-  const followingSet = new Set(following);
+  // التعريف الموحّد للصديق (متابعة متبادلة) — نفس مصدر شاشة الشات والهدايا
+  const { following, followers, friends } = await getFollowGraph(myUid);
 
   const entries: { uid: string; relation: ChallengeInviteRelation }[] = [];
   const seen = new Set<string>();
@@ -43,14 +38,12 @@ async function fetchContactProfiles(
     entries.push({ uid, relation });
   };
 
-  for (const uid of following) {
-    if (followerSet.has(uid)) push(uid, 'friend');
-  }
+  for (const uid of friends) push(uid, 'friend');
   for (const uid of followers) {
-    if (!followingSet.has(uid)) push(uid, 'follower');
+    if (!friends.has(uid)) push(uid, 'follower');
   }
   for (const uid of following) {
-    if (!followerSet.has(uid)) push(uid, 'following');
+    if (!friends.has(uid)) push(uid, 'following');
   }
 
   const profiles = await Promise.all(entries.map((e) => getUser(e.uid)));

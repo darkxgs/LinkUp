@@ -69,7 +69,8 @@ const GiftCell = memo(
         <RNText style={styles.giftName} numberOfLines={1}>{gift.name}</RNText>
         <View style={styles.priceRow}>
           <CurrencyIcon type="coin" size={10} />
-          <RNText style={styles.priceText}>{gift.price.toLocaleString()}</RNText>
+          {/* أرقام إنجليزية موحّدة في كل التطبيق */}
+          <RNText style={styles.priceText}>{gift.price.toLocaleString('en-US')}</RNText>
         </View>
       </Pressable>
     );
@@ -333,7 +334,7 @@ export function ChatGiftPickerModal({
             <Pressable style={styles.balanceChip} onPress={onRecharge}>
               <LuCoinIcon size={18} color={lu.colors.gold2} />
               <Text variant="bodySmall" weight="bold" color={lu.colors.ink}>
-                {balance.toLocaleString()}
+                {balance.toLocaleString('en-US')}
               </Text>
               <ChevronDown size={14} color={lu.colors.muted} style={{ transform: [{ rotate: '-90deg' }] }} />
             </Pressable>
@@ -363,7 +364,7 @@ export function ChatGiftPickerModal({
               ) : (
                 <RNText style={styles.sendText}>
                   {selectedGift
-                    ? t('chat.sendGiftBtn', { price: totalPrice.toLocaleString() })
+                    ? t('chat.sendGiftBtn', { price: totalPrice.toLocaleString('en-US') })
                     : t('chat.selectGiftFirst')}
                 </RNText>
               )}

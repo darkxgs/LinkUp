@@ -72,6 +72,26 @@ const DIRECT_OPTIONS: ConnectOptions = {
   peerConnectionTimeout: 7_000,
 };
 
+/**
+ * فشل قناة الإشارة نفسها (WebSocket/fetch) وليس وسائط WebRTC —
+ * «could not establish signal connection: Network request failed» يعني انقطاع
+ * شبكة لحظي أو توكن منتهٍ، والترحيل TURN لا يفيد فيه. هذه الأخطاء تستحق
+ * إعادة محاولة (وأحياناً توكن جديد) بدل إنهاء المكالمة فوراً.
+ */
+export function isTransientSignalError(e: unknown): boolean {
+  const msg = (e instanceof Error ? e.message : String(e ?? '')).toLowerCase();
+  return (
+    msg.includes('signal connection') ||
+    msg.includes('network request failed') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('تحقق من اتصال الإنترنت')
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function connectLiveKitWithRelayFallback(
   room: LkRoom,
   wsUrl: string,
@@ -80,22 +100,55 @@ export async function connectLiveKitWithRelayFallback(
 ): Promise<void> {
   await bootstrapRelayPreference();
 
-  if (livekitPrefersRelay()) {
-    await room.connect(wsUrl, token, RELAY_OPTIONS);
+  const attempt = async (options: ConnectOptions) => {
+    await room.connect(wsUrl, token, options);
     await waitConnected(room);
-    return;
-  }
-
-  try {
-    await room.connect(wsUrl, token, DIRECT_OPTIONS);
-    await waitConnected(room);
-  } catch (directErr) {
-    // فشل المسار المباشر (غالباً حجب UDP) — جرّب الترحيل عبر TURN/TLS:443
+  };
+  const cleanupFailedAttempt = async () => {
     try {
       await room.disconnect();
     } catch {
       // ignore
     }
+  };
+
+  if (livekitPrefersRelay()) {
+    try {
+      await attempt(RELAY_OPTIONS);
+    } catch (relayErr) {
+      // خطأ إشارة/شبكة عابر — أعد المحاولة مرة بعد مهلة قصيرة بدل الفشل الفوري
+      if (!isTransientSignalError(relayErr)) throw relayErr;
+      await cleanupFailedAttempt();
+      await delay(1_200);
+      await attempt(RELAY_OPTIONS);
+    }
+    return;
+  }
+
+  try {
+    await attempt(DIRECT_OPTIONS);
+  } catch (directErr) {
+    await cleanupFailedAttempt();
+
+    if (isTransientSignalError(directErr)) {
+      // فشل الإشارة = تعذّر WebSocket نفسه — ليس حجب UDP، فالترحيل لن يصلحه
+      // ولا يجوز تثبيت تفضيل الترحيل بسببه. أعد المحاولة المباشرة مرة.
+      console.log(
+        '[LiveKit] signal connect failed — retrying direct once:',
+        (directErr as Error)?.message,
+      );
+      await delay(1_200);
+      try {
+        await attempt(DIRECT_OPTIONS);
+        return;
+      } catch (retryErr) {
+        await cleanupFailedAttempt();
+        if (isTransientSignalError(retryErr)) throw retryErr;
+        // نجحت الإشارة وفشلت الوسائط هذه المرة — تابع لمسار الترحيل أدناه
+      }
+    }
+
+    // فشل المسار المباشر (غالباً حجب UDP) — جرّب الترحيل عبر TURN/TLS:443
     console.log(
       '[LiveKit] direct connect failed — retrying via TURN relay (443/TLS):',
       (directErr as Error)?.message,

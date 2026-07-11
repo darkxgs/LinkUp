@@ -12,7 +12,10 @@ import {
 import { translateCallableError } from '@/services/firebase/authReady';
 import { requestCallPermissions } from '@/services/permissions';
 import { ensureLiveKitGlobals } from '@/services/livekitNative';
-import { connectLiveKitWithRelayFallback } from '@/services/livekitConnect';
+import {
+  connectLiveKitWithRelayFallback,
+  isTransientSignalError,
+} from '@/services/livekitConnect';
 import {
   applyBestAudioOutput,
   getCommunicationAudioConfig,
@@ -253,6 +256,34 @@ class CallSessionManager {
     this.refreshFromRoom();
   }
 
+  /**
+   * تشغيل الكاميرا بأمان — فشل الكاميرا (أجهزة ضعيفة/كاميرا محجوزة) يجب ألا
+   * يُسقط المكالمة أو التطبيق. محاولة أولى 540p ثم محاولة أخيرة 360p،
+   * وعند الفشل تستمر المكالمة صوتاً فقط.
+   */
+  private async enableCameraSafely(room: LkRoom): Promise<boolean> {
+    const lk = this.lk;
+    try {
+      await room.localParticipant.setCameraEnabled(true, {
+        facingMode: this.cameraFacing,
+        ...(lk?.VideoPresets?.h540 ? { resolution: lk.VideoPresets.h540.resolution } : {}),
+      });
+      return true;
+    } catch (e) {
+      console.warn('callSession camera 540p failed — retrying lower resolution:', e);
+    }
+    try {
+      await room.localParticipant.setCameraEnabled(true, {
+        facingMode: this.cameraFacing,
+        ...(lk?.VideoPresets?.h360 ? { resolution: lk.VideoPresets.h360.resolution } : {}),
+      });
+      return true;
+    } catch (e) {
+      console.warn('callSession camera enable failed — continuing audio-only:', e);
+      return false;
+    }
+  }
+
   private async waitForConnectedRoom(timeoutMs = 8000): Promise<LkRoom | null> {
     if (this.room && this.lk && this.room.state === this.lk.ConnectionState.Connected) {
       return this.room;
@@ -353,7 +384,7 @@ class CallSessionManager {
     const { channelName, isVideo, peerUid, billingSessionId, callSource = 'chat' } = opts;
     if (!channelName) return;
 
-    const generation = ++this.connectGeneration;
+    let generation = ++this.connectGeneration;
 
     if (this.isConnectedTo(channelName) && this.isVideo === isVideo) {
       this.peerUid = peerUid;
@@ -380,13 +411,11 @@ class CallSessionManager {
         this.isSpeakerOn = true;
         await AudioSession.configureAudio(getCommunicationAudioConfig('video', true));
         await applyBestAudioOutput(AudioSession, true);
-        await this.room.localParticipant.setCameraEnabled(true, {
-          facingMode: this.cameraFacing,
-        });
+        // فشل الكاميرا لا يقلب المكالمة لحالة خطأ — تستمر صوتاً فقط
+        this.isVideoEnabled = await this.enableCameraSafely(this.room);
         if (this.room) {
           await enableMicrophoneWithRetry(this.room, !this.isMuted);
         }
-        this.isVideoEnabled = true;
         this.refreshFromRoom();
         this.emit();
       } catch (e: unknown) {
@@ -398,8 +427,19 @@ class CallSessionManager {
     }
 
     if (this.joined) {
+      // أظهر «جارٍ الاتصال» فوراً قبل تفكيك الجلسة القديمة — leave() تستغرق ثوانيَ
+      // (disconnect + إيقاف جلسة الصوت) وكانت تعرض «انتهت المكالمة» طوالها على
+      // شاشة الرد على المكالمة الجديدة.
+      this.callState = 'connecting';
+      this.error = null;
+      this.duration = 0;
+      this.emit();
       await this.leave(false);
-      if (this.isConnectStale(generation)) return;
+      // leave() يرفع جيل الاتصال ليُلغي أي connect قديم — أعد المطالبة بالجيل هنا
+      // وإلا اعتُبر هذا الاتصال نفسه لاغياً وظهرت «انتهت المكالمة» فور الرد على
+      // مكالمة جديدة بينما جلسة سابقة ما زالت منضمّة (بلا أي صوت إطلاقاً).
+      if (this.connectGeneration !== generation + 1) return; // سبَقَنا connect/leave أحدث
+      generation = ++this.connectGeneration;
     }
 
     this.channelName = channelName;
@@ -428,8 +468,20 @@ class CallSessionManager {
       } catch { /* ignore */ }
 
       const permType = isVideo ? 'both' : 'audio';
+      // «Network request failed» أثناء جلب التوكن = رعشة شبكة لحظية —
+      // أعد المحاولة مرة بدل الفشل الفوري بخطأ على شاشة المتصل
+      const fetchTokenWithRetry = async () => {
+        try {
+          return await getLiveKitToken(channelName, true, peerUid);
+        } catch (tokenErr) {
+          if (!isTransientSignalError(tokenErr)) throw tokenErr;
+          await sleep(1500);
+          if (this.isConnectStale(generation)) throw tokenErr;
+          return getLiveKitToken(channelName, true, peerUid);
+        }
+      };
       const [tokenResult, granted] = await Promise.all([
-        getLiveKitToken(channelName, true, peerUid),
+        fetchTokenWithRetry(),
         requestCallPermissions(permType),
       ]);
 
@@ -481,10 +533,22 @@ class CallSessionManager {
           noiseSuppression: true,
           autoGainControl: true,
         },
+        // فيديو 540p بدل الافتراضي 720p — التقاط/ترميز 720p يعلّق الأجهزة الضعيفة
+        // حتى خروج التطبيق. 540p كافية لمكالمة 1-to-1 وأخف بكثير على المعالج.
+        ...(lk.VideoPresets?.h540
+          ? {
+              videoCaptureDefaults: {
+                facingMode: this.cameraFacing,
+                resolution: lk.VideoPresets.h540.resolution,
+              },
+            }
+          : {}),
         publishDefaults: {
           dtx: false,
           red: true,
           ...(lk.AudioPresets?.speech ? { audioPreset: lk.AudioPresets.speech } : {}),
+          ...(lk.VideoPresets?.h540 ? { videoEncoding: lk.VideoPresets.h540.encoding } : {}),
+          ...(lk.VideoPresets?.h180 ? { videoSimulcastLayers: [lk.VideoPresets.h180] } : {}),
         },
       });
       this.room = room;
@@ -495,6 +559,7 @@ class CallSessionManager {
       };
 
       const onRemotePresent = () => {
+        if (this.room !== room) return;
         this.refreshFromRoom();
         if (this.remoteJoined) {
           this.markAnswered();
@@ -505,15 +570,18 @@ class CallSessionManager {
 
       room
         .on(RoomEvent.Connected, () => {
+          if (this.room !== room) return;
           this.callState = 'connected';
           refresh();
         })
         .on(RoomEvent.Reconnecting, () => {
+          if (this.room !== room) return;
           // رعشة شبكة: SDK يعيد المحاولة تلقائياً — لا نُنهي المكالمة، فقط نُظهر الحالة
           this.isReconnecting = true;
           this.emit();
         })
         .on(RoomEvent.Reconnected, () => {
+          if (this.room !== room) return;
           this.isReconnecting = false;
           void this.reapplyMediaStateAfterReconnect().then(() => {
             if (this.remoteJoined) this.startBillingIfNeeded();
@@ -521,6 +589,11 @@ class CallSessionManager {
           });
         })
         .on(RoomEvent.Disconnected, () => {
+          // غرفة قديمة بعد إعادة إنشاء الجلسة — لا تُنهِ المكالمة الجديدة
+          if (this.room !== room) return;
+          // قطع مقصود بين محاولات direct→relay أثناء التأسيس — ليس نهاية مكالمة:
+          // كان يقلب الحالة إلى «انتهت المكالمة» لحظياً رغم أن المحاولة التالية تنجح
+          if (!this.joined && this.callState === 'connecting') return;
           // يصل هنا فقط بعد أن يستنفد SDK محاولات إعادة الاتصال (انقطاع نهائي)
           if (this.callState !== 'ended') {
             this.callState = 'ended';
@@ -536,6 +609,7 @@ class CallSessionManager {
         })
         .on(RoomEvent.ParticipantConnected, onRemotePresent)
         .on(RoomEvent.ParticipantDisconnected, () => {
+          if (this.room !== room) return;
           this.remoteJoined = false;
           this.remoteVideoTrack = undefined;
           this.isRemoteMuted = false;
@@ -562,9 +636,31 @@ class CallSessionManager {
         .on(RoomEvent.TrackUnpublished, refresh);
 
       // #17: اتصال مع بديل ترحيل TURN/TLS:443 تلقائي — شبكات جوال تحجب UDP
-      await connectLiveKitWithRelayFallback(room, wsUrl, token, (r) =>
-        waitForRoomConnected(r, ConnectionState, RoomEvent),
-      );
+      try {
+        await connectLiveKitWithRelayFallback(room, wsUrl, token, (r) =>
+          waitForRoomConnected(r, ConnectionState, RoomEvent),
+        );
+      } catch (connErr) {
+        if (this.isConnectStale(generation)) return;
+        // فشل قناة الإشارة (انقطاع لحظي/توكن منتهٍ) قابل للإنقاذ — توكن جديد
+        // وإعادة اتصال مرة واحدة بدل إنهاء المكالمة فوراً بـ«انتهت المكالمة»
+        if (!isTransientSignalError(connErr)) throw connErr;
+        try {
+          await withTimeout(room.disconnect(), 3000);
+        } catch {
+          // ignore
+        }
+        await sleep(1500);
+        if (this.isConnectStale(generation)) return;
+        const freshToken = await getLiveKitToken(channelName, true, peerUid);
+        if (this.isConnectStale(generation)) return;
+        await connectLiveKitWithRelayFallback(
+          room,
+          freshToken.wsUrl || wsUrl,
+          freshToken.token,
+          (r) => waitForRoomConnected(r, ConnectionState, RoomEvent),
+        );
+      }
       if (this.isConnectStale(generation)) {
         await withTimeout(room.disconnect(), 3000);
         return;
@@ -584,8 +680,8 @@ class CallSessionManager {
       }
 
       if (isVideo) {
-        await room.localParticipant.setCameraEnabled(true, { facingMode: this.cameraFacing });
-        this.isVideoEnabled = true;
+        // فشل الكاميرا (جهاز ضعيف/كاميرا محجوزة) لا يُسقط المكالمة — تستمر صوتاً
+        this.isVideoEnabled = await this.enableCameraSafely(room);
         this.refreshFromRoom();
         this.emit();
         setTimeout(() => {
@@ -756,9 +852,20 @@ class CallSessionManager {
     const room = this.room;
     if (!room) return;
     const next = !this.isVideoEnabled;
-    await room.localParticipant.setCameraEnabled(next, next ? { facingMode: this.cameraFacing } : undefined);
-    this.isVideoEnabled = next;
-    this.isVideo = next;
+    if (next) {
+      // تشغيل الكاميرا محمي — فشلها لا يرمي استثناءً غير معالج من زر الفيديو
+      const ok = await this.enableCameraSafely(room);
+      this.isVideoEnabled = ok;
+      if (ok) this.isVideo = true;
+    } else {
+      try {
+        await room.localParticipant.setCameraEnabled(false);
+      } catch (e) {
+        console.warn('callSession toggleVideo off:', e);
+      }
+      this.isVideoEnabled = false;
+      this.isVideo = false;
+    }
     this.refreshFromRoom();
     this.emit();
   }

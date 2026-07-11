@@ -1,10 +1,12 @@
 /**
  * قلب الخط الزمني — مطابق Level-1.png
- * قلب شفاف لافندر + قفل رمادي في الوسط
+ * قلب شفاف لافندر + قفل رمادي في الوسط (المستويات المُنجزة تظهر بدون قفل)
  */
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+
+import { REL_DESIGN } from './relationshipDesign';
 
 const HEART_OUTLINE =
   'M12 20.5C5.5 16 3 12.4 3 9a4.6 4.6 0 0 1 9-1.6A4.6 4.6 0 0 1 21 9c0 3.4-2.5 7-9 11.5z';
@@ -29,20 +31,29 @@ function MiniLock({ size = 11 }: { size?: number }) {
   );
 }
 
-export function TimelineLockedHeart({ size = 34 }: { size?: number }) {
+export function TimelineLockedHeart({
+  size = 34,
+  reached = false,
+}: {
+  size?: number;
+  /** مستوى وصله المستخدم فعلاً — قلب ممتلئ بدون قفل */
+  reached?: boolean;
+}) {
   return (
     <View style={[styles.wrap, { width: size, height: size }]}>
       <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
         <Path
           d={HEART_OUTLINE}
-          stroke="#E0CACA"
+          stroke={reached ? REL_DESIGN.heartRed : '#E0CACA'}
           strokeWidth={1.5}
-          fill="rgba(250, 230, 230, 0.65)"
+          fill={reached ? 'rgba(247, 0, 0, 0.82)' : 'rgba(250, 230, 230, 0.65)'}
         />
       </Svg>
-      <View style={styles.lock}>
-        <MiniLock size={Math.round(size * 0.34)} />
-      </View>
+      {!reached ? (
+        <View style={styles.lock}>
+          <MiniLock size={Math.round(size * 0.34)} />
+        </View>
+      ) : null}
     </View>
   );
 }
