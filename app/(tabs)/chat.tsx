@@ -176,9 +176,6 @@ export default function ChatListScreen() {
   const isSmall = W < 360;
   const pad = isSmall ? 14 : 16;
   const headerMetrics = useTabHeaderMetrics(W);
-  const headerSubtitle = i18n.language?.startsWith('ar')
-    ? 'التقِ بأشخاص جدد فوراً'
-    : 'Meet new people instantly';
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [agencyChats, setAgencyChats] = useState<AgencyChatMeta[]>([]);
@@ -601,7 +598,7 @@ export default function ChatListScreen() {
         ListHeaderComponent={
           <View>
             {/* ===== الشريط العلوي الموحد (مطابق لصفحة Home) ===== */}
-            <TabScreenHeader pad={pad} subtitle={headerSubtitle}>
+            <TabScreenHeader pad={pad}>
               <HeaderIconButton onPress={() => router.push('/search' as any)}>
                 <LuSearchIcon size={headerMetrics.iconSize} color={lu.colors.ink} />
               </HeaderIconButton>

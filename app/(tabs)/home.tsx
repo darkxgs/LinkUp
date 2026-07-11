@@ -163,7 +163,6 @@ export default function RoomsScreen() {
   const roomGap = 13;
   const roomColW = Math.floor((W - pad * 2 - roomGap) / 2);
   const headerMetrics = useTabHeaderMetrics(W);
-  const headerSubtitle = t('rooms.homeSubtitle');
   const { user } = useAuth();
   const { rooms, loading } = useRooms(50);
   const levelsConfig = useAgencyLevelsConfig();
@@ -524,7 +523,7 @@ export default function RoomsScreen() {
   const listHeader = useMemo(
     () => (
     <>
-      <TabScreenHeader pad={pad} subtitle={headerSubtitle} style={{ marginBottom: 6 }}>
+      <TabScreenHeader pad={pad} style={{ marginBottom: 6 }}>
         <HeaderIconButton onPress={handleOpenCreateRoom}>
           {creatingRoom ? (
             <ActivityIndicator size="small" color={lu.colors.purple} />
@@ -639,7 +638,6 @@ export default function RoomsScreen() {
     ),
     [
       pad,
-      headerSubtitle,
       headerMetrics.iconSize,
       creatingRoom,
       t,

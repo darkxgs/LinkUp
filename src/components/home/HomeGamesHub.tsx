@@ -19,7 +19,7 @@ type GameCardDef = {
   subKey: string;
   route: string;
   glow: string;
-  tag?: string;
+  tagKey?: string;
 };
 
 const GAME_CARDS: GameCardDef[] = [
@@ -38,7 +38,7 @@ const GAME_CARDS: GameCardDef[] = [
     subKey: 'home.gameBrainSub',
     route: '/games/intelligence',
     glow: '#FF2E6B',
-    tag: '20x',
+    tagKey: 'home.gameTag20x',
   },
   {
     id: 'casino',
@@ -123,18 +123,25 @@ export function HomeGamesHub({ pad, onNavigate, dark = true }: Props) {
                   <View style={[styles.coin, { shadowColor: g.glow }]}>
                     <Image source={g.image} style={styles.coinImg} contentFit="cover" />
                   </View>
-                  {g.tag ? (
+                  {g.tagKey ? (
                     <LinearGradient
                       colors={['#FFC53D', '#FF7A2E']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={styles.coinTag}
                     >
-                      <Text style={styles.coinTagText}>{g.tag}</Text>
+                      <Text style={styles.coinTagText}>{t(g.tagKey)}</Text>
                     </LinearGradient>
                   ) : null}
                 </View>
-                <Text style={[styles.cardTitle, !dark && { color: '#15151A' }]} numberOfLines={1}>{t(g.titleKey)}</Text>
+                <Text
+                  style={[styles.cardTitle, !dark && { color: '#15151A' }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.72}
+                >
+                  {t(g.titleKey)}
+                </Text>
                 {(g.id === 'lottery' ? ticketsSold : playing) > 0 ? (
                   <View style={[styles.cardLiveRow, { flexDirection: ROW }]}>
                     <View style={[styles.liveDot, g.id === 'lottery' && styles.liveDotGold]} />
@@ -155,7 +162,7 @@ export function HomeGamesHub({ pad, onNavigate, dark = true }: Props) {
                   <Text style={[styles.cardSub, !dark && { color: '#6B7280' }]} numberOfLines={1}>{t(g.subKey)}</Text>
                 )}
                 <View style={[styles.playBtn, !dark && styles.playBtnLight, { flexDirection: ROW }]}>
-                  <Text style={[styles.playText, !dark && { color: '#B00E0E' }]}>{t('home.gameOpen')}</Text>
+                  <Text style={[styles.playText, !dark && { color: '#B00E0E' }]}>{t(g.id === 'lottery' ? 'home.gameJoin' : 'home.gameOpen')}</Text>
                   <ChevronRight size={11} color={dark ? '#FF8090' : '#B00E0E'} />
                 </View>
               </Pressable>
@@ -204,7 +211,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,70,80,0.22)',
     paddingTop: 14,
     paddingBottom: 12,
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.35,

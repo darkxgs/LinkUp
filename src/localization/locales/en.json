@@ -257,7 +257,11 @@
     "chat": "Chat",
     "feed": "Moments",
     "profile": "Profile",
-    "match": "Match"
+    "match": "Match",
+    "matches": "Discover",
+    "discoverTab": "Feed",
+    "voiceRoom": "Home",
+    "chats": "Chats"
   },
   "discover": {
     "videoMatch": "Video Match",
@@ -350,7 +354,9 @@
     "gameCasinoCta": "View all",
     "gameLottery": "Lottery",
     "gameLotterySub": "Weekly prize",
-    "gameLotteryCta": "Join now"
+    "gameLotteryCta": "Join now",
+    "gameJoin": "Join",
+    "gameTag20x": "20x"
   },
   "rooms": {
     "title": "Rooms",
@@ -1013,7 +1019,7 @@
   },
   "feed": {
     "title": "Moments",
-    "tabExplore": "Discover",
+    "tabExplore": "Feed",
     "tabFollowing": "Following",
     "tabTrending": "Trending",
     "hotTopics": "Hot Topics",
@@ -1083,7 +1089,8 @@
     "like": "Like",
     "comment": "Comment",
     "share": "Share",
-    "gift": "Gift"
+    "gift": "Gift",
+    "hotTag": "Hot"
   },
   "post": {
     "title": "Post",
