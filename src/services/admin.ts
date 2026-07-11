@@ -2546,110 +2546,6 @@ export const saveRoomReactionsConfig = async (config: ConfigRoomReactions): Prom
   );
 };
 
-// ==================== الملصقات (Stickers) ====================
-
-export interface ConfigStickerItem {
-  id: string;
-  imageUrl: string;
-  enabled?: boolean;
-  order?: number;
-}
-
-export interface ConfigStickerPack {
-  id: string;
-  nameAr: string;
-  nameEn: string;
-  /** إيموجي احتياطي — يُستخدم إذا لم تُرفع iconUrl */
-  icon: string;
-  iconUrl?: string;
-  enabled?: boolean;
-  order?: number;
-  items: ConfigStickerItem[];
-}
-
-export interface ConfigStickers {
-  packs: ConfigStickerPack[];
-}
-
-export const DEFAULT_STICKERS: ConfigStickers = { packs: [] };
-
-function normalizeStickerItem(raw: Partial<ConfigStickerItem>): ConfigStickerItem | null {
-  const id = String(raw.id ?? '').trim();
-  const imageUrl = String(raw.imageUrl ?? '').trim();
-  if (!id || !imageUrl) return null;
-  return {
-    id,
-    imageUrl,
-    enabled: raw.enabled !== false,
-    order: Number(raw.order) || 0,
-  };
-}
-
-function normalizeStickerPack(raw: Partial<ConfigStickerPack>): ConfigStickerPack | null {
-  const id = String(raw.id ?? '').trim();
-  if (!id) return null;
-  const items = (raw.items ?? [])
-    .map((item) => normalizeStickerItem(item))
-    .filter((item): item is ConfigStickerItem => Boolean(item))
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  return {
-    id,
-    nameAr: raw.nameAr?.trim() || id,
-    nameEn: raw.nameEn?.trim() || id,
-    icon: raw.icon?.trim() || '✨',
-    iconUrl: raw.iconUrl?.trim() || undefined,
-    enabled: raw.enabled !== false,
-    order: Number(raw.order) || 0,
-    items,
-  };
-}
-
-export function normalizeStickersConfig(data: unknown): ConfigStickers {
-  const raw = data as { packs?: Partial<ConfigStickerPack>[] } | null | undefined;
-  const packs = (raw?.packs ?? [])
-    .map((pack) => normalizeStickerPack(pack))
-    .filter((pack): pack is ConfigStickerPack => Boolean(pack))
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  return { packs };
-}
-
-export const getStickersConfig = async (): Promise<ConfigStickers> => {
-  try {
-    const snap = await getDoc(doc(firestore, 'config', 'stickers'));
-    if (!snap.exists()) return DEFAULT_STICKERS;
-    return normalizeStickersConfig(snap.data());
-  } catch {
-    return DEFAULT_STICKERS;
-  }
-};
-
-export const saveStickersConfig = async (config: ConfigStickers): Promise<void> => {
-  const packs = (config?.packs ?? [])
-    .map((pack) => normalizeStickerPack(pack))
-    .filter((pack): pack is ConfigStickerPack => Boolean(pack))
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    .map((pack) => ({
-      id: pack.id,
-      nameAr: pack.nameAr,
-      nameEn: pack.nameEn,
-      icon: pack.icon,
-      ...(pack.iconUrl ? { iconUrl: pack.iconUrl } : {}),
-      enabled: pack.enabled !== false,
-      order: pack.order ?? 0,
-      items: pack.items.map((item) => ({
-        id: item.id,
-        imageUrl: item.imageUrl,
-        enabled: item.enabled !== false,
-        order: item.order ?? 0,
-      })),
-    }));
-  await setDoc(
-    doc(firestore, 'config', 'stickers'),
-    { packs, updatedAt: Date.now(), _permKey: 'stickers' },
-    { merge: true },
-  );
-};
-
 // ===== مستويات الوكالة =====
 export interface ConfigAgencyLevelRow {
   level: number;
@@ -5216,7 +5112,6 @@ export const PERMISSION_SECTIONS = [
   { key: 'call-pricing', label: 'تسعير المكالمات والمطابقة' },
   { key: 'posts', label: 'المنشورات / اللحظات' },
   { key: 'games', label: 'الألعاب' },
-  { key: 'stickers', label: 'الملصقات' },
   { key: 'relationships', label: 'العلاقات' },
   { key: 'chat-backgrounds', label: 'خلفيات المحادثة' },
   { key: 'notifications', label: 'إشعارات المستخدمين' },

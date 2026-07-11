@@ -28,6 +28,3 @@ npm run build    # إنتاج → dist/
 - `src/pages/UserDetail.tsx` — حالة الحساب (نشط/محظور/معلّق مؤقتاً/محذوف)، سجل الجلسات، الأجهزة المستخدمة، عدد مرات الدخول.
 - `src/components/SuspendUserModal.tsx` — تعليق مؤقت للحساب لمدة محددة مع سبب اختياري.
 - `src/components/Toast.tsx` / `src/components/ConfirmDialog.tsx` — إشعارات وتأكيدات مخصصة بدل `alert()`/`confirm()` الافتراضية للمتصفح.
-
-## الملصقات المتحركة
-- `src/pages/Stickers.tsx` — إدارة حزم الملصقات المتحركة المستخدمة في الدردشة.

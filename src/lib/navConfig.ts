@@ -29,7 +29,6 @@ import {
   Smartphone,
   UserCog,
   Smile,
-  Sticker,
   Bot,
   type LucideIcon,
 } from 'lucide-react';
@@ -115,7 +114,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: adminPath('/posts'), routePath: 'posts', label: 'المنشورات / اللحظات', icon: FileText },
       { to: adminPath('/games'), routePath: 'games', label: 'الألعاب', icon: Gamepad2 },
-      { to: adminPath('/stickers'), routePath: 'stickers', label: 'الملصقات', icon: Sticker },
       { to: adminPath('/relationships'), routePath: 'relationships', label: 'العلاقات', icon: Heart },
       { to: adminPath('/chat-backgrounds'), routePath: 'chat-backgrounds', label: 'خلفيات المحادثة', icon: Layers },
       { to: adminPath('/notifications'), routePath: 'notifications', label: 'إشعارات المستخدمين', icon: Bell },

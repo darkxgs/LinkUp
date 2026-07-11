@@ -32,7 +32,6 @@ const Wallet = lazy(() => import('@/pages/Wallet'));
 const Withdrawals = lazy(() => import('@/pages/Withdrawals'));
 const RechargePackages = lazy(() => import('@/pages/RechargePackages'));
 const Gifts = lazy(() => import('@/pages/Gifts'));
-const Stickers = lazy(() => import('@/pages/Stickers'));
 const Store = lazy(() => import('@/pages/Store'));
 const LuckyBag = lazy(() => import('@/pages/LuckyBag'));
 const RoomThrone = lazy(() => import('@/pages/RoomThrone'));
@@ -140,7 +139,6 @@ export default function App() {
             <Route path="bot" element={guard('bot', <BotAdmin />)} />
             <Route path="packages" element={guard('packages', <RechargePackages />)} />
             <Route path="gifts" element={guard('gifts', <Gifts />)} />
-            <Route path="stickers" element={guard('stickers', <Stickers />)} />
             <Route path="store" element={guard('store', <Store />)} />
             <Route path="lucky-bag" element={guard('lucky-bag', <LuckyBag />)} />
             <Route path="room-throne" element={guard('room-throne', <RoomThrone />)} />
