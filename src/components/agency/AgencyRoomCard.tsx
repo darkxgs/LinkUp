@@ -181,9 +181,18 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
     );
   }
 
-  const coverW = width;
+  // الوكالات ذات الإطار الزخرفي لا تحتاج حدّ الإبراز — إطارها هو الإبراز.
+  const highlight = !resolvedFrame?.startsWith('http');
+  const coverW = width - (highlight ? 2 : 0);
   return (
     <Pressable onPress={onPress} style={[styles.gridWrap, { width }]}>
+      <View
+        style={
+          highlight
+            ? [styles.gridCoverWrap, dark ? styles.gridCoverWrapDark : styles.gridCoverWrapLight]
+            : null
+        }
+      >
       <FramedAgencyCover
         imageUri={thumb}
         frameUri={resolvedFrame}
@@ -222,6 +231,7 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
           </View>
         ) : null}
       </FramedAgencyCover>
+      </View>
 
       <View style={styles.gridFooter}>
         <RealCountryFlag countryCode={agency.country || 'WW'} size={13} />
@@ -313,17 +323,17 @@ const styles = StyleSheet.create({
   listCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFBF3',
+    backgroundColor: '#fff',
     borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 10,
     marginBottom: 10,
     gap: 10,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.04)',
-    shadowColor: '#8B7355',
+    borderColor: 'rgba(225,20,20,0.14)',
+    shadowColor: '#9A1414',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 2,
   },
@@ -372,6 +382,28 @@ const styles = StyleSheet.create({
   },
   gridWrap: {
     marginBottom: 12,
+  },
+  // إبراز أحمر حول غلاف الوكالة — مطابق لبطاقات الاكتشاف واللحظات.
+  gridCoverWrap: {
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  gridCoverWrapLight: {
+    borderColor: 'rgba(225,20,20,0.16)',
+    shadowColor: '#9A1414',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  gridCoverWrapDark: {
+    borderColor: 'rgba(255,45,60,0.28)',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 5,
   },
   gridLiveTop: {
     position: 'absolute',

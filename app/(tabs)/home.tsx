@@ -523,6 +523,7 @@ export default function RoomsScreen() {
           <View style={wrapStyle}>
             <PersonalRoomCard
               room={item.room}
+              dark={isDark}
               onPress={() => handlePersonalRoomPress(item.room)}
             />
           </View>
@@ -801,9 +802,11 @@ export default function RoomsScreen() {
 /** بطاقة غرفة شخصية عامة — تُعرض مدموجة مع بطاقات الوكالات في تبويب «الغرف» */
 const PersonalRoomCard = React.memo(function PersonalRoomCard({
   room,
+  dark,
   onPress,
 }: {
   room: Room;
+  dark?: boolean;
   onPress: () => void;
 }) {
   const { t } = useTranslation();
@@ -815,8 +818,15 @@ const PersonalRoomCard = React.memo(function PersonalRoomCard({
   const audience = toSafeInt(room.audienceCount);
   const hostInitial = (room.hostName?.trim()?.[0] ?? '?').toUpperCase();
   return (
-    <Pressable onPress={onPress} style={styles.gridCard}>
-      <View style={[styles.gridCover, { height: 120 }]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.roomCard,
+        dark ? styles.roomCardDark : styles.roomCardLight,
+        pressed && { transform: [{ scale: 0.98 }] },
+      ]}
+    >
+      <View style={[styles.gridCover, { height: 128 }]}>
         {cover ? (
           <Image
             source={{ uri: cover }}
@@ -833,8 +843,16 @@ const PersonalRoomCard = React.memo(function PersonalRoomCard({
             style={StyleSheet.absoluteFill}
           />
         )}
+        {/* تعتيم سفلي لوضوح اسم المضيف فوق الغلاف */}
+        <LinearGradient
+          colors={['transparent', 'rgba(10,4,6,0.62)']}
+          start={{ x: 0.5, y: 0.35 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
         {live ? (
-          <View style={styles.gridLivePill}>
+          <View style={[styles.gridLivePill, styles.livePillHot]}>
             <Radio size={9} color="#fff" strokeWidth={3} />
             <RNText style={styles.gridLiveText}>{t('rooms.liveBadge')}</RNText>
           </View>
@@ -863,13 +881,16 @@ const PersonalRoomCard = React.memo(function PersonalRoomCard({
         </View>
       </View>
       <View style={styles.gridBody}>
-        <RNText style={styles.gridTitle} numberOfLines={2}>
+        <RNText
+          style={[styles.gridTitle, dark && { color: lu.colors.nightInk }]}
+          numberOfLines={2}
+        >
           {room.name}
         </RNText>
         <View style={styles.gridFooter}>
-          <View style={styles.roomKindBadge}>
-            <Mic2 size={10} color={lu.colors.purple} strokeWidth={2.5} />
-            <RNText style={styles.roomKindBadgeText}>{t('rooms.badgeRoom')}</RNText>
+          <View style={[styles.roomKindBadge, dark && styles.roomKindBadgeDark]}>
+            <Mic2 size={10} color={dark ? '#FF6B7A' : lu.colors.purple} strokeWidth={2.5} />
+            <RNText style={[styles.roomKindBadgeText, dark && { color: '#FF6B7A' }]}>{t('rooms.badgeRoom')}</RNText>
           </View>
         </View>
       </View>
@@ -1469,6 +1490,38 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(225, 20, 20, 0.08)',
     borderWidth: 1,
     borderColor: 'rgba(225, 20, 20, 0.15)',
+  },
+  roomKindBadgeDark: {
+    backgroundColor: 'rgba(255,45,60,0.14)',
+    borderColor: 'rgba(255,90,110,0.4)',
+  },
+  // بطاقة الغرفة الشخصية — إبراز أحمر مطابق لبطاقات الاكتشاف واللحظات.
+  roomCard: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+  },
+  roomCardLight: {
+    backgroundColor: '#fff',
+    borderColor: 'rgba(225,20,20,0.14)',
+    shadowColor: '#9A1414',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  roomCardDark: {
+    backgroundColor: lu.colors.nightCard,
+    borderColor: 'rgba(255,45,60,0.24)',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  livePillHot: {
+    backgroundColor: 'rgba(225,20,20,0.9)',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   roomKindBadgeText: {
     fontSize: 11,

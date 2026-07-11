@@ -45,36 +45,38 @@ export function FramedAgencyCover({
   const height = Math.round(width / aspect);
   const hasFrame = Boolean(frameUri?.startsWith('http'));
 
+  // الإطار PNG له زواياه المستديرة وحدوده المرسومة — قصّه بنصف قطر الكارد
+  // يكسر حلقته عند الزوايا، لذا يُرسم بدون قصّ فوق غلاف مقصوص.
   return (
-    <View
-      style={[
-        {
-          width,
-          height,
-          borderRadius,
-          overflow: 'hidden',
-          backgroundColor: 'rgba(0,0,0,0.15)',
-        },
-        style,
-      ]}
-    >
-      {imageUri?.startsWith('http') ? (
-        <Image
-          source={{ uri: imageUri }}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          recyclingKey={imageUri}
-        />
-      ) : (
-        <LinearGradient colors={fallbackGrad} style={StyleSheet.absoluteFill} />
-      )}
+    <View style={[{ width, height, borderRadius }, style]}>
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            borderRadius,
+            overflow: 'hidden',
+            backgroundColor: hasFrame ? 'transparent' : 'rgba(0,0,0,0.15)',
+          },
+        ]}
+      >
+        {imageUri?.startsWith('http') ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={imageUri}
+          />
+        ) : (
+          <LinearGradient colors={fallbackGrad} style={StyleSheet.absoluteFill} />
+        )}
+      </View>
 
       {hasFrame ? (
         <Image
           source={{ uri: frameUri! }}
           style={StyleSheet.absoluteFill}
-          contentFit="cover"
+          contentFit="fill"
           cachePolicy="memory-disk"
           recyclingKey={frameUri}
           transition={120}
