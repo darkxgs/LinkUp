@@ -1443,7 +1443,16 @@ export const joinSeat = async (
       throw new Error('هذا المقعد للإشراف فقط — لا يمكن للأعضاء الجلوس عليه');
     }
   }
-  if (seatIdx > 0 && !isSecondHostSeat && isSeatLocked(roomData, seatIdx) && !isManager) {
+  // مشرف الإشراف (أصفر) عبر memberRoles يعامَل كمدير للقفل — قواعد RTDB تمنحه
+  // إدارة lockedSeats أصلاً؛ حصر الاستثناء بـ coHosts كان يمنع مشرفي بعض
+  // الوكالات (المسجّلين في memberRoles فقط) من أخذ المايك في الغرف المقفلة
+  if (
+    seatIdx > 0 &&
+    !isSecondHostSeat &&
+    isSeatLocked(roomData, seatIdx) &&
+    !isManager &&
+    myMemberRoleForLock !== 'yellow_supervisor'
+  ) {
     throw new Error('المقعد مقفل');
   }
   const roomPerms = parseRoomPermissions(roomData);
@@ -1642,7 +1651,9 @@ export const changeSeat = async (
     toSeatIdx > 0 &&
     toSeatIdx !== SECOND_HOST_SEAT_INDEX &&
     isSeatLocked(roomData, toSeatIdx) &&
-    !canJoinHostSeat(roomData, user.uid)
+    !canJoinHostSeat(roomData, user.uid) &&
+    // مشرف الإشراف عبر memberRoles يدير lockedSeats بقواعد RTDB — نفس استثناء joinSeat
+    myRoleForLock !== 'yellow_supervisor'
   ) {
     throw new Error('المقعد مقفل');
   }
@@ -3019,26 +3030,40 @@ export const hostRemoveUserFromMic = async (
   }
   const roomData = await assertCanManageRoom(roomId);
   await assertAgencyManageTargetAllowed(roomId, targetUid, 'removeMic', roomData);
-  const seats = (roomData.seats ?? {}) as Record<string, { uid?: string }>;
+  let seats = (roomData.seats ?? {}) as Record<string, { uid?: string }>;
   const hostUid = String(roomData.hostUid ?? '');
 
-  for (const [key, s] of Object.entries(seats)) {
-    if (s?.uid !== targetUid) continue;
-    const idx = parseInt(String(key).replace('seat_', ''), 10);
-    if (Number.isNaN(idx)) throw new Error('مقعد غير صالح');
-    if (idx === 0 && targetUid === hostUid) {
-      throw new Error('لا يمكن إنزال المضيف من المايك');
+  const findTargetSeatIdx = (map: Record<string, { uid?: string }>): number | null => {
+    for (const [key, s] of Object.entries(map)) {
+      if (s?.uid !== targetUid) continue;
+      const idx = parseInt(String(key).replace('seat_', ''), 10);
+      if (Number.isNaN(idx)) throw new Error('مقعد غير صالح');
+      return idx;
     }
-    await set(ref(realtimeDb, `rooms/${roomId}/seats/seat_${idx}`), { uid: '' });
-    await set(ref(realtimeDb, `rooms/${roomId}/seatSupport/${targetUid}`), null).catch(() => {});
-    const managedMicLock = await getManagedMicSeatLock(roomId, targetUid);
-    if (managedMicLock?.active && managedMicLock.seatIdx === idx) {
-      await setManagedMicSeatLock(roomId, targetUid, idx, false).catch(() => {});
-    }
-    await reconcileAudienceCount(roomId);
-    return;
+    return null;
+  };
+
+  let seatIdxFound = findTargetSeatIdx(seats);
+  if (seatIdxFound === null) {
+    // «المستخدم ليس على المايك» رغم ظهوره على المقعد — القراءة قد تكون أقدم من
+    // جلوسه للتو؛ مهلة سماح قصيرة ثم قراءة حديثة قبل الفشل (نفس سماحية changeSeat)
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const retrySnap = await get(ref(realtimeDb, `rooms/${roomId}/seats`));
+    seats = (retrySnap.val() ?? {}) as Record<string, { uid?: string }>;
+    seatIdxFound = findTargetSeatIdx(seats);
   }
-  throw new Error('المستخدم ليس على المايك');
+  if (seatIdxFound === null) throw new Error('المستخدم ليس على المايك');
+  const idx = seatIdxFound;
+  if (idx === 0 && targetUid === hostUid) {
+    throw new Error('لا يمكن إنزال المضيف من المايك');
+  }
+  await set(ref(realtimeDb, `rooms/${roomId}/seats/seat_${idx}`), { uid: '' });
+  await set(ref(realtimeDb, `rooms/${roomId}/seatSupport/${targetUid}`), null).catch(() => {});
+  const managedMicLock = await getManagedMicSeatLock(roomId, targetUid);
+  if (managedMicLock?.active && managedMicLock.seatIdx === idx) {
+    await setManagedMicSeatLock(roomId, targetUid, idx, false).catch(() => {});
+  }
+  await reconcileAudienceCount(roomId);
 };
 
 /** كتم/فتح مايك مستخدم على المقعد (للمضيف/مدير الوكالة) */
@@ -3051,8 +3076,14 @@ export const hostToggleUserMicMute = async (
   // قواعد الرُتب: لا كتم للوكيل، ولا مشرف↔مشرف — نفس قواعد الطرد/الإنزال
   await assertAgencyManageTargetAllowed(roomId, targetUid, 'mute', roomDataForMute);
   const seatsSnap = await get(ref(realtimeDb, `rooms/${roomId}/seats`));
-  if (!seatsSnap.exists()) throw new Error('لا توجد مقاعد');
-  const seats = seatsSnap.val() as Record<string, { uid?: string; isMuted?: boolean }>;
+  let seats = (seatsSnap.val() ?? {}) as Record<string, { uid?: string; isMuted?: boolean }>;
+  if (!Object.values(seats).some((s) => s?.uid === targetUid)) {
+    // «المستخدم ليس على المايك» رغم ظهوره على المقعد — جلوسه للتو قد لا يكون
+    // انتشر بعد؛ مهلة سماح قصيرة ثم قراءة ثانية قبل الفشل (نفس سماحية changeSeat)
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const retrySnap = await get(ref(realtimeDb, `rooms/${roomId}/seats`));
+    seats = (retrySnap.val() ?? {}) as Record<string, { uid?: string; isMuted?: boolean }>;
+  }
   for (const [key, seat] of Object.entries(seats)) {
     if (seat?.uid !== targetUid) continue;
     const idx = parseInt(String(key).replace('seat_', ''), 10);

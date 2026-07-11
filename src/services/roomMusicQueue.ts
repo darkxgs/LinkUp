@@ -61,6 +61,38 @@ export async function setRoomMusicQueue(
   await set(queueRef(roomId), { items, updatedAt: Date.now() });
 }
 
+/**
+ * رفع خلفي لمسار جهاز أُضيف للقائمة — كان الرفع يبدأ عند دور المقطع فينتظر
+ * الروم كاملاً اكتمال الرفع (~٢٠ ثانية) قبل سماع الأغنية. الآن يُرفع فور
+ * الإضافة، ويُحدَّث عنصر القائمة بالرابط السحابي ليتمكّن المستمعون من
+ * تنزيله مسبقاً أثناء تشغيل المقطع الحالي.
+ */
+const queuedUploadInFlight = new Set<string>();
+function ensureQueuedTrackUploaded(roomId: string, url: string): void {
+  if (!url?.startsWith('local://') || queuedUploadInFlight.has(url)) return;
+  queuedUploadInFlight.add(url);
+  void (async () => {
+    try {
+      const { resolveTrackUrlForBroadcast } = await import('./roomMusicLibrary');
+      const broadcastUrl = await resolveTrackUrlForBroadcast(roomId, url);
+      if (!broadcastUrl || broadcastUrl === url) return;
+      const items = await getRoomMusicQueue(roomId);
+      let changed = false;
+      for (const it of items) {
+        if (it.url === url) {
+          it.url = broadcastUrl;
+          changed = true;
+        }
+      }
+      if (changed) await setRoomMusicQueue(roomId, items);
+    } catch {
+      // يبقى المسار محلياً — يُرفع عند دوره كما في السلوك السابق
+    } finally {
+      queuedUploadInFlight.delete(url);
+    }
+  })();
+}
+
 export async function appendToRoomMusicQueue(
   roomId: string,
   track: Pick<UserMusicTrack, 'url' | 'title' | 'fileName'>,
@@ -78,6 +110,8 @@ export async function appendToRoomMusicQueue(
     addedAt: Date.now(),
   });
   await setRoomMusicQueue(roomId, items);
+  // مسار جهاز محلي — ارفعه الآن بالخلفية بدل الانتظار حتى دوره
+  ensureQueuedTrackUploaded(roomId, track.url);
 }
 
 export async function removeFromRoomMusicQueue(
@@ -146,6 +180,8 @@ export async function playAllTracksInRoom(
       addedAt: Date.now() + idx,
     }));
     await setRoomMusicQueue(roomId, queueItems);
+    // رفع خلفي للمسارات المحلية — حتى لا ينتظر الروم الرفع عند دور كل مقطع
+    for (const t of rest) ensureQueuedTrackUploaded(roomId, t.url);
     return;
   }
 

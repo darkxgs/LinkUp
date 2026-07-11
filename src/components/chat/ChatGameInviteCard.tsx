@@ -102,7 +102,7 @@ export function ChatGameInviteCard({ msg, isMine }: Props) {
       <View style={styles.betRow}>
         <Coins size={13} color="#FCD34D" />
         <Text variant="caption" color="#FCD34D" weight="bold">
-          {t('challenges.chat.bet', { amount: bet.toLocaleString() })}
+          {t('challenges.chat.bet', { amount: bet.toLocaleString('en-US') })}
         </Text>
       </View>
       <Text variant="caption" color="rgba(255,255,255,0.8)" align="center" style={styles.sub}>

@@ -389,37 +389,38 @@ export function RoomEmbeddedChatThread({
     setLoading(true);
     setMessages([]);
     setInputText('');
-    setConversationId(thread.conv.id);
+    // ⚡ معرّف المحادثة حتمي (uid_uid مرتّبة) — يُثبَّت فوراً فيشترك مستمع الرسائل
+    // مباشرة. كان الفتح ينتظر ٤ رحلات شبكة متسلسلة (الحظر ← المستخدم ← المحادثة
+    // ← العلاقة) فتصل «صفحة التحميل» ٤٠ ثانية على الشبكات الضعيفة.
+    const deterministicId =
+      myUid && otherUid ? [myUid, otherUid].sort().join('_') : thread.conv.id;
+    setConversationId(deterministicId);
     setOtherUser(null);
     setRelationship(null);
 
     void (async () => {
       try {
-        if (myUid) {
-          const isBlocked = await isBlockedBetween(myUid, otherUid);
-          if (!cancelled) setBlocked(isBlocked);
-        }
-        const other = await getUser(otherUid);
+        // ضمان وجود وثيقة المحادثة + جلب العلاقة — في الخلفية، لا يحجبان الفتح
+        void getOrCreateConversation(otherUid, thread.otherName, thread.otherAvatar ?? '')
+          .catch(() => {});
+        void getOrCreateRelationship(otherUid, thread.otherName, thread.otherAvatar ?? '')
+          .then((rel) => {
+            if (!cancelled) setRelationship(rel);
+          })
+          .catch(() => {});
+
+        // ⚡ فحص الحظر وجلب المستخدم بالتوازي — كانا متسلسلين
+        const [isBlocked, other] = await Promise.all([
+          myUid ? isBlockedBetween(myUid, otherUid) : Promise.resolve(false),
+          getUser(otherUid),
+        ]);
+        if (!cancelled) setBlocked(isBlocked);
         if (!cancelled && other) {
           const resolvedName = resolveDisplayName({ displayName: other.displayName, email: other.email });
           const resolvedAvatar = resolveUserDocAvatar(other as unknown as Record<string, unknown>, otherUid);
           setOtherUser({ ...other, displayName: resolvedName, avatar: resolvedAvatar });
         }
-        const convId = await getOrCreateConversation(
-          otherUid,
-          thread.otherName,
-          thread.otherAvatar ?? '',
-        );
-        const rel = await getOrCreateRelationship(
-          otherUid,
-          thread.otherName,
-          thread.otherAvatar ?? '',
-        );
-        if (!cancelled) {
-          setConversationId(convId);
-          setRelationship(rel);
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       } catch {
         if (!cancelled) setLoading(false);
       }

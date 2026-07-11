@@ -8,14 +8,14 @@ import {
   canStopRoomMusic,
   setMusicVolume,
 } from '@/services/roomMusic';
-import { advanceRoomMusicQueue } from '@/services/roomMusicQueue';
+import { advanceRoomMusicQueue, subscribeToRoomMusicQueue } from '@/services/roomMusicQueue';
 import {
   roomMusicPlaybackManager,
   stopRoomMusicPlayback,
 } from '@/services/roomMusicPlaybackManager';
 import { useRoomSessionStore } from '@/stores/roomSessionStore';
 import { useRoomMusicUiStore } from '@/stores/roomMusicUiStore';
-import { configureSoundEffectsAudio, isRoomVoiceSessionActive } from '@/utils/playRoomSound';
+import { configureSoundEffectsAudio } from '@/utils/playRoomSound';
 
 export { stopRoomMusicPlayback };
 
@@ -166,9 +166,11 @@ export function useRoomMusicPlayback(
     try {
       const AV = avRef.current ?? (await import('expo-av'));
       avRef.current = AV;
-      if (!isRoomVoiceSessionActive()) {
-        await configureSoundEffectsAudio();
-      }
+      // إعادة تأكيد وضع الصوت دائماً قبل بدء المقطع (force) — مكوّن آخر
+      // (فيديو دخولية/مسجّل صوت) قد يكون بدّل الوضع بعد التهيئة الأولى؛
+      // بدء التشغيل بوضعٍ بلا allowsRecordingIOS كان يقلب فئة AVAudioSession
+      // فيقتل مايك LiveKit — «تُسمع كم كلمة ثم يطير الـDJ عن المايك»
+      await configureSoundEffectsAudio(true);
       const { sound } = await AV.Audio.Sound.createAsync(
         { uri: playableUri },
         {
@@ -252,6 +254,22 @@ export function useRoomMusicPlayback(
       void unload();
     };
   }, [music?.url, music?.addedAt, enabled, roomId, loadTrack, unload]);
+
+  // تنزيل مسبق لمقاطع قائمة الانتظار أثناء تشغيل المقطع الحالي — كان المستمعون
+  // ينتظرون تنزيل المقطع من الشبكة عند دوره (تأخير ملحوظ قبل سماعه)؛ الآن
+  // النسخة المحلية جاهزة فيبدأ فوراً. أول مقطعين فقط لتوفير البيانات.
+  useEffect(() => {
+    if (!enabled || !roomId) return;
+    const unsub = subscribeToRoomMusicQueue(roomId, (items) => {
+      for (const it of items.slice(0, 2)) {
+        if (!it?.url) continue;
+        void import('@/services/roomMusicLocal')
+          .then((m) => m.prefetchRemoteMusicCopy(it.url))
+          .catch(() => {});
+      }
+    });
+    return unsub;
+  }, [roomId, enabled]);
 
   useEffect(() => {
     if (!enabled || !music || isController) return;

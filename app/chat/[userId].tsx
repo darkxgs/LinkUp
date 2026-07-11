@@ -323,6 +323,15 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     const setup = async () => {
       if (!userId || !user) return;
       try {
+        // ⚡ معرّف المحادثة حتمي (uid_uid مرتّبة) — نثبّته فوراً قبل أي رحلة شبكة
+        // فيشترك مستمع الرسائل مباشرة وتظهر الرسائل من الكاش/أول snapshot.
+        // كان الفتح ينتظر getUser ثم getOrCreateConversation + العلاقة متسلسلةً
+        // (٣+ رحلات شبكة) فيصل التأخير ٤٠ ثانية على الشبكات الضعيفة.
+        const sortedUids = [user.uid, userId].sort();
+        setConversationId(`${sortedUids[0]}_${sortedUids[1]}`);
+        // ضمان وجود وثيقة المحادثة وتحديث الأسماء/الصور — في الخلفية، لا يحجب الفتح
+        void getOrCreateConversation(userId, '', '').catch(() => {});
+
         // ⚡ فحص الحظر بالتوازي مع جلب المستخدم — كانا متسلسلين فيتأخر فتح الشاشة
         const blocksPromise: Promise<readonly [boolean, boolean]> =
           !isSupportAccount(userId)
@@ -363,20 +372,18 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         const resolvedAvatar = resolveUserDocAvatar(other as unknown as Record<string, unknown>, userId);
         setOtherUser({ ...other, displayName: resolvedName, avatar: resolvedAvatar });
 
+        // ⚡ الشاشة تُعرض فور جلب بيانات الطرف الآخر — الرسائل تصل من المستمع
+        // المشترك أعلاه؛ لا ننتظر وثيقة المحادثة ولا العلاقة (كانتا تحجبان الفتح)
+        setLoading(false);
+
+        // العلاقة (شارة المستوى/الخلفيات) — في الخلفية، لا تحجب الفتح
+        void getOrCreateRelationship(userId, resolvedName, resolvedAvatar)
+          .then(setRelationship)
+          .catch((e) => console.warn('relationship load:', e));
+
         const [blocked, mineBlocked] = await blocksPromise;
         setChatBlocked(blocked);
         setBlockedByMe(mineBlocked);
-
-        // 2+3. المحادثة والعلاقة بالتوازي — كانتا متسلسلتين (رحلتا شبكة إضافيتان)
-        // فتظهر «صفحة تحمّل» طويلة عند كل عودة للمحادثة
-        const [convId, rel] = await Promise.all([
-          getOrCreateConversation(userId, resolvedName, resolvedAvatar),
-          getOrCreateRelationship(userId, resolvedName, resolvedAvatar),
-        ]);
-        setConversationId(convId);
-        setRelationship(rel);
-
-        setLoading(false);
       } catch (e) {
         console.error(e);
         setLoading(false);
@@ -2495,6 +2502,10 @@ const styles = StyleSheet.create({
     fontFamily: lu.fonts.body,
     paddingVertical: 8,
     maxHeight: 100,
+    // التطبيق عربي أولاً — الكتابة تبدأ من اليمين دائماً حتى على
+    // الأجهزة التي لا يُفعَّل عليها وضع RTL للنظام
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   emojiBtn: {
     width: 30,

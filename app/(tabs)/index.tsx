@@ -43,6 +43,7 @@ import { useAppLanguage } from '@/localization/useAppLanguage';
 import { useAuth } from '@/hooks/useAuth';
 import { useDiscoverUsers } from '@/hooks/useUsers';
 import { UserDoc } from '@/services/firebase/users';
+import { subscribeToMyFollowingIds } from '@/services/firebase/follow';
 import { isUserOnline, resolveLastSeenMs } from '@/utils/presence';
 import { usePresenceForUids } from '@/hooks/usePresence';
 import { useMatchQueueOnlineCount } from '@/hooks/useMatchQueueOnlineCount';
@@ -202,6 +203,16 @@ export default function DiscoverScreen() {
 
   const myUid = currentUser?.uid;
 
+  // استبعاد من أتابعهم أصلاً (ونفسي) من «الأشخاص المقترحون»
+  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!myUid) {
+      setFollowingIds(new Set());
+      return;
+    }
+    return subscribeToMyFollowingIds(myUid, setFollowingIds);
+  }, [myUid]);
+
   const myGender = readUserGender(currentUser);
 
   const nearbyDistanceMap = useMemo(() => {
@@ -213,12 +224,13 @@ export default function DiscoverScreen() {
   const displayedUsers = useMemo(() => {
     if (dsTab === 'nearby') {
       let list: UserDoc[] = nearbyUsers;
+      list = list.filter((u) => u.uid !== myUid && !followingIds.has(u.uid));
       list = filterUsersByOppositeGender(list, myGender);
       list = list.filter((u) => userMatchesDiscoverFilter(u, discoverFilter, presenceMap, presenceNow));
       return list;
     }
 
-    let list = (users ?? []).filter((u) => u.uid !== myUid);
+    let list = (users ?? []).filter((u) => u.uid !== myUid && !followingIds.has(u.uid));
     list = filterUsersByOppositeGender(list, myGender);
     list = list.filter((u) => userMatchesDiscoverFilter(u, discoverFilter, presenceMap, presenceNow));
     list.sort((a, b) => {
@@ -228,7 +240,7 @@ export default function DiscoverScreen() {
       return 0;
     });
     return list;
-  }, [users, myUid, dsTab, currentUser, discoverFilter, presenceMap, presenceNow, myGender, nearbyUsers]);
+  }, [users, myUid, dsTab, currentUser, discoverFilter, presenceMap, presenceNow, myGender, nearbyUsers, followingIds]);
 
   const isNearby = dsTab === 'nearby';
   const filterActive = isDiscoverFilterActive(discoverFilter);

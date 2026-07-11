@@ -20,7 +20,11 @@ import {
   addDeviceMusicTrack,
   updateDeviceMusicTrackRemoteUrl,
 } from '@/services/roomMusicDeviceLibrary';
-import { assertRoomMusicFileSize } from '@/constants/roomMusic';
+import {
+  assertRoomMusicFileSize,
+  formatRoomMusicMaxSizeLabel,
+  RoomMusicFileTooLargeError,
+} from '@/constants/roomMusic';
 import { auth, realtimeDb } from '@/services/firebase';
 import { withRoomMediaPickerGuard } from '@/utils/roomMediaPickerGuard';
 
@@ -184,9 +188,20 @@ export async function startInstantLocalBroadcast(
 
       callbacks?.onUploaded?.();
     } catch (e) {
-      callbacks?.onUploadError?.(
-        e instanceof Error ? e.message : 'تعذّر مزامنة البث — الموسيقى تعمل على جهازك فقط',
-      );
+      // لا نُسرّب رسالة Firebase الخام (storage/unauthorized على room_music/...) —
+      // هذا التنبيه يصدر من رفعٍ بالخلفية فيظهر في أي لحظة (حتى أثناء إرسال هدية)
+      // فكان المستخدم يظنه خطأً في الهدية. رسالة عربية واضحة تخص الموسيقى فقط.
+      let message = 'تعذّر مزامنة الموسيقى مع أعضاء الغرفة — المقطع يعمل على جهازك فقط';
+      if (e instanceof RoomMusicFileTooLargeError) {
+        message = `الملف أكبر من الحد المسموح (${formatRoomMusicMaxSizeLabel()}) — يعمل على جهازك فقط`;
+      } else if (
+        e instanceof Error &&
+        e.message &&
+        !/room_music|storage\/|unauthorized|permission|firebase/i.test(e.message)
+      ) {
+        message = e.message;
+      }
+      callbacks?.onUploadError?.(message);
     }
   })();
 }

@@ -32,6 +32,7 @@ import {
 } from 'firebase/firestore';
 import { auth, firestore, isFirebaseReady, onSnapshot } from '@/services/firebase';
 import { waitForFirestoreAuth } from '@/services/firebase/authReady';
+import { useNetworkStore } from '@/stores/networkStore';
 import { markOnboardingSeen } from '@/services/onboardingStorage';
 import {
   statsFromFirestoreDoc,
@@ -192,6 +193,9 @@ interface AuthState {
 
 let userDocUnsubscribe: (() => void) | null = null;
 let authListenerAttached = false;
+// خروج صريح (زر تسجيل الخروج/حذف الحساب) — الوحيد المسموح له مسح الجلسة فوراً.
+// انقطاع الإنترنت المؤقت يجب ألا يسجّل خروجاً أبداً («ينقطع النت فيسجل خروج»).
+let explicitSignOutInProgress = false;
 
 function stopUserDocListener() {
   userDocUnsubscribe?.();
@@ -408,8 +412,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         await get().loadUser(initialUser.uid);
         startUserDocListener(initialUser.uid, get, set);
       } else {
-        await AsyncStorage.removeItem(CACHED_USER_KEY);
-        set({ user: null, isAuthenticated: false, firebaseUser: null });
+        // لا نمسح الجلسة على فشل/انقطاع شبكة عند الإقلاع — نتأكد أولاً أننا
+        // متصلون فعلاً؛ غياب الجلسة ونحن أونلاين فقط يُعتبر خروجاً حقيقياً.
+        let confirmedSignedOut = !cached;
+        if (cached) {
+          const online = await useNetworkStore.getState().refresh().catch(() => false);
+          confirmedSignedOut = online && !auth.currentUser;
+        }
+        if (confirmedSignedOut) {
+          await AsyncStorage.removeItem(CACHED_USER_KEY);
+          set({ user: null, isAuthenticated: false, firebaseUser: null });
+        }
+        // وإلا: نُبقي المستخدم المخزّن — Firebase يستعيد الجلسة تلقائياً عند عودة الاتصال
       }
 
       if (!authListenerAttached) {
@@ -426,6 +440,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           await get().loadUser(fbUser.uid);
           startUserDocListener(fbUser.uid, get, set);
         } else {
+          // null هنا = خروج صريح أو إبطال جلسة من السيرفر. أخطاء الشبكة يجب
+          // ألا تمسح الجلسة أبداً — لو كنا أوفلاين نتجاهل ونبقي المستخدم.
+          if (!explicitSignOutInProgress && useNetworkStore.getState().isOffline) {
+            return;
+          }
           stopUserDocListener();
           await AsyncStorage.removeItem(CACHED_USER_KEY);
           set({ user: null, isAuthenticated: false, firebaseUser: null });
@@ -876,6 +895,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   // === تسجيل الخروج ===
   signOut: async () => {
+    explicitSignOutInProgress = true;
     stopUserDocListener();
     set({
       user: null,
@@ -890,6 +910,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     } catch (e: any) {
       set({ error: e.message });
+    } finally {
+      // نؤخّر إعادة الضبط حتى يُعالج onAuthStateChanged(null) الناتج عن الخروج
+      setTimeout(() => {
+        explicitSignOutInProgress = false;
+      }, 3_000);
     }
   },
 

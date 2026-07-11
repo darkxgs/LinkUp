@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Switch, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Switch, Alert, Linking, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -130,6 +130,25 @@ export default function SettingsScreen() {
 
   const handleLanguageChange = () => {
     setShowLangSheet(true);
+  };
+
+  // «تقييم التطبيق» — يفتح صفحة التطبيق على Google Play (market:// ثم الويب كاحتياط)
+  const handleRateApp = async () => {
+    const androidPackage = 'com.linkup.app';
+    const webUrl = `https://play.google.com/store/apps/details?id=${androidPackage}`;
+    try {
+      if (Platform.OS === 'android') {
+        await Linking.openURL(`market://details?id=${androidPackage}`);
+        return;
+      }
+      await Linking.openURL(webUrl);
+    } catch {
+      try {
+        await Linking.openURL(webUrl);
+      } catch {
+        Alert.alert(t('settings.rateApp'), 'قريباً — التقييم يتفعّل بعد نشر التطبيق على المتجر');
+      }
+    }
   };
 
   return (
@@ -361,7 +380,7 @@ export default function SettingsScreen() {
             icon={Star}
             iconColor="#F59E0B"
             label={t('settings.rateApp')}
-            onPress={() => {}}
+            onPress={() => void handleRateApp()}
           />
         </View>
 

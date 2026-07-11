@@ -34,6 +34,7 @@ import {
   computeLocalNextDrawMs,
   getWeekCountdownParts,
   subscribeToFeaturedLotteryWinner,
+  subscribeToLotteryRound,
   subscribeToWeeklyLotteryDraws,
   type WeeklyLotteryDraw,
   type WeeklyLotteryServerState,
@@ -92,13 +93,22 @@ export default function LotteryScreen() {
     ? [...countdownUnits].reverse()
     : countdownUnits;
 
+  // في طور البيع يعدّ العدّاد نحو إغلاق البيع (11:00)، وبعده نحو السحب (12:00)
+  const withPhaseTarget = useCallback(
+    (state: WeeklyLotteryServerState): WeeklyLotteryServerState =>
+      state.phase === 'selling' && state.salesCloseAtMs
+        ? { ...state, countdownTargetMs: state.salesCloseAtMs }
+        : state,
+    [],
+  );
+
   const refreshServerState = useCallback(async () => {
     try {
       const state = await fetchWeeklyLotteryState();
       const fetchedAt = Date.now();
       setLotteryState(state);
       setStateFetchedAt(fetchedAt);
-      setTimeLeft(projectServerCountdown(state, fetchedAt));
+      setTimeLeft(projectServerCountdown(withPhaseTarget(state), fetchedAt));
       setMyTickets(state.myTickets);
       setTotalWeekTickets(state.totalTickets);
       setSalesOpen(state.salesOpen);
@@ -107,7 +117,7 @@ export default function LotteryScreen() {
         setFeaturedWinner(state.featuredWinner);
       }
     } catch {
-      // الخادم غير متاح — عدّاد محلي (السبت 11:00 الرياض) بدل بقاء 00:00:00
+      // الخادم غير متاح — عدّاد محلي (سحب السبت 12:00 الرياض) بدل بقاء 00:00:00
       const fallbackTarget = computeLocalNextDrawMs();
       const fetchedAt = Date.now();
       setLotteryState((prev) =>
@@ -121,7 +131,7 @@ export default function LotteryScreen() {
     } finally {
       setLoadingStats(false);
     }
-  }, []);
+  }, [withPhaseTarget]);
 
   useEffect(() => {
     refreshServerState();
@@ -139,17 +149,33 @@ export default function LotteryScreen() {
     });
   }, []);
 
+  // علم وثيقة الجولة (lotteryState/currentRound): يقفل الشراء لحظة 11:00
+  // ويعيد فتحه فور بدء الجولة الجديدة بعد السحب — بلا انتظار دورة الاستعلام
+  useEffect(() => {
+    return subscribeToLotteryRound((round) => {
+      if (!round) return;
+      if (round.salesOpen === false) {
+        setSalesOpen(false);
+        setPhase((p) => (p === 'selling' ? 'sales_closed' : p));
+      }
+      refreshServerState();
+    });
+  }, [refreshServerState]);
+
   useEffect(() => {
     if (!lotteryState) return;
     const timer = setInterval(() => {
-      setTimeLeft(projectServerCountdown(lotteryState, stateFetchedAt));
+      setTimeLeft(projectServerCountdown(withPhaseTarget(lotteryState), stateFetchedAt));
     }, 1000);
     return () => clearInterval(timer);
-  }, [lotteryState, stateFetchedAt]);
+  }, [lotteryState, stateFetchedAt, withPhaseTarget]);
 
-  const countdownTitle = phase === 'announcing'
-    ? t('games.weeklyLottery.countdownNewRound')
-    : t('lottery.text98072');
+  // ثلاثة أطوار: بيع (حتى 11:00) → مغلق بانتظار السحب (12:00) → جولة جديدة فوراً
+  const countdownTitle = phase === 'selling'
+    ? t('games.weeklyLottery.countdownSalesClose')
+    : phase === 'announcing'
+      ? t('games.weeklyLottery.countdownNewRound')
+      : t('lottery.text98072');
 
   const handleBuy = () => {
     if (buying) return; // منع تكديس نوافذ التأكيد → شراء مزدوج
@@ -160,9 +186,11 @@ export default function LotteryScreen() {
     if (!salesOpen) {
       Alert.alert(
         t('common.error'),
-        phase === 'announcing'
-          ? t('games.weeklyLottery.salesClosedAnnouncing')
-          : t('games.weeklyLottery.salesClosed'),
+        phase === 'sales_closed'
+          ? t('games.weeklyLottery.salesClosedRound')
+          : phase === 'announcing'
+            ? t('games.weeklyLottery.salesClosedAnnouncing')
+            : t('games.weeklyLottery.salesClosed'),
       );
       return;
     }
@@ -264,6 +292,16 @@ export default function LotteryScreen() {
                 <TimeBlock key={unit.key} value={unit.value} label={unit.label} isRTL={isRTL} />
               ))}
             </View>
+            {phase === 'sales_closed' && (
+              <Text
+                variant="caption"
+                color={colors.text.secondary}
+                align="center"
+                style={{ marginTop: spacing.sm }}
+              >
+                {t('games.weeklyLottery.salesClosedWaitingDraw')}
+              </Text>
+            )}
           </Card>
 
           {/* Buy tickets */}
@@ -452,6 +490,10 @@ export default function LotteryScreen() {
           />
           {buying ? (
             <ActivityIndicator color="#fff" />
+          ) : !salesOpen ? (
+            <Text variant="button" color={colors.white} weight="bold">
+              {t('games.weeklyLottery.salesClosedRound')}
+            </Text>
           ) : (
             <>
               <Ticket size={20} color={colors.white} strokeWidth={2.5} />

@@ -54,16 +54,21 @@ async function getAV(): Promise<AVModule> {
   return avModule;
 }
 
-export async function configureSoundEffectsAudio(): Promise<void> {
+export async function configureSoundEffectsAudio(force = false): Promise<void> {
   const AV = await getAV();
 
   if (roomVoiceSessionActive) {
-    if (voiceSfxAudioConfigured) return;
+    // force: مكوّنات أخرى (فيديو الدخولية/مسجّل الصوت) قد تكون بدّلت وضع الصوت
+    // بعد التهيئة — إعادة تأكيد وضع الخلط قبل بدء الموسيقى حتى لا يُقتل المايك
+    if (voiceSfxAudioConfigured && !force) return;
     try {
       await AV.Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
+        // مع جلسة الغرفة: الصوت يستمر بالخلفية (UIBackgroundModes audio على iOS
+        // وخدمة foreground على أندرويد) — false كانت توقف الموسيقى/تُسقط تركيز
+        // الصوت عند إرسال التطبيق للخلفية أثناء البث
+        staysActiveInBackground: true,
         shouldDuckAndroid: false,
         playThroughEarpieceAndroid: false,
         interruptionModeIOS: AV.InterruptionModeIOS.MixWithOthers,
@@ -77,7 +82,7 @@ export async function configureSoundEffectsAudio(): Promise<void> {
     return;
   }
 
-  if (audioModeConfigured) return;
+  if (audioModeConfigured && !force) return;
   try {
     await AV.Audio.setAudioModeAsync({
       allowsRecordingIOS: true,
@@ -105,6 +110,15 @@ export async function warmGiftSoundEngine(): Promise<void> {
 /** تهيئة الصوت لتشغيل فيديو الدخولية (يُسمع حتى في وضع الصامت على iOS) */
 export async function configureVideoPlaybackAudio(): Promise<void> {
   const AV = await getAV();
+
+  // أثناء جلسة صوت الغرفة لا نطفئ التسجيل — allowsRecordingIOS: false يقلب
+  // فئة AVAudioSession من PlayAndRecord فيُقتل مايك LiveKit لمن هو على المقعد
+  // (دخولية مستخدم تُطفئ مايك المتحدثين). نعيد تأكيد وضع الخلط بدلاً منه.
+  if (roomVoiceSessionActive) {
+    await configureSoundEffectsAudio(true);
+    return;
+  }
+
   try {
     await AV.Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
@@ -113,6 +127,8 @@ export async function configureVideoPlaybackAudio(): Promise<void> {
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
     });
+    // وضع مختلف عن وضع المؤثرات — الاستدعاء القادم لوضع المؤثرات يعيد التهيئة
+    audioModeConfigured = false;
   } catch {
     // ignore
   }

@@ -846,11 +846,12 @@ const StoreCard = memo(function StoreCard({
       </Pressable>
 
       <View style={styles.cardActions}>
-        {!owned && (
-          <Pressable style={styles.sendBtn} onPress={() => onSend(item)}>
-            <Text weight="bold" style={styles.sendBtnText}>{t('store.send')}</Text>
-          </Pressable>
-        )}
+        {/* زر الإهداء يبقى ظاهراً حتى بعد الشراء — الإهداء يشتري نسخة جديدة ويرسلها للصديق */}
+        <Pressable style={styles.sendBtn} onPress={() => onSend(item)}>
+          <Text weight="bold" style={styles.sendBtnText}>
+            {owned ? t('wallet.quickGift') : t('store.send')}
+          </Text>
+        </Pressable>
         {showFrameActions ? (
           <Pressable
             style={[styles.frameActionBtn, equipped && styles.frameUnequipBtn]}

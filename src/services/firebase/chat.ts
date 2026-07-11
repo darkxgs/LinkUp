@@ -499,22 +499,48 @@ function attachConversationsListener(
   });
 }
 
-/** متابعة محادثة واحدة — لإيصالات القراءة اللحظية (lastReadAt) */
+/** متابعة محادثة واحدة — لإيصالات القراءة اللحظية (lastReadAt)
+ *  آمنة ضد سباق الإقلاع: الاشتراك قبل استعادة الجلسة كان يفشل نهائياً بلا إعادة محاولة */
 export const subscribeToConversation = (
   conversationId: string,
   callback: (conv: Conversation | null) => void,
 ): (() => void) => {
-  return onSnapshot(
-    doc(firestore, 'conversations', conversationId),
-    (snap) => {
-      if (!snap.exists()) {
-        callback(null);
-        return;
-      }
-      callback({ id: snap.id, ...snap.data() } as Conversation);
+  let fsUnsub: (() => void) | null = null;
+  let attachedUid: string | null = null;
+  let disposed = false;
+
+  const authUnsub = subscribeWhenAuthenticated(
+    (user) => {
+      if (disposed || attachedUid === user.uid) return;
+      fsUnsub?.();
+      attachedUid = user.uid;
+      fsUnsub = onSnapshot(
+        doc(firestore, 'conversations', conversationId),
+        (snap) => {
+          if (!snap.exists()) {
+            callback(null);
+            return;
+          }
+          callback({ id: snap.id, ...snap.data() } as Conversation);
+        },
+        () => callback(null),
+      );
     },
-    () => callback(null),
+    () => {
+      if (disposed) return;
+      fsUnsub?.();
+      fsUnsub = null;
+      attachedUid = null;
+      callback(null);
+    },
   );
+
+  return () => {
+    disposed = true;
+    authUnsub();
+    fsUnsub?.();
+    fsUnsub = null;
+  };
 };
 
 /** تعيين خلفية المحادثة للمستخدم الحالي فقط */
@@ -692,7 +718,7 @@ async function chargeForChatMessage(
 const blockCheckCache = new Map<string, { blocked: boolean; at: number }>();
 const BLOCK_CHECK_TTL_MS = 30 * 1000;
 
-async function isBlockedBetweenCached(uid: string, toUid: string): Promise<boolean> {
+export async function isBlockedBetweenCached(uid: string, toUid: string): Promise<boolean> {
   const key = `${uid}_${toUid}`;
   const hit = blockCheckCache.get(key);
   if (hit && Date.now() - hit.at < BLOCK_CHECK_TTL_MS) return hit.blocked;
@@ -1131,7 +1157,9 @@ export const archiveConversation = async (
   });
 };
 
-/** حذف المحادثة من قائمتك (soft delete) */
+/** حذف المحادثة من قائمتك (soft delete)
+ *  «حذف الدردشة» يخفي أيضاً كل الرسائل الحالية لي (نفس آلية المسح الشامل) —
+ *  بدونها كانت المحادثة تعود من الخارج بمعاينة آخر رسالة وسجلّها كاملاً من الداخل */
 export const hideConversationForUser = async (conversationId: string): Promise<void> => {
   const user = auth.currentUser;
   if (!user) throw new Error('غير مسجل');
@@ -1144,7 +1172,39 @@ export const hideConversationForUser = async (conversationId: string): Promise<v
     [`hiddenBy.${user.uid}`]: true,
     [`deletedAtBy.${user.uid}`]: Date.now(),
     [`pinnedBy.${user.uid}`]: false,
+    // تصفير عدّاد غير المقروء — الرسائل المحذوفة كانت تُبقي نقطة حمراء وهمية
+    [`unreadBy.${user.uid}`]: 0,
   });
+
+  // إخفاء رسائل المحادثة لي فقط (حقول per-user — نسخة الطرف الآخر لا تُمسّ)
+  // في الخلفية حتى لا يتأخر اختفاء المحادثة من القائمة
+  void (async () => {
+    try {
+      const msgSnap = await getDocs(
+        query(
+          collection(firestore, 'messages'),
+          where('conversationId', '==', conversationId),
+          limit(500),
+        ),
+      );
+      let batch = writeBatch(firestore);
+      let batchCount = 0;
+      for (const msgDoc of msgSnap.docs) {
+        const m = msgDoc.data() as ChatMessage;
+        if (m.deleted || m.hiddenFor?.[user.uid]) continue;
+        batch.update(msgDoc.ref, { [`hiddenFor.${user.uid}`]: true });
+        batchCount += 1;
+        if (batchCount >= 450) {
+          await batch.commit();
+          batch = writeBatch(firestore);
+          batchCount = 0;
+        }
+      }
+      if (batchCount > 0) await batch.commit();
+    } catch (e) {
+      console.warn('hideConversationForUser messages:', e);
+    }
+  })();
 
   if (peerUid) {
     const { dismissChatMessageNotifications } = await import('./notifications');
@@ -1268,9 +1328,10 @@ export const subscribeToMessages = (
   conversationId: string,
   callback: (messages: ChatMessage[]) => void,
 ): (() => void) => {
-  const user = auth.currentUser;
-
   const handleSnapshot = (snap: QuerySnapshot<DocumentData>) => {
+    // نقرأ المستخدم لحظة كل snapshot — قراءته مرة عند الاشتراك كانت null في
+    // سباق الإقلاع فتتعطّل فلترة «حُذفت لي» (hiddenFor) وتعود الرسائل المحذوفة
+    const user = auth.currentUser;
     const msgs = snap.docs
       .map((d) => {
         // ترتيب بساعة الخادم — ساعة جهاز المرسل قد تكون منحرفة فتختلط الرسائل
@@ -1327,10 +1388,29 @@ export const subscribeToMessages = (
       },
     );
   };
-  attach(true);
+
+  // نفس إصلاح سباق الإقلاع في subscribeToConversations: الاشتراك قبل اكتمال
+  // استعادة الجلسة كان يفشل بـ permission-denied فتبقى الشاشة فارغة حتى إعادة الفتح
+  let attachedUid: string | null = null;
+  const authUnsub = subscribeWhenAuthenticated(
+    (user) => {
+      if (disposed || attachedUid === user.uid) return;
+      unsub();
+      attachedUid = user.uid;
+      attach(true);
+    },
+    () => {
+      if (disposed) return;
+      unsub();
+      unsub = () => {};
+      attachedUid = null;
+      callback([]);
+    },
+  );
 
   return () => {
     disposed = true;
+    authUnsub();
     unsub();
   };
 };

@@ -2664,6 +2664,19 @@ export default function RoomScreen() {
     [allSeats, myUid],
   );
 
+  // «لست على المقعد» رغم الجلوس للتو — حالة الاشتراك المحلية قد تتأخر عن RTDB؛
+  // قراءة حديثة قبل رفض الإجراء (نفس سماحية changeSeat في rooms.ts)
+  const confirmOnSeatFresh = useCallback(async (): Promise<boolean> => {
+    if (mySeat) return true;
+    if (!roomId || !myUid) return false;
+    try {
+      const { findMySeatInRoom } = await import('@/services/firebase/rooms');
+      return (await findMySeatInRoom(roomId)) !== null;
+    } catch {
+      return false;
+    }
+  }, [mySeat, roomId, myUid]);
+
   // بعد إعلان mySeat — كان أعلى الملف فيقرأ mySeat قبل تعريفه (TS2448/undefined أول رندر)
   const canDjRoomMusic = useMemo(
     () => !!mySeat && (!roomMusic || roomMusic.addedBy === myUid),
@@ -3845,7 +3858,7 @@ export default function RoomScreen() {
       });
       return;
     }
-    if (!mySeat) {
+    if (!mySeat && !(await confirmOnSeatFresh())) {
       showPermissionDenied('room.musicOnMicOnly');
       return;
     }
@@ -3870,7 +3883,7 @@ export default function RoomScreen() {
     } finally {
       setMusicBusy(false);
     }
-  }, [roomId, musicBusy, user?.uid, mySeat, roomMusic, showAlert, t, canShareMusicTool, showPermissionDenied, canManageRoomMusic]);
+  }, [roomId, musicBusy, user?.uid, mySeat, roomMusic, showAlert, t, canShareMusicTool, showPermissionDenied, canManageRoomMusic, confirmOnSeatFresh]);
 
   const prevOnSeatForMusicRef = useRef<boolean | null>(null);
   useEffect(() => {
@@ -4232,14 +4245,7 @@ export default function RoomScreen() {
         return;
       }
       if (action === 'music') {
-        if (!mySeat) {
-          showPermissionDenied('room.musicOnMicOnly');
-          return;
-        }
-        if (!canShareMusicTool) {
-          showPermissionDenied('roomSettings.permDeniedShareMusic');
-          return;
-        }
+        // الفحوص داخل handleMusicTool — مع قراءة حديثة للمقعد بدل حالة قد تتأخر
         void handleMusicTool();
         return;
       }
@@ -4318,28 +4324,31 @@ export default function RoomScreen() {
         return;
       }
       if (action === 'video') {
-        if (!canSpeak) {
-          showPermissionDenied('room.videoOnMicOnly');
-          return;
-        }
-        const ownsActiveVideo = Boolean(roomVideo?.addedBy && roomVideo.addedBy === myUid);
-        if (!canShareVideoPermission && !ownsActiveVideo) {
-          showPermissionDenied('roomSettings.permDeniedShareVideo');
-          return;
-        }
-        if (roomVideo) {
-          showAlert({
-            type: 'warning',
-            title: t('room.videoExists'),
-            message: t('room.videoReplaceConfirm'),
-            buttons: [
-              { text: t('common.cancel'), style: 'cancel' },
-              { text: t('room.replace'), onPress: () => setShowVideoModal(true) },
-            ],
-          });
-        } else {
-          setShowVideoModal(true);
-        }
+        void (async () => {
+          // حالة المقعد المحلية قد تتأخر بعد الجلوس مباشرة — قراءة حديثة قبل الرفض
+          if (!canSpeak && !(await confirmOnSeatFresh())) {
+            showPermissionDenied('room.videoOnMicOnly');
+            return;
+          }
+          const ownsActiveVideo = Boolean(roomVideo?.addedBy && roomVideo.addedBy === myUid);
+          if (!canShareVideoPermission && !ownsActiveVideo) {
+            showPermissionDenied('roomSettings.permDeniedShareVideo');
+            return;
+          }
+          if (roomVideo) {
+            showAlert({
+              type: 'warning',
+              title: t('room.videoExists'),
+              message: t('room.videoReplaceConfirm'),
+              buttons: [
+                { text: t('common.cancel'), style: 'cancel' },
+                { text: t('room.replace'), onPress: () => setShowVideoModal(true) },
+              ],
+            });
+          } else {
+            setShowVideoModal(true);
+          }
+        })();
         return;
       }
       if (action === 'sound') {
@@ -4437,6 +4446,7 @@ export default function RoomScreen() {
       canSpeak,
       mySeat,
       myUid,
+      confirmOnSeatFresh,
       handleMusicTool,
       handleShareRoom,
       showPermissionDenied,
@@ -5845,16 +5855,33 @@ export default function RoomScreen() {
           canManageAgencyTarget(seatUser.uid, 'assignRole')
             ? (uid, name) => {
                 const currentRole = roomMemberRoles[uid];
+                const hasMembership =
+                  currentRole === 'red_member'
+                  || currentRole === 'blue_supervisor'
+                  || currentRole === 'yellow_supervisor';
+                const isSupervisorRole =
+                  currentRole === 'blue_supervisor' || currentRole === 'yellow_supervisor';
                 const options: { text: string; role: RoomAgencyMemberRole }[] = [];
-                if (currentRole !== 'red_member' && currentRole !== 'blue_supervisor' && currentRole !== 'yellow_supervisor') {
-                  options.push({ text: t('room.grantMembership', 'منح عضوية'), role: 'red_member' });
-                }
-                options.push({ text: t('room.grantBlueSupervisor', 'تعيين مشرف أزرق'), role: 'blue_supervisor' });
-                if (isHost) {
-                  options.push({ text: t('room.grantYellowSupervisor', 'تعيين إشراف (أصفر)'), role: 'yellow_supervisor' });
-                }
-                if (currentRole && currentRole !== 'cancelled') {
-                  options.push({ text: t('roomInfo.cancelMembership'), role: 'cancelled' });
+                if (!hasMembership) {
+                  // زائر بلا عضوية — الخيار المنطقي الوحيد: إعطاء عضوية
+                  options.push({ text: t('room.grantMembership', 'إعطاء عضوية'), role: 'red_member' });
+                } else {
+                  // المشرف الأصفر يُنزَّل إلى عضو أولاً قبل إلغاء العضوية (قاعدة الخدمة)
+                  if (currentRole !== 'yellow_supervisor') {
+                    options.push({ text: t('roomInfo.cancelMembership'), role: 'cancelled' });
+                  }
+                  if (isSupervisorRole) {
+                    // مشرف حالياً — إزالة الإشراف بدل إعادة تعيينه
+                    options.push({ text: t('room.removeSupervisor', 'إزالة الإشراف'), role: 'red_member' });
+                    if (isHost && currentRole === 'blue_supervisor') {
+                      options.push({ text: t('room.grantYellowSupervisor', 'تعيين إشراف (أصفر)'), role: 'yellow_supervisor' });
+                    }
+                  } else {
+                    options.push({ text: t('room.grantBlueSupervisor', 'تعيين مشرف أزرق'), role: 'blue_supervisor' });
+                    if (isHost) {
+                      options.push({ text: t('room.grantYellowSupervisor', 'تعيين إشراف (أصفر)'), role: 'yellow_supervisor' });
+                    }
+                  }
                 }
                 showAlert({
                   type: 'info',

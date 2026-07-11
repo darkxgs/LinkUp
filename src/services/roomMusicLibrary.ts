@@ -265,6 +265,10 @@ async function uploadAudioFileToRoomStorageInner(
   if (!user) throw new Error('يجب تسجيل الدخول');
   if (!picked.uri) throw new Error('ملف غير صالح');
 
+  // تجديد التوكن قبل الرفع — الجلسة القديمة كانت تُرفض بـ storage/unauthorized
+  // على room_music فيظهر خطأ غامض بالخلفية (نفس معالجة رفع KYC)
+  await user.getIdToken(true).catch(() => {});
+
   onProgress?.(10);
   const response = await fetch(picked.uri);
   const blob = await response.blob();

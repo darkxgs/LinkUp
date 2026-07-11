@@ -9,8 +9,7 @@ import {
   increment,
 } from 'firebase/firestore';
 import { firestore, auth } from './index';
-import { isBlockedBetween } from './blocks';
-import { buildConversationUnhidePatchForBoth } from './chat';
+import { buildConversationUnhidePatchForBoth, isBlockedBetweenCached } from './chat';
 
 export type ChatGiftPayload = {
   id: string;
@@ -30,7 +29,8 @@ export async function sendGiftChatMessage(
 ): Promise<void> {
   const user = auth.currentUser;
   if (!user) throw new Error('غير مسجل');
-  if (await isBlockedBetween(user.uid, toUid)) {
+  // ⚡ فحص الحظر مكاش (نفس sendChatMessage) — كان رحلة شبكة إضافية على كل هدية
+  if (await isBlockedBetweenCached(user.uid, toUid)) {
     throw new Error('BLOCKED');
   }
 
@@ -56,10 +56,11 @@ export async function sendGiftChatMessage(
     isRead: false,
   });
 
-  await updateDoc(doc(firestore, 'conversations', conversationId), {
+  // تحديث ملخص المحادثة في الخلفية — كان await يؤخّر ظهور أنيميشن الهدية رحلة كاملة
+  void updateDoc(doc(firestore, 'conversations', conversationId), {
     lastMessage: preview,
     lastMessageAt: now,
     [`unreadBy.${toUid}`]: increment(1),
     ...buildConversationUnhidePatchForBoth(user.uid, toUid),
-  });
+  }).catch(() => {});
 }

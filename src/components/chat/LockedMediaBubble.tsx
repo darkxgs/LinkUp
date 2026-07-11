@@ -83,7 +83,7 @@ export function LockedMediaBubble({
     showAlert({
       type: 'warning',
       title: 'فتح الرسالة',
-      message: `سيتم خصم ${msg.unlockPrice?.toLocaleString()} كوين لرؤية هذا المحتوى`,
+      message: `سيتم خصم ${msg.unlockPrice?.toLocaleString('en-US')} كوين لرؤية هذا المحتوى`,
       buttons: [
         { text: 'إلغاء', style: 'cancel' },
         {
@@ -183,7 +183,7 @@ export function LockedMediaBubble({
           <View style={styles.unlockBtn}>
             <Coins size={14} color="#FFC53D" />
             <Text variant="caption" color="#fff" weight="bold">
-              افتح بـ {msg.unlockPrice?.toLocaleString()} كوين
+              افتح بـ {msg.unlockPrice?.toLocaleString('en-US')} كوين
             </Text>
           </View>
         )}

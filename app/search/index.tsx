@@ -30,10 +30,11 @@ import {
 import { Text, BackButton, RealCountryFlag } from '@/components/ui';
 import { AgencyRoomTrackingAvatar } from '@/components/chat/AgencyRoomTrackingAvatar';
 import { useAgencyRoomTracking } from '@/hooks/useAgencyRoomTracking';
-import { getDiscoverUsers, searchUsers, UserDoc } from '@/services/firebase/users';
+import { getDiscoverUsers, searchUsers, normalizeUserDoc, UserDoc } from '@/services/firebase/users';
+import { getFollowing } from '@/services/firebase/follow';
 import { subscribeToRooms, findRoomByCode, type Room } from '@/services/firebase/rooms';
 import { isTrackableAgencyPresence } from '@/services/roomFeatures';
-import { firestore } from '@/services/firebase';
+import { firestore, auth } from '@/services/firebase';
 import { resolveUserIdentifier, getDisplayAccountId } from '@/services/userIdentifier';
 import { colors, radius, spacing, shadows } from '@/theme';
 
@@ -126,8 +127,20 @@ export default function SearchScreen() {
     let cancelled = false;
     const load = async () => {
       try {
-        const { users } = await getDiscoverUsers({}, 8);
-        if (!cancelled) setSuggestedUsers(users);
+        // نجلب عدداً أكبر ثم نستبعد نفسي ومن أتابعهم أصلاً من الاقتراحات
+        const myUid = auth.currentUser?.uid;
+        const [{ users }, followingIds] = await Promise.all([
+          getDiscoverUsers({}, 40),
+          myUid ? getFollowing(myUid, 300) : Promise.resolve([] as string[]),
+        ]);
+        const following = new Set(followingIds);
+        if (!cancelled) {
+          setSuggestedUsers(
+            users
+              .filter((u) => u.uid !== myUid && !following.has(u.uid))
+              .slice(0, 8),
+          );
+        }
       } catch (e) {
         console.error('search suggestions:', e);
       } finally {
@@ -164,7 +177,9 @@ export default function SearchScreen() {
           if (uid) {
             const snap = await getDoc(doc(firestore, 'users', uid));
             setIdUser(
-              snap.exists() ? ({ uid: snap.id, ...snap.data() } as UserDoc) : null,
+              snap.exists()
+                ? normalizeUserDoc(snap.id, snap.data() as Record<string, unknown>)
+                : null,
             );
           } else {
             setIdUser(null);

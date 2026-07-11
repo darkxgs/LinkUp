@@ -101,9 +101,20 @@ export function isUidOnRoomSeats(
 
 async function assertUserOnRoomSeat(roomId: string, uid: string): Promise<void> {
   const snap = await get(ref(realtimeDb, `rooms/${roomId}/seats`));
-  if (!snap.exists() || !isUidOnRoomSeats(snap.val() as Record<string, { uid?: string }>, uid)) {
-    throw new Error('يجب الجلوس على مقعد لتشغيل الموسيقى');
+  if (snap.exists() && isUidOnRoomSeats(snap.val() as Record<string, { uid?: string }>, uid)) {
+    return;
   }
+  // «لست على مقعد» مباشرة بعد أخذ المقعد — كتابة المقعد قد لا تكون انتشرت بعد؛
+  // مهلة سماح قصيرة ثم قراءة ثانية قبل الفشل (نفس سماحية changeSeat)
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const retrySnap = await get(ref(realtimeDb, `rooms/${roomId}/seats`));
+  if (
+    retrySnap.exists() &&
+    isUidOnRoomSeats(retrySnap.val() as Record<string, { uid?: string }>, uid)
+  ) {
+    return;
+  }
+  throw new Error('يجب الجلوس على مقعد لتشغيل الموسيقى');
 }
 
 /** يتحقق أن المستخدم على مقعد قبل أي بث موسيقى */
