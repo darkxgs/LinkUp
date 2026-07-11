@@ -13,8 +13,9 @@ import { lu } from '@/theme/lu-brand';
 // ============ LinkUp Wordmark (LINK gray + UP gradient) ============
 // LTR direction even in RTL — لأن الشعار اسم انجليزي.
 export function Wordmark({ size = 40 }: { size?: number }) {
+  // مع RTL يعكس النظام ترتيب row — نعكسه مرة أخرى ليبقى الاسم "LinkUp".
   return (
-    <View style={[styles.wordmark, { flexDirection: 'row' }]}>
+    <View style={[styles.wordmark, { flexDirection: I18nManager.isRTL ? 'row-reverse' : 'row' }]}>
       <Text style={[styles.wordmarkText, { fontSize: size, color: lu.colors.ink }]}>
         LINK
       </Text>
@@ -51,10 +52,10 @@ export function LuLogo({ width, height, size = 42, light }: LuLogoProps) {
 
   // على الخلفية الداكنة: نص الشعار الأسود لا يظهر — بلاطة فاتحة للأيقونة + كلمة بيضاء/حمراء.
   if (light) {
-    const tile = Math.round(resolvedHeight * 1.06);
-    const fontSize = Math.round(resolvedHeight * 0.82);
+    const tile = Math.round(resolvedHeight * 0.95);
+    const fontSize = Math.round(resolvedHeight * 0.72);
     return (
-      <View style={[styles.logoRow, { gap: 8, maxWidth: '100%' }]}>
+      <View style={[styles.logoRow, { gap: 6, maxWidth: '100%' }]}>
         <View style={[styles.logoTile, { width: tile, height: tile, borderRadius: Math.round(tile * 0.3) }]}>
           <LinearGradient
             colors={['#3A141C', '#1B0C10']}
@@ -68,7 +69,7 @@ export function LuLogo({ width, height, size = 42, light }: LuLogoProps) {
             contentFit="contain"
           />
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ flexDirection: I18nManager.isRTL ? 'row-reverse' : 'row', alignItems: 'center' }}>
           <Text style={[styles.logoLightText, { fontSize, color: '#FFFFFF' }]}>Link</Text>
           <MaskedView
             maskElement={

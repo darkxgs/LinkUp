@@ -9,8 +9,10 @@ import {
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { lu } from '@/theme/lu-brand';
+import { useThemeMode } from '@/stores/themeStore';
 import {
   DEFAULT_DISCOVER_USER_FILTER,
   type DiscoverUserFilter,
@@ -35,6 +37,7 @@ type AgePreset = {
 
 export function DiscoverFilterModal({ visible, value, onConfirm, onClose }: Props) {
   const { t, i18n } = useTranslation();
+  const { isDark } = useThemeMode();
   const [draft, setDraft] = useState<DiscoverUserFilter>(value);
 
   useEffect(() => {
@@ -42,6 +45,35 @@ export function DiscoverFilterModal({ visible, value, onConfirm, onClose }: Prop
   }, [visible, value]);
 
   const isAr = i18n.language?.startsWith('ar');
+
+  // لوحة ألوان النافذة حسب السمة.
+  const pal = isDark
+    ? {
+        cardBg: '#231217',
+        cardBorder: 'rgba(255,45,60,0.3)',
+        cardShadow: '#FF1E30',
+        title: '#FFFFFF',
+        closeBg: 'rgba(255,255,255,0.08)',
+        closeIcon: '#FFFFFF',
+        label: 'rgba(255,255,255,0.6)',
+        chipBg: 'rgba(255,255,255,0.05)',
+        chipBorder: lu.colors.nightLine,
+        chipText: 'rgba(255,255,255,0.68)',
+        reset: '#FF5C6C',
+      }
+    : {
+        cardBg: '#FFFFFF',
+        cardBorder: 'rgba(225,20,20,0.14)',
+        cardShadow: '#9A1414',
+        title: '#15151A',
+        closeBg: '#F6ECEC',
+        closeIcon: '#15151A',
+        label: '#4B5563',
+        chipBg: '#FFFFFF',
+        chipBorder: '#E9E0E1',
+        chipText: '#6B7280',
+        reset: '#E11414',
+      };
 
   const agePresets: AgePreset[] = [
     { label: isAr ? 'الكل' : 'All Ages', min: DISCOVER_AGE_MIN, max: DISCOVER_AGE_MAX },
@@ -69,61 +101,69 @@ export function DiscoverFilterModal({ visible, value, onConfirm, onClose }: Prop
     draft.maxAge !== DEFAULT_DISCOVER_USER_FILTER.maxAge ||
     draft.onlineOnly !== DEFAULT_DISCOVER_USER_FILTER.onlineOnly;
 
+  // شريحة اختيار — نشطة بتدرّج أحمر متوهج، خاملة زجاجية حسب السمة.
+  const chip = (active: boolean, label: string, onPress: () => void, style: object, key?: React.Key) => (
+    <Pressable
+      key={key}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.chip,
+        style,
+        { backgroundColor: active ? '#C40E2E' : pal.chipBg, borderColor: pal.chipBorder },
+        active && styles.chipActive,
+        pressed && { transform: [{ scale: 0.97 }] },
+      ]}
+    >
+      {active ? (
+        <LinearGradient
+          colors={['#FF4D66', '#C40E2E']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
+      <Text style={[styles.chipText, { color: active ? '#fff' : pal.chipText }, active && styles.chipTextActive]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        
-        <View style={styles.card}>
+
+        <Animated.View
+          entering={FadeInDown.duration(280).springify().damping(18)}
+          style={[
+            styles.card,
+            { backgroundColor: pal.cardBg, borderColor: pal.cardBorder, shadowColor: pal.cardShadow },
+          ]}
+        >
           {/* Header */}
           <View style={styles.header}>
-            <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={12}>
-              <X size={18} color={lu.colors.ink} strokeWidth={2.4} />
+            <Pressable onPress={onClose} style={[styles.closeBtn, { backgroundColor: pal.closeBg }]} hitSlop={12}>
+              <X size={18} color={pal.closeIcon} strokeWidth={2.4} />
             </Pressable>
-            <Text style={styles.title}>{t('home.filterTitle') || 'Filter'}</Text>
+            <Text style={[styles.title, { color: pal.title }]}>{t('home.filterTitle') || 'Filter'}</Text>
             <View style={styles.balancePlaceholder} />
           </View>
 
           {/* Section 1: Online Status */}
-          <Text style={styles.sectionLabel}>{t('home.filterOnline') || 'Status'}</Text>
+          <Text style={[styles.sectionLabel, { color: pal.label }]}>{t('home.filterOnline') || 'Status'}</Text>
           <View style={styles.toggleRow}>
-            <Pressable
-              onPress={() => setDraft((d) => ({ ...d, onlineOnly: false }))}
-              style={[styles.toggleBtn, !draft.onlineOnly && styles.toggleBtnActive]}
-            >
-              <Text style={[styles.toggleText, !draft.onlineOnly && styles.toggleTextActive]}>
-                {t('home.filterAll') || 'All'}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setDraft((d) => ({ ...d, onlineOnly: true }))}
-              style={[styles.toggleBtn, draft.onlineOnly && styles.toggleBtnActive]}
-            >
-              <Text style={[styles.toggleText, draft.onlineOnly && styles.toggleTextActive]}>
-                {t('home.filterOnlineOnly') || 'Online'}
-              </Text>
-            </Pressable>
+            {chip(!draft.onlineOnly, t('home.filterAll') || 'All', () => setDraft((d) => ({ ...d, onlineOnly: false })), { flex: 1 })}
+            {chip(draft.onlineOnly, t('home.filterOnlineOnly') || 'Online', () => setDraft((d) => ({ ...d, onlineOnly: true })), { flex: 1 })}
           </View>
 
           {/* Section 2: Age Range */}
-          <Text style={styles.sectionLabel}>
+          <Text style={[styles.sectionLabel, { color: pal.label }]}>
             {isAr ? 'الفئة العمرية' : 'Age Range'}
           </Text>
           <View style={styles.presetsGrid}>
-            {agePresets.map((preset, idx) => {
-              const active = isPresetActive(preset);
-              return (
-                <Pressable
-                  key={idx}
-                  onPress={() => handleSelectPreset(preset)}
-                  style={[styles.presetCard, active && styles.presetCardActive]}
-                >
-                  <Text style={[styles.presetText, active && styles.presetTextActive]}>
-                    {preset.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+            {agePresets.map((preset, idx) =>
+              chip(isPresetActive(preset), preset.label, () => handleSelectPreset(preset), { width: '31%' }, idx),
+            )}
           </View>
 
           {/* Confirm Button */}
@@ -132,10 +172,10 @@ export function DiscoverFilterModal({ visible, value, onConfirm, onClose }: Prop
               onConfirm(draft);
               onClose();
             }}
-            style={({ pressed }) => [styles.confirmBtnContainer, pressed && { opacity: 0.9 }]}
+            style={({ pressed }) => [styles.confirmBtnContainer, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
           >
             <LinearGradient
-              colors={['#FF2D2D', '#B00E0E']}
+              colors={['#FF4D5E', '#C40E2E']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.confirmBtn}
@@ -152,12 +192,12 @@ export function DiscoverFilterModal({ visible, value, onConfirm, onClose }: Prop
               onPress={() => setDraft(DEFAULT_DISCOVER_USER_FILTER)}
               style={styles.resetBtn}
             >
-              <Text style={styles.resetText}>
+              <Text style={[styles.resetText, { color: pal.reset }]}>
                 {t('home.filterReset') || 'Reset Filters'}
               </Text>
             </Pressable>
           )}
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -168,21 +208,20 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(8,3,5,0.72)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 24,
+    borderRadius: 26,
+    borderWidth: 1,
     width: '85%',
     maxWidth: 340,
     padding: 22,
-    shadowColor: '#9A1414',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 22,
+    elevation: 12,
     alignSelf: 'center',
   },
   header: {
@@ -196,7 +235,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#F6ECEC',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -204,9 +242,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 18,
     fontWeight: '800',
-    color: '#15151A',
     fontFamily: lu.fonts.bodyHeavy,
     textAlign: 'center',
+    includeFontPadding: false,
   },
   balancePlaceholder: {
     width: 36,
@@ -214,37 +252,41 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#4B5563',
     fontFamily: lu.fonts.bodyBold,
     marginBottom: 10,
     marginTop: 6,
+    includeFontPadding: false,
   },
   toggleRow: {
     flexDirection: 'row',
     gap: 8,
     marginBottom: 18,
   },
-  toggleBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#ffffff',
+  chip: {
+    paddingVertical: 11,
+    borderRadius: 13,
+    borderWidth: 1.3,
     alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  toggleBtnActive: {
-    backgroundColor: '#E11414',
-    borderColor: '#E11414',
+  chipActive: {
+    borderColor: '#FF4D66',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  toggleText: {
-    fontSize: 14,
+  chipText: {
+    fontSize: 13.5,
     fontWeight: '700',
-    color: '#6B7280',
     fontFamily: lu.fonts.bodyBold,
+    includeFontPadding: false,
   },
-  toggleTextActive: {
-    color: '#ffffff',
+  chipTextActive: {
+    fontWeight: '800',
+    fontFamily: lu.fonts.bodyHeavy,
   },
   presetsGrid: {
     flexDirection: 'row',
@@ -252,32 +294,14 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 22,
   },
-  presetCard: {
-    width: '31%',
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  presetCardActive: {
-    backgroundColor: '#E11414',
-    borderColor: '#E11414',
-  },
-  presetText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#4B5563',
-    fontFamily: lu.fonts.bodyBold,
-  },
-  presetTextActive: {
-    color: '#ffffff',
-  },
   confirmBtnContainer: {
     borderRadius: 99,
     overflow: 'hidden',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 6,
   },
   confirmBtn: {
     paddingVertical: 14,
@@ -289,6 +313,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
   },
   resetBtn: {
     marginTop: 12,
@@ -298,7 +323,7 @@ const styles = StyleSheet.create({
   resetText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#E11414',
     fontFamily: lu.fonts.bodyBold,
+    includeFontPadding: false,
   },
 });

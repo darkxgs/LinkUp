@@ -99,23 +99,27 @@ export function CountryFilterPopover({
 
 type CountryGlobeTriggerProps = {
   countryCode: string;
+  dark?: boolean;
   onPress: () => void;
 };
 
-export function CountryGlobeTrigger({ countryCode, onPress }: CountryGlobeTriggerProps) {
+export function CountryGlobeTrigger({ countryCode, dark, onPress }: CountryGlobeTriggerProps) {
   const { t } = useTranslation();
   const label =
     countryCode === 'WW' ? t('countries.global') : t(getCountryNameKey(countryCode));
 
   return (
-    <Pressable onPress={onPress} style={styles.globeTrigger}>
-      <View style={styles.globeTriggerIcon}>
-        <Globe size={15} color={lu.colors.purple} strokeWidth={2.4} />
+    <Pressable onPress={onPress} style={[styles.globeTrigger, dark && styles.globeTriggerDark]}>
+      <View style={[styles.globeTriggerIcon, dark && styles.globeTriggerIconDark]}>
+        <Globe size={15} color={dark ? '#FF5C6C' : lu.colors.purple} strokeWidth={2.4} />
       </View>
-      <RNText style={styles.globeTriggerText} numberOfLines={1}>
+      <RNText
+        style={[styles.globeTriggerText, dark && { color: lu.colors.nightInk }]}
+        numberOfLines={1}
+      >
         {label}
       </RNText>
-      <ChevronDown size={14} color={lu.colors.muted} strokeWidth={2.5} />
+      <ChevronDown size={14} color={dark ? lu.colors.nightMuted : lu.colors.muted} strokeWidth={2.5} />
     </Pressable>
   );
 }
@@ -220,6 +224,10 @@ const styles = StyleSheet.create({
     borderColor: '#FBEAEA',
     maxWidth: 150,
   },
+  globeTriggerDark: {
+    backgroundColor: lu.colors.nightCard,
+    borderColor: lu.colors.nightLine,
+  },
   globeTriggerIcon: {
     width: 24,
     height: 24,
@@ -227,6 +235,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  globeTriggerIconDark: {
+    backgroundColor: 'rgba(255,45,60,0.14)',
   },
   globeTriggerText: {
     flex: 1,

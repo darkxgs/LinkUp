@@ -257,7 +257,11 @@
     "chat": "المحادثات",
     "feed": "اللحظات",
     "profile": "الملف الشخصي",
-    "match": "مطابقة"
+    "match": "مطابقة",
+    "matches": "اكتشف",
+    "discoverTab": "اللحظات",
+    "voiceRoom": "الرئيسية",
+    "chats": "الدردشات"
   },
   "discover": {
     "videoMatch": "مطابقة فيديو",
@@ -350,7 +354,9 @@
     "gameCasinoCta": "عرض الكل",
     "gameLottery": "اليانصيب",
     "gameLotterySub": "جائزة أسبوعية",
-    "gameLotteryCta": "شارك الآن"
+    "gameLotteryCta": "شارك الآن",
+    "gameJoin": "انضم",
+    "gameTag20x": "٢٠×"
   },
   "rooms": {
     "title": "الغرف",
@@ -443,7 +449,8 @@
     "text78282": "لم تزر أي غرفة بعد",
     "text1420": "الغرف اللي تدخلها تظهر هنا لاختصار الوصول",
     "text12639": "عند دخول من تتابعهم غرفاً، ستظهر الإشعارات هنا",
-    "text52023": "إلغاء المتابعة؟"
+    "text52023": "إلغاء المتابعة؟",
+    "onlineCount": "{{n}} متصل"
   },
   "roomPk": {
     "title": "تحدي PK",
@@ -1021,7 +1028,7 @@
   },
   "feed": {
     "title": "اللحظات",
-    "tabExplore": "اكتشف",
+    "tabExplore": "اللحظات",
     "tabFollowing": "أتابع",
     "tabTrending": "الرائج",
     "hotTopics": "المواضيع الساخنة",
@@ -1091,7 +1098,8 @@
     "like": "إعجاب",
     "comment": "تعليق",
     "share": "مشاركة",
-    "gift": "هدية"
+    "gift": "هدية",
+    "hotTag": "رائج"
   },
   "post": {
     "title": "المنشور",

@@ -61,10 +61,12 @@ function AudienceStat({
   micCount,
   audience,
   presence,
+  dark,
 }: {
   micCount: number;
   audience: number;
   presence?: AgencyRoomPresenceSnapshot;
+  dark?: boolean;
 }) {
   if (presence && presence.totalCount > 0) {
     return (
@@ -80,7 +82,7 @@ function AudienceStat({
   return (
     <View style={styles.audienceStat}>
       <BarChart2 size={13} color="#EF4444" strokeWidth={2.5} />
-      <RNText style={styles.audienceStatText}>
+      <RNText style={[styles.audienceStatText, dark && { color: 'rgba(255,255,255,0.8)' }]}>
         {micCount} | {audience}
       </RNText>
     </View>
@@ -96,6 +98,7 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
   frameUrl,
   hasActiveLuckyBag = false,
   presence,
+  dark = false,
   onPress,
 }: {
   agency: Agency;
@@ -108,6 +111,8 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
   hasActiveLuckyBag?: boolean;
   /** حضور مباشر من roomAudience + المقاعد */
   presence?: AgencyRoomPresenceSnapshot;
+  /** السمة الداكنة */
+  dark?: boolean;
   onPress: () => void;
 }) {
   const { t } = useTranslation();
@@ -136,7 +141,7 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
   if (layout === 'list') {
     const thumbW = 92;
     return (
-      <Pressable onPress={onPress} style={[styles.listCard, { width }]}>
+      <Pressable onPress={onPress} style={[styles.listCard, dark && styles.listCardDark, { width }]}>
         <FramedAgencyCover
           imageUri={thumb}
           frameUri={resolvedFrame}
@@ -149,7 +154,7 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
         <View style={styles.listBody}>
           <View style={styles.listTitleRow}>
             <RealCountryFlag countryCode={agency.country || 'WW'} size={15} />
-            <RNText style={styles.listTitle} numberOfLines={1}>
+            <RNText style={[styles.listTitle, dark && { color: lu.colors.nightInk }]} numberOfLines={1}>
               {agency.name}
             </RNText>
           </View>
@@ -159,7 +164,7 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
             {showLuckyBag ? <LuckyBagPill /> : null}
           </View>
 
-          <RNText style={styles.listSub} numberOfLines={1}>
+          <RNText style={[styles.listSub, dark && { color: lu.colors.nightMuted }]} numberOfLines={1}>
             {subtitle}
           </RNText>
 
@@ -169,16 +174,25 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
             ) : (
               <View />
             )}
-            <AudienceStat micCount={micCount} audience={audience} presence={presence} />
+            <AudienceStat micCount={micCount} audience={audience} presence={presence} dark={dark} />
           </View>
         </View>
       </Pressable>
     );
   }
 
-  const coverW = width;
+  // الوكالات ذات الإطار الزخرفي لا تحتاج حدّ الإبراز — إطارها هو الإبراز.
+  const highlight = !resolvedFrame?.startsWith('http');
+  const coverW = width - (highlight ? 2 : 0);
   return (
     <Pressable onPress={onPress} style={[styles.gridWrap, { width }]}>
+      <View
+        style={
+          highlight
+            ? [styles.gridCoverWrap, dark ? styles.gridCoverWrapDark : styles.gridCoverWrapLight]
+            : null
+        }
+      >
       <FramedAgencyCover
         imageUri={thumb}
         frameUri={resolvedFrame}
@@ -217,13 +231,22 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
           </View>
         ) : null}
       </FramedAgencyCover>
+      </View>
 
       <View style={styles.gridFooter}>
         <RealCountryFlag countryCode={agency.country || 'WW'} size={13} />
-        <RNText style={styles.gridFooterName} numberOfLines={1}>
+        <RNText style={[styles.gridFooterName, dark && { color: lu.colors.nightInk }]} numberOfLines={1}>
           {agency.name}
         </RNText>
       </View>
+      {showLive && totalPresence > 0 ? (
+        <View style={styles.gridOnlineRow}>
+          <View style={styles.gridOnlineDot} />
+          <RNText style={styles.gridOnlineText}>
+            {t('rooms.onlineCount', { n: totalPresence })}
+          </RNText>
+        </View>
+      ) : null}
     </Pressable>
   );
 });
@@ -300,19 +323,28 @@ const styles = StyleSheet.create({
   listCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFBF3',
+    backgroundColor: '#fff',
     borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 10,
     marginBottom: 10,
     gap: 10,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.04)',
-    shadowColor: '#8B7355',
+    borderColor: 'rgba(225,20,20,0.14)',
+    shadowColor: '#9A1414',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 2,
+  },
+  listCardDark: {
+    backgroundColor: lu.colors.nightCard,
+    borderColor: 'rgba(255,45,60,0.22)',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 4,
   },
   listBody: {
     flex: 1,
@@ -351,6 +383,28 @@ const styles = StyleSheet.create({
   gridWrap: {
     marginBottom: 12,
   },
+  // إبراز أحمر حول غلاف الوكالة — مطابق لبطاقات الاكتشاف واللحظات.
+  gridCoverWrap: {
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  gridCoverWrapLight: {
+    borderColor: 'rgba(225,20,20,0.16)',
+    shadowColor: '#9A1414',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  gridCoverWrapDark: {
+    borderColor: 'rgba(255,45,60,0.28)',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 5,
+  },
   gridLiveTop: {
     position: 'absolute',
     top: 10,
@@ -384,5 +438,25 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     fontFamily: lu.fonts.bodyHeavy,
     textAlign: 'center',
+  },
+  gridOnlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 3,
+  },
+  gridOnlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#22E06B',
+  },
+  gridOnlineText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#22C55E',
+    fontFamily: lu.fonts.bodyBold,
+    includeFontPadding: false,
   },
 });

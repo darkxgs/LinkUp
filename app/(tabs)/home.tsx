@@ -33,6 +33,7 @@ import {
   Mic2,
   Building2,
   Crown,
+  Search,
 } from 'lucide-react-native';
 import i18n from '@/localization/i18n';
 
@@ -47,6 +48,7 @@ import { useRooms } from '@/hooks/useRooms';
 import { Room, isRoomLive, isPersonalHostRoom, quickCreateRoom } from '@/services/firebase/rooms';
 import { spacing } from '@/theme';
 import { lu } from '@/theme/lu-brand';
+import { useThemeMode } from '@/stores/themeStore';
 import { resolveDisplayName } from '@/utils/displayName';
 import { toSafeInt } from '@/utils/safeNumber';
 import { readListCache, writeListCache } from '@/utils/persistentListCache';
@@ -155,8 +157,12 @@ function pickGrad(seed: string | number): readonly [string, string] {
   return FALLBACK_GRADIENTS[h % FALLBACK_GRADIENTS.length] ?? ['#F0A0A0', '#FBD5D5'];
 }
 
-function RoomSectionTitle({ children }: { children: string }) {
-  return <RNText style={styles.roomSectionTitle}>{children}</RNText>;
+function RoomSectionTitle({ children, dark }: { children: string; dark?: boolean }) {
+  return (
+    <RNText style={[styles.roomSectionTitle, dark && { color: lu.colors.nightInk }]}>
+      {children}
+    </RNText>
+  );
 }
 
 export default function RoomsScreen() {
@@ -168,7 +174,7 @@ export default function RoomsScreen() {
   const roomGap = 13;
   const roomColW = Math.floor((W - pad * 2 - roomGap) / 2);
   const headerMetrics = useTabHeaderMetrics(W);
-  const headerSubtitle = t('rooms.homeSubtitle');
+  const { isDark } = useThemeMode();
   const { user } = useAuth();
   const { rooms, loading } = useRooms(50);
   const levelsConfig = useAgencyLevelsConfig();
@@ -517,6 +523,7 @@ export default function RoomsScreen() {
           <View style={wrapStyle}>
             <PersonalRoomCard
               room={item.room}
+              dark={isDark}
               onPress={() => handlePersonalRoomPress(item.room)}
             />
           </View>
@@ -535,6 +542,7 @@ export default function RoomsScreen() {
             agency={agency}
             room={room}
             width={cardW}
+            dark={isDark}
             layout={agencyViewMode}
             supportPercent={resolveAgencySupportPercent(agency, levelsConfig)}
             frameUrl={frameUrl}
@@ -558,20 +566,30 @@ export default function RoomsScreen() {
       presenceByRoomId,
       W,
       pad,
+      isDark,
     ],
   );
 
   const listEmpty = listLoading ? (
     <View style={styles.emptyState}>
-      <ActivityIndicator size="large" color={lu.colors.purple} />
-      <Text variant="caption" color={lu.colors.muted} style={{ marginTop: spacing.base }}>
+      <ActivityIndicator size="large" color={isDark ? '#FF5C6C' : lu.colors.purple} />
+      <Text
+        variant="caption"
+        color={isDark ? lu.colors.nightMuted : lu.colors.muted}
+        style={{ marginTop: spacing.base }}
+      >
         {t('rooms.loadingAgencies')}
       </Text>
     </View>
   ) : (
     <View style={styles.emptyState}>
-      <Building2 size={48} color={lu.colors.muted} strokeWidth={1.5} />
-      <Text variant="body" weight="semibold" color={lu.colors.ink2} style={{ marginTop: spacing.base }}>
+      <Building2 size={48} color={isDark ? lu.colors.nightMuted : lu.colors.muted} strokeWidth={1.5} />
+      <Text
+        variant="body"
+        weight="semibold"
+        color={isDark ? lu.colors.nightInk2 : lu.colors.ink2}
+        style={{ marginTop: spacing.base }}
+      >
         {country !== 'WW' ? t('rooms.noCountryAgencies') : t('rooms.noAgencies')}
       </Text>
     </View>
@@ -579,31 +597,40 @@ export default function RoomsScreen() {
 
   const listHeader = useMemo(
     () => (
-    <>
-      <TabScreenHeader pad={pad} subtitle={headerSubtitle} style={{ marginBottom: 6 }}>
-        <HeaderIconButton onPress={handleOpenCreateRoom}>
+    // هامش سالب يلغي حشوة قائمة FlashList — لتطابق حواف الأقسام مع بقية الصفحات.
+    <View style={{ marginHorizontal: -pad }}>
+      <TabScreenHeader dark={isDark} pad={pad} style={{ marginBottom: 6 }}>
+        <HeaderIconButton dark={isDark} onPress={handleOpenCreateRoom}>
           {creatingRoom ? (
-            <ActivityIndicator size="small" color={lu.colors.purple} />
+            <ActivityIndicator size="small" color={isDark ? '#FF5C6C' : lu.colors.purple} />
           ) : (
             <Plus
               size={headerMetrics.iconSize}
-              color={lu.colors.ink}
+              color={isDark ? '#FF6B7A' : lu.colors.ink}
               strokeWidth={2.5}
             />
           )}
         </HeaderIconButton>
-        <HeaderIconButton onPress={() => router.push('/games' as any)}>
+        <HeaderIconButton dark={isDark} onPress={() => router.push('/games' as any)}>
           <Gamepad2
             size={headerMetrics.iconSize}
-            color={lu.colors.ink}
+            color={isDark ? '#C9A6FF' : lu.colors.ink}
             strokeWidth={2}
           />
         </HeaderIconButton>
-        <HeaderIconButton onPress={() => router.push('/search' as any)}>
-          <DesignIcon xml={SearchSvg} size={headerMetrics.iconSize} />
+        <HeaderIconButton dark={isDark} onPress={() => router.push('/search' as any)}>
+          {isDark ? (
+            <Search size={headerMetrics.iconSize} color="#fff" strokeWidth={2.2} />
+          ) : (
+            <DesignIcon xml={SearchSvg} size={headerMetrics.iconSize} />
+          )}
         </HeaderIconButton>
-        <HeaderIconButton badge onPress={() => router.push('/notifications' as any)}>
-          <DesignIcon xml={BellSvg} size={headerMetrics.iconSize} />
+        <HeaderIconButton dark={isDark} badge onPress={() => router.push('/notifications' as any)}>
+          {isDark ? (
+            <Bell size={headerMetrics.iconSize} color="#fff" strokeWidth={2.2} />
+          ) : (
+            <DesignIcon xml={BellSvg} size={headerMetrics.iconSize} />
+          )}
         </HeaderIconButton>
       </TabScreenHeader>
 
@@ -611,13 +638,13 @@ export default function RoomsScreen() {
           <>
             <View style={[styles.sectionHead, { paddingHorizontal: pad }]}>
               <View>
-                <RoomSectionTitle>{t('rooms.interests')}</RoomSectionTitle>
+                <RoomSectionTitle dark={isDark}>{t('rooms.interests')}</RoomSectionTitle>
                 {!interestsFromFavorites && user?.uid ? (
-                  <RNText style={styles.interestHint}>{t('rooms.interestRecentHint')}</RNText>
+                  <RNText style={[styles.interestHint, isDark && { color: lu.colors.nightMuted }]}>{t('rooms.interestRecentHint')}</RNText>
                 ) : null}
               </View>
               <Pressable onPress={() => router.push('/agencies' as any)}>
-                <RNText style={styles.viewAllText}>{t('common.viewAll')}</RNText>
+                <RNText style={[styles.viewAllText, isDark && { color: '#FF5C6C' }]}>{t('common.viewAll')}</RNText>
               </Pressable>
             </View>
             <ScrollView
@@ -628,6 +655,7 @@ export default function RoomsScreen() {
               {displayedInterestRooms.map((item) => (
                 <InterestRoomCard
                   key={item.roomId}
+                  dark={isDark}
                   name={roomDisplayTitle(
                     { name: item.roomName, hostName: item.roomName } as Room,
                     t,
@@ -654,16 +682,17 @@ export default function RoomsScreen() {
         <View style={[styles.sectionHead, { paddingHorizontal: pad, marginTop: 4 }]}>
           <View style={styles.sectionTitleRow}>
             {/* #2: التبويب «الغرف» — وكالات + غرف شخصية عامة مدموجة */}
-            <RoomSectionTitle>{t('rooms.title')}</RoomSectionTitle>
+            <RoomSectionTitle dark={isDark}>{t('rooms.title')}</RoomSectionTitle>
             <Crown size={16} color="#F0C75A" fill="#F0C75A" strokeWidth={0} />
           </View>
           <Pressable onPress={() => router.push('/agencies' as any)}>
-            <RNText style={styles.viewAllText}>{t('common.viewAll')}</RNText>
+            <RNText style={[styles.viewAllText, isDark && { color: '#FF5C6C' }]}>{t('common.viewAll')}</RNText>
           </Pressable>
         </View>
 
         <View style={[styles.agencyToolbar, { paddingHorizontal: pad }]}>
           <CountryGlobeTrigger
+            dark={isDark}
             countryCode={country}
             onPress={() => setShowCountryModal(true)}
           />
@@ -671,32 +700,51 @@ export default function RoomsScreen() {
           {country !== 'WW' ? (
             <Pressable
               onPress={() => setCountry('WW')}
-              style={styles.toolbarShowAllChip}
+              style={[styles.toolbarShowAllChip, isDark && styles.toolbarShowAllChipDark]}
             >
-              <RNText style={styles.toolbarShowAllText}>{t('rooms.showAll')}</RNText>
+              <RNText style={[styles.toolbarShowAllText, isDark && { color: '#FF5C6C' }]}>{t('rooms.showAll')}</RNText>
             </Pressable>
           ) : null}
 
           <View style={{ flex: 1 }} />
 
-          <Pressable
-            onPress={() => setAgencyViewMode((m) => (m === 'grid' ? 'list' : 'grid'))}
-            style={({ pressed }) => [styles.toolbarIconBtn, pressed && { opacity: 0.85 }]}
-          >
-            {agencyViewMode === 'grid' ? (
-              <List size={17} color={lu.colors.ink2} strokeWidth={2.3} />
-            ) : (
-              <LayoutGrid size={17} color={lu.colors.ink2} strokeWidth={2.3} />
-            )}
-          </Pressable>
+          {/* مبدّل العرض شبكة/قائمة — زران بحالة نشطة متوهجة كما في التصميم المرجعي. */}
+          <View style={[styles.viewToggleWrap, isDark && styles.viewToggleWrapDark]}>
+            {([
+              ['grid', LayoutGrid],
+              ['list', List],
+            ] as const).map(([mode, ToggleIcon]) => {
+              const active = agencyViewMode === mode;
+              return (
+                <Pressable
+                  key={mode}
+                  onPress={() => setAgencyViewMode(mode)}
+                  style={({ pressed }) => [
+                    styles.viewToggleBtn,
+                    active && (isDark ? styles.viewToggleBtnActiveDark : styles.viewToggleBtnActive),
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <ToggleIcon
+                    size={16}
+                    color={
+                      active
+                        ? isDark ? '#FF5C6C' : '#E11414'
+                        : isDark ? 'rgba(255,255,255,0.55)' : lu.colors.ink2
+                    }
+                    strokeWidth={2.3}
+                  />
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
       <View style={{ height: 8 }} />
-    </>
+    </View>
     ),
     [
       pad,
-      headerSubtitle,
       headerMetrics.iconSize,
       creatingRoom,
       t,
@@ -709,11 +757,16 @@ export default function RoomsScreen() {
       setShowCountryModal,
       agencyViewMode,
       i18n.language,
+      isDark,
     ],
   );
 
   return (
-    <LinearGradient colors={PAGE_GRAD} locations={PAGE_GRAD_LOC} style={styles.container}>
+    <LinearGradient
+      colors={isDark ? ([...lu.gradients.pageHomeNight] as [string, string, ...string[]]) : PAGE_GRAD}
+      locations={PAGE_GRAD_LOC}
+      style={styles.container}
+    >
       <CountryFilterPopover
         visible={showCountryModal}
         currentCode={country}
@@ -749,9 +802,11 @@ export default function RoomsScreen() {
 /** بطاقة غرفة شخصية عامة — تُعرض مدموجة مع بطاقات الوكالات في تبويب «الغرف» */
 const PersonalRoomCard = React.memo(function PersonalRoomCard({
   room,
+  dark,
   onPress,
 }: {
   room: Room;
+  dark?: boolean;
   onPress: () => void;
 }) {
   const { t } = useTranslation();
@@ -763,8 +818,15 @@ const PersonalRoomCard = React.memo(function PersonalRoomCard({
   const audience = toSafeInt(room.audienceCount);
   const hostInitial = (room.hostName?.trim()?.[0] ?? '?').toUpperCase();
   return (
-    <Pressable onPress={onPress} style={styles.gridCard}>
-      <View style={[styles.gridCover, { height: 120 }]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.roomCard,
+        dark ? styles.roomCardDark : styles.roomCardLight,
+        pressed && { transform: [{ scale: 0.98 }] },
+      ]}
+    >
+      <View style={[styles.gridCover, { height: 128 }]}>
         {cover ? (
           <Image
             source={{ uri: cover }}
@@ -781,8 +843,16 @@ const PersonalRoomCard = React.memo(function PersonalRoomCard({
             style={StyleSheet.absoluteFill}
           />
         )}
+        {/* تعتيم سفلي لوضوح اسم المضيف فوق الغلاف */}
+        <LinearGradient
+          colors={['transparent', 'rgba(10,4,6,0.62)']}
+          start={{ x: 0.5, y: 0.35 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
         {live ? (
-          <View style={styles.gridLivePill}>
+          <View style={[styles.gridLivePill, styles.livePillHot]}>
             <Radio size={9} color="#fff" strokeWidth={3} />
             <RNText style={styles.gridLiveText}>{t('rooms.liveBadge')}</RNText>
           </View>
@@ -811,13 +881,16 @@ const PersonalRoomCard = React.memo(function PersonalRoomCard({
         </View>
       </View>
       <View style={styles.gridBody}>
-        <RNText style={styles.gridTitle} numberOfLines={2}>
+        <RNText
+          style={[styles.gridTitle, dark && { color: lu.colors.nightInk }]}
+          numberOfLines={2}
+        >
           {room.name}
         </RNText>
         <View style={styles.gridFooter}>
-          <View style={styles.roomKindBadge}>
-            <Mic2 size={10} color={lu.colors.purple} strokeWidth={2.5} />
-            <RNText style={styles.roomKindBadgeText}>{t('rooms.badgeRoom')}</RNText>
+          <View style={[styles.roomKindBadge, dark && styles.roomKindBadgeDark]}>
+            <Mic2 size={10} color={dark ? '#FF6B7A' : lu.colors.purple} strokeWidth={2.5} />
+            <RNText style={[styles.roomKindBadgeText, dark && { color: '#FF6B7A' }]}>{t('rooms.badgeRoom')}</RNText>
           </View>
         </View>
       </View>
@@ -833,6 +906,7 @@ const InterestRoomCard = React.memo(function InterestRoomCard({
   isAgency,
   isFavorite,
   metaLabel,
+  dark,
   onPress,
 }: {
   name: string;
@@ -842,14 +916,20 @@ const InterestRoomCard = React.memo(function InterestRoomCard({
   isAgency?: boolean;
   isFavorite?: boolean;
   metaLabel: string;
+  dark?: boolean;
   onPress: () => void;
 }) {
   const hasAvatar = Boolean(avatar && avatar.startsWith('http'));
   return (
     <View>
       <Pressable onPress={onPress} style={styles.storyContainer}>
-        <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.storyRingWrap}>
-          <View style={styles.storyAvatarWrap}>
+        <LinearGradient
+          colors={grad}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.storyRingWrap, dark && styles.storyRingWrapDark]}
+        >
+          <View style={[styles.storyAvatarWrap, dark && { backgroundColor: '#2A171C' }]}>
             {hasAvatar ? (
               <Image
                 source={{ uri: avatar }}
@@ -870,17 +950,17 @@ const InterestRoomCard = React.memo(function InterestRoomCard({
             </View>
           ) : null}
           {isLive ? (
-            <View style={styles.interestLiveDot} />
+            <View style={[styles.interestLiveDot, dark && { borderColor: lu.colors.night0 }]} />
           ) : null}
         </LinearGradient>
-        <RNText style={styles.storyName} numberOfLines={1}>{name}</RNText>
+        <RNText style={[styles.storyName, dark && { color: lu.colors.nightInk }]} numberOfLines={1}>{name}</RNText>
         <View style={styles.storyMeta}>
           {isLive ? (
             <Radio size={9} color="#22C55E" strokeWidth={3} />
           ) : (
-            <Mic2 size={9} color="#E11414" strokeWidth={3} />
+            <Mic2 size={9} color={dark ? '#FF5C6C' : '#E11414'} strokeWidth={3} />
           )}
-          <RNText style={styles.storyTime}>{metaLabel}</RNText>
+          <RNText style={[styles.storyTime, dark && { color: lu.colors.nightMuted }]}>{metaLabel}</RNText>
         </View>
       </Pressable>
     </View>
@@ -928,8 +1008,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 4,
-    marginBottom: 8,
+    marginTop: 0,
+    marginBottom: 10,
   },
   toolbarShowAllChip: {
     paddingHorizontal: 10,
@@ -939,21 +1019,51 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#EDD9D9',
   },
+  toolbarShowAllChipDark: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: lu.colors.nightLine,
+  },
   toolbarShowAllText: {
     fontSize: 11,
     fontWeight: '800',
     color: lu.colors.purple,
     fontFamily: lu.fonts.bodyHeavy,
   },
-  toolbarIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  // مبدّل شبكة/قائمة.
+  viewToggleWrap: {
+    flexDirection: 'row',
+    gap: 4,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#EDD3D3',
+    borderRadius: 12,
+    padding: 3,
+  },
+  viewToggleWrapDark: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: lu.colors.nightLine,
+  },
+  viewToggleBtn: {
+    width: 34,
+    height: 30,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  viewToggleBtnActive: {
+    backgroundColor: 'rgba(225,20,20,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(225,20,20,0.3)',
+  },
+  viewToggleBtnActiveDark: {
+    backgroundColor: 'rgba(255,45,60,0.14)',
+    borderWidth: 1,
+    borderColor: '#FF3B55',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 4,
   },
   coinBadge: {
     flexDirection: 'row',
@@ -1063,8 +1173,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 20,
-    paddingBottom: 14,
+    paddingTop: 18,
+    paddingBottom: 10,
   },
   viewAllBtn: {
     backgroundColor: 'rgba(225,20,20,0.05)',
@@ -1098,6 +1208,13 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     overflow: 'hidden',
     position: 'relative',
+  },
+  storyRingWrapDark: {
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 9,
+    elevation: 5,
   },
   interestFavBadge: {
     position: 'absolute',
@@ -1373,6 +1490,38 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(225, 20, 20, 0.08)',
     borderWidth: 1,
     borderColor: 'rgba(225, 20, 20, 0.15)',
+  },
+  roomKindBadgeDark: {
+    backgroundColor: 'rgba(255,45,60,0.14)',
+    borderColor: 'rgba(255,90,110,0.4)',
+  },
+  // بطاقة الغرفة الشخصية — إبراز أحمر مطابق لبطاقات الاكتشاف واللحظات.
+  roomCard: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+  },
+  roomCardLight: {
+    backgroundColor: '#fff',
+    borderColor: 'rgba(225,20,20,0.14)',
+    shadowColor: '#9A1414',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  roomCardDark: {
+    backgroundColor: lu.colors.nightCard,
+    borderColor: 'rgba(255,45,60,0.24)',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  livePillHot: {
+    backgroundColor: 'rgba(225,20,20,0.9)',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   roomKindBadgeText: {
     fontSize: 11,

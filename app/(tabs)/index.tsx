@@ -17,6 +17,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
+import MaskedView from '@react-native-masked-view/masked-view';
+import Svg, { Path } from 'react-native-svg';
 import Animated, {
   FadeInDown,
   useSharedValue,
@@ -84,6 +86,32 @@ const BODY = lu.fonts.body;
 
 type MatchMode = 'video' | 'voice';
 type DsTab = 'all' | 'nearby' | 'list';
+
+// شكل البطاقة بقصّة علوية منحنية (درجة ناعمة) على الجهة اليمنى — تُعكس في RTL.
+const NOTCH_DIP = 17;
+const GIRL_RISE = 16; // مقدار بروز صورة الفتاة فوق حافة البطاقة.
+const TICKET_R = 32; // نصف قطر زوايا البطاقة.
+const notchTicketPath = (w: number, h: number, mirror: boolean) => {
+  const r = TICKET_R;
+  const d = NOTCH_DIP;
+  const x1 = w * 0.34; // بداية انحدار القصّة
+  const x2 = w * 0.68; // نهاية الانحدار
+  const k = (x2 - x1) * 0.9;
+  const X = (x: number) => (mirror ? w - x : x);
+  return [
+    `M ${X(0)} ${r}`,
+    `Q ${X(0)} 0 ${X(r)} 0`,
+    `L ${X(x1)} 0`,
+    `C ${X(x1 + k)} 0 ${X(x2 - k)} ${d} ${X(x2)} ${d}`,
+    `L ${X(w - r)} ${d}`,
+    `Q ${X(w)} ${d} ${X(w)} ${d + r}`,
+    `L ${X(w)} ${h - r}`,
+    `Q ${X(w)} ${h} ${X(w - r)} ${h}`,
+    `L ${X(r)} ${h}`,
+    `Q ${X(0)} ${h} ${X(0)} ${h - r}`,
+    'Z',
+  ].join(' ');
+};
 
 
 export default function DiscoverScreen() {
@@ -262,6 +290,7 @@ export default function DiscoverScreen() {
   // بطاقتا المطابقة (فيديو/صوت) — جنباً إلى جنب بدون تمرير.
   const ticketW = Math.floor((W - PAD * 2 - 10) / 2);
   const ticketH = Math.round(ticketW * 0.72);
+  const notchD = notchTicketPath(ticketW, ticketH, isRtl);
   const onlineLabel = (n: number) => `${n.toLocaleString(isRtl ? 'ar-EG' : 'en-US')} ${L('متصل', 'online')}`;
   // آخر كلمة من الوصف تُبرز بالأحمر — مثل "instantly" في التصميم المرجعي.
   const splitAccent = (s: string): [string, string] => {
@@ -371,7 +400,7 @@ export default function DiscoverScreen() {
   const ListHeader = (
     <View>
       <View style={{ paddingTop: insets.top + 8 }}>
-        <TabScreenHeader dark={isDark} pad={PAD} subtitle={t('rooms.homeSubtitle')}>
+        <TabScreenHeader dark={isDark} pad={PAD}>
           <HeaderIconButton dark={isDark} onPress={() => router.push('/search' as any)}>
             <Search size={headerMetrics.iconSize} color={pal.headerIcon} strokeWidth={2.2} />
           </HeaderIconButton>
@@ -381,66 +410,95 @@ export default function DiscoverScreen() {
         </TabScreenHeader>
       </View>
 
-      <Animated.View entering={FadeInDown.duration(500)} style={{ flexDirection: ROW, gap: 10, paddingHorizontal: PAD, marginTop: 4 }}>
+      <Animated.View entering={FadeInDown.duration(500)} style={{ flexDirection: ROW, gap: 10, paddingHorizontal: PAD, marginTop: GIRL_RISE + 2 }}>
         {matchTickets.map((tk) => (
-          <Animated.View key={tk.id} style={[ctaAnimStyle, { flex: 1 }]}>
+          <Animated.View key={tk.id} style={[ctaAnimStyle, { width: ticketW }]}>
             <Pressable
               onPressIn={() => { ctaPress.value = withTiming(0.96, { duration: 90 }); }}
               onPressOut={() => { ctaPress.value = withSpring(1); }}
               onPress={() => router.push(`/match/${tk.id}` as any)}
-              style={[styles.ticket, { height: ticketH, borderColor: tk.border, shadowColor: tk.glow }]}
+              style={{ height: ticketH }}
             >
-              <LinearGradient
-                colors={[...tk.bg]}
-                start={{ x: 0.1, y: 0 }}
-                end={{ x: 0.9, y: 1 }}
+              <MaskedView
                 style={StyleSheet.absoluteFillObject}
-              />
-              {tk.waves ? (
-                <View style={[styles.waveRow, { flexDirection: ROW }]} pointerEvents="none">
-                  {WAVE_HEIGHTS.map((h, i) => (
-                    <View key={i} style={[styles.waveBar, { height: h }]} />
-                  ))}
+                maskElement={
+                  <Svg width={ticketW} height={ticketH}>
+                    <Path d={notchD} fill="#fff" />
+                  </Svg>
+                }
+              >
+                <View style={{ flex: 1 }}>
+                  <LinearGradient
+                    colors={[...tk.bg]}
+                    start={{ x: 0.1, y: 0 }}
+                    end={{ x: 0.9, y: 1 }}
+                    style={StyleSheet.absoluteFillObject}
+                  />
+                  {tk.waves ? (
+                    <View style={[styles.waveRow, { flexDirection: ROW }]} pointerEvents="none">
+                      {WAVE_HEIGHTS.map((h, i) => (
+                        <View key={i} style={[styles.waveBar, { height: h }]} />
+                      ))}
+                    </View>
+                  ) : null}
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.girlArc,
+                      {
+                        width: ticketH * 1.55,
+                        height: ticketH * 1.55,
+                        borderRadius: ticketH * 0.78,
+                        top: -ticketH * 0.18,
+                        end: -ticketH * 0.45,
+                      },
+                    ]}
+                  />
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.girlArcInner,
+                      {
+                        width: ticketH * 1.15,
+                        height: ticketH * 1.15,
+                        borderRadius: ticketH * 0.58,
+                        top: 0,
+                        end: -ticketH * 0.3,
+                      },
+                    ]}
+                  />
+                  <LinearGradient
+                    colors={[tk.bg[1], `${tk.bg[1]}00`]}
+                    start={{ x: isRtl ? 1 : 0, y: 0.5 }}
+                    end={{ x: isRtl ? 0.4 : 0.6, y: 0.5 }}
+                    style={StyleSheet.absoluteFillObject}
+                    pointerEvents="none"
+                  />
                 </View>
-              ) : null}
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.girlArc,
-                  {
-                    width: ticketH * 1.55,
-                    height: ticketH * 1.55,
-                    borderRadius: ticketH * 0.78,
-                    top: -ticketH * 0.18,
-                  },
-                  isRtl ? { left: -ticketH * 0.45 } : { right: -ticketH * 0.45 },
-                ]}
-              />
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.girlArcInner,
-                  {
-                    width: ticketH * 1.15,
-                    height: ticketH * 1.15,
-                    borderRadius: ticketH * 0.58,
-                    top: 0,
-                  },
-                  isRtl ? { left: -ticketH * 0.3 } : { right: -ticketH * 0.3 },
-                ]}
-              />
-              <Image
-                source={tk.girl}
-                style={[styles.ticketGirl, isRtl ? { left: -6 } : { right: -6 }]}
-                contentFit="cover"
-              />
-              <LinearGradient
-                colors={[tk.bg[1], `${tk.bg[1]}00`]}
-                start={{ x: isRtl ? 1 : 0, y: 0.5 }}
-                end={{ x: isRtl ? 0.4 : 0.6, y: 0.5 }}
+              </MaskedView>
+              <Svg
+                width={ticketW}
+                height={ticketH}
                 style={StyleSheet.absoluteFillObject}
                 pointerEvents="none"
-              />
+              >
+                <Path d={notchD} fill="none" stroke={tk.border} strokeWidth={1.5} />
+              </Svg>
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.girlWrap,
+                  // خصائص منطقية — تنعكس تلقائياً مع RTL لتبقى الفتاة على جهة القصّة.
+                  { height: ticketH + GIRL_RISE, end: 0, borderBottomEndRadius: TICKET_R },
+                ]}
+              >
+                <Image
+                  source={tk.girl}
+                  style={styles.ticketGirl}
+                  contentFit="cover"
+                  contentPosition="top"
+                />
+              </View>
               <View style={styles.ticketContent}>
                 <Image source={tk.icon} style={styles.ticketIcon} contentFit="contain" />
                 <View style={[styles.heroTitleRow, { flexDirection: ROW }]}>
@@ -451,6 +509,10 @@ export default function DiscoverScreen() {
                   {splitAccent(tk.sub)[0]}{splitAccent(tk.sub)[0] ? ' ' : ''}
                   <Text style={styles.ticketSubAccent}>{splitAccent(tk.sub)[1]}</Text>
                 </Text>
+                <View style={[styles.onlineRow, { flexDirection: ROW }]}>
+                  <Animated.View style={[styles.onlineDot, heroDotGlow]} />
+                  <Text style={styles.onlineRowText}>{tk.online}</Text>
+                </View>
               </View>
             </Pressable>
           </Animated.View>
@@ -583,20 +645,16 @@ export default function DiscoverScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
 
-  ticket: {
-    borderRadius: 24,
+  // حاوية صورة الفتاة — تبرز فوق حافة البطاقة المقصوصة.
+  girlWrap: {
+    position: 'absolute',
+    bottom: 0,
+    width: '52%',
     overflow: 'hidden',
-    borderWidth: 1,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.45,
-    shadowRadius: 18,
-    elevation: 10,
   },
   ticketGirl: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: '50%',
+    width: '100%',
+    height: '100%',
   },
   ticketContent: {
     flex: 1,
@@ -655,7 +713,13 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
   },
   onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#36E07A', shadowColor: '#36E07A', shadowOpacity: 0.9, shadowRadius: 5 },
-  onlineText: { color: '#fff', fontSize: 11, fontWeight: '700', fontFamily: lu.fonts.bodyBold },
+  onlineText: { color: '#fff', fontSize: 11, fontWeight: '700', fontFamily: lu.fonts.bodyBold, includeFontPadding: false },
+  // صفّ المتصلين أسفل الوصف داخل البطاقة.
+  onlineRow: { alignItems: 'center', gap: 5, marginTop: 3 },
+  onlineRowText: {
+    color: 'rgba(255,255,255,0.72)', fontSize: 9.5, fontWeight: '700',
+    fontFamily: lu.fonts.bodyBold, includeFontPadding: false,
+  },
 
   trust: { alignItems: 'stretch', justifyContent: 'center', gap: 8, marginTop: 12 },
   trustItem: {
