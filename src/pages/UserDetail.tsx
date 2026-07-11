@@ -5,11 +5,16 @@ import {
   ArrowRight, Coins, Gem, Crown, BadgeCheck, Ban, Pencil, Trash2,
   Gift, ArrowDownToLine, Gamepad2, Award, Bell, User, Calendar, X,
   Lock, Eye, EyeOff, Copy, RefreshCw, Smartphone, MapPin, Globe2,
+  AlertTriangle, Wifi,
 } from 'lucide-react';
+import { subscribeToUserPresence, isPresenceOnline } from '@/lib/presence';
 import { Loading, Empty, Badge } from '@/components/Common';
 import { CopyableId } from '@/components/CopyableId';
 import { CountryBadge, CountrySelect } from '@/components/CountrySelect';
 import { NotifyUserModal } from '@/components/NotifyUserModal';
+import { SuspendUserModal } from '@/components/SuspendUserModal';
+import { useToast } from '@/components/Toast';
+import { useConfirmDialog } from '@/components/ConfirmDialog';
 import { useAdminProfile } from '@/contexts/AdminProfileContext';
 import {
   getUserFullProfile,
@@ -23,6 +28,7 @@ import {
   adminDeleteAppUsers,
   addUserBalance,
   banUser,
+  unsuspendUser,
   logAdminAction,
   formatNumber,
   formatDate,
@@ -96,6 +102,7 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('overview');
   const [notifyOpen, setNotifyOpen] = useState(false);
+  const [lastPingAt, setLastPingAt] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!uid) return;
@@ -118,6 +125,11 @@ export default function UserDetailPage() {
   }, [uid]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!uid) return;
+    return subscribeToUserPresence(uid, setLastPingAt);
+  }, [uid]);
 
   const giftTxs = useMemo(
     () => txs.filter((t) => String(t.type).includes('gift')),
@@ -197,7 +209,20 @@ export default function UserDetailPage() {
               {user.displayName}
               {user.isVerified && <BadgeCheck size={20} color="#b00814" />}
               {user.isVIP && <Badge variant="gold">VIP{user.vipLevel ? ` ${user.vipLevel}` : ''}</Badge>}
-              {user.isBanned && <Badge variant="red">محظور</Badge>}
+              {user.isSuspended ? (
+                <Badge variant="gold">
+                  معلّق مؤقتاً{user.suspendedUntil ? ` — حتى ${formatDate(user.suspendedUntil)}` : ''}
+                </Badge>
+              ) : user.isBanned ? (
+                <Badge variant="red">محظور دائماً</Badge>
+              ) : user.accountStatus === 'pending_deletion' ? (
+                <Badge variant="gray">بانتظار الحذف</Badge>
+              ) : (
+                <Badge variant="green">نشط</Badge>
+              )}
+              <Badge variant={isPresenceOnline(lastPingAt) ? 'green' : 'gray'}>
+                {isPresenceOnline(lastPingAt) ? '● متصل الآن' : '○ غير متصل'}
+              </Badge>
             </h1>
             <CopyableId id={user.publicAccountId} label="معرّف" />
             <p style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace', margin: '6px 0' }}>
@@ -476,6 +501,9 @@ function UserEditPanel({
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [managedPassword, setManagedPassword] = useState(user.adminManagedPassword ?? '');
   const [saving, setSaving] = useState(false);
+  const [suspendModalOpen, setSuspendModalOpen] = useState(false);
+  const { showSuccess, showError, ToastPortal } = useToast();
+  const { confirmAsync, ConfirmPortal } = useConfirmDialog();
 
   useEffect(() => {
     setManagedPassword(user.adminManagedPassword ?? '');
@@ -488,8 +516,9 @@ function UserEditPanel({
       await adminUpdateAppUser(user.uid, patch);
       await logAdminAction('تعديل مستخدم', user.displayName, user.uid);
       onSaved();
+      showSuccess('تم حفظ التعديلات');
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'فشل الحفظ');
+      showError(e instanceof Error ? e.message : 'فشل الحفظ');
     } finally {
       setSaving(false);
     }
@@ -497,37 +526,56 @@ function UserEditPanel({
 
   const handleAddCoins = async () => {
     const delta = Math.floor(Number(addCoins) || 0);
-    if (delta <= 0) return alert('أدخل مبلغاً');
-    if (!confirm(`إضافة ${formatNumber(delta)} عملة؟`)) return;
+    if (delta <= 0) return showError('أدخل مبلغاً');
+    if (!(await confirmAsync(`إضافة ${formatNumber(delta)} عملة؟`))) return;
     setSaving(true);
     try {
       const { newBalance } = await addUserBalance(user.uid, 'coins', delta);
       setPatch((p) => ({ ...p, coins: newBalance }));
       await logAdminAction('شحن عملات', user.displayName, `+${delta}`);
       onSaved();
+      showSuccess(`تمت إضافة ${formatNumber(delta)} عملة`);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'فشل');
+      showError(e instanceof Error ? e.message : 'فشل');
     } finally {
       setSaving(false);
     }
   };
 
   const handleBan = async () => {
-    if (!confirm(`${user.isBanned ? 'إلغاء حظر' : 'حظر'} ${user.displayName}؟`)) return;
-    await banUser(user.uid, !user.isBanned);
-    await logAdminAction(user.isBanned ? 'إلغاء حظر' : 'حظر مستخدم', user.displayName, user.uid);
+    if (!(await confirmAsync(`${user.isBanned ? 'إلغاء حظر' : 'حظر'} ${user.displayName}؟`))) return;
+    try {
+      await banUser(user.uid, !user.isBanned);
+      await logAdminAction(user.isBanned ? 'إلغاء حظر' : 'حظر مستخدم', user.displayName, user.uid);
+      onSaved();
+      showSuccess(user.isBanned ? 'تم رفع الحظر' : 'تم حظر المستخدم');
+    } catch (e: unknown) {
+      showError(e instanceof Error ? e.message : 'فشل تنفيذ الإجراء');
+    }
+  };
+
+  const handleUnsuspend = async () => {
+    if (!(await confirmAsync(`رفع تعليق حساب ${user.displayName}؟`))) return;
+    try {
+      await unsuspendUser(user.uid);
+    } catch (e) {
+      showError('فشل رفع التعليق: ' + (e instanceof Error ? e.message : String(e)));
+      return;
+    }
+    await logAdminAction('رفع تعليق مستخدم', user.displayName, user.uid);
     onSaved();
+    showSuccess('تم رفع التعليق المؤقت');
   };
 
   const handleDelete = async () => {
-    if (!confirm(`حذف "${user.displayName}" نهائياً؟`)) return;
+    if (!(await confirmAsync(`حذف "${user.displayName}" نهائياً؟`))) return;
     setSaving(true);
     try {
       await adminDeleteAppUsers({ mode: 'selected', uids: [user.uid] });
       await logAdminAction('حذف مستخدم', user.displayName, user.uid);
       onDeleted();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'فشل الحذف');
+      showError(e instanceof Error ? e.message : 'فشل الحذف');
     } finally {
       setSaving(false);
     }
@@ -546,10 +594,10 @@ function UserEditPanel({
   const handleSetPassword = async () => {
     const pwd = newPassword.trim();
     if (pwd.length < 6) {
-      alert('كلمة المرور 6 أحرف على الأقل');
+      showError('كلمة المرور 6 أحرف على الأقل');
       return;
     }
-    if (!confirm('تعيين كلمة المرور الجديدة للمستخدم؟')) return;
+    if (!(await confirmAsync('تعيين كلمة المرور الجديدة للمستخدم؟'))) return;
     setSaving(true);
     try {
       await adminSetAppUserPassword(user.uid, pwd);
@@ -557,9 +605,9 @@ function UserEditPanel({
       setNewPassword('');
       await logAdminAction('تعيين كلمة مرور مستخدم', user.displayName, user.uid);
       onSaved();
-      alert('تم تعيين كلمة المرور');
+      showSuccess('تم تعيين كلمة المرور');
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'فشل تعيين كلمة المرور');
+      showError(e instanceof Error ? e.message : 'فشل تعيين كلمة المرور');
     } finally {
       setSaving(false);
     }
@@ -569,9 +617,9 @@ function UserEditPanel({
     if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
-      alert('تم النسخ');
+      showSuccess('تم النسخ');
     } catch {
-      alert('تعذّر النسخ');
+      showError('تعذّر النسخ');
     }
   };
 
@@ -579,6 +627,8 @@ function UserEditPanel({
 
   return (
     <div className="card">
+      {ToastPortal}
+      {ConfirmPortal}
       <div className="card-body">
         <div
           style={{
@@ -739,13 +789,28 @@ function UserEditPanel({
             {saving ? '...' : 'حفظ التعديلات'}
           </button>
           <button type="button" className="btn btn-ghost" onClick={handleBan}>
-            <Ban size={16} /> {user.isBanned ? 'رفع الحظر' : 'حظر'}
+            <Ban size={16} /> {user.isBanned ? 'رفع الحظر الدائم' : 'حظر دائم'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => (user.isSuspended ? void handleUnsuspend() : setSuspendModalOpen(true))}
+          >
+            <Lock size={16} /> {user.isSuspended ? 'رفع التعليق المؤقت' : 'تعليق مؤقت'}
           </button>
           <button type="button" className="btn" style={{ background: '#FEE2E2', color: '#B91C1C' }} onClick={handleDelete} disabled={saving}>
             <Trash2 size={16} /> حذف نهائي
           </button>
         </div>
       </div>
+
+      {suspendModalOpen && (
+        <SuspendUserModal
+          user={user}
+          onClose={() => setSuspendModalOpen(false)}
+          onSaved={() => { setSuspendModalOpen(false); onSaved(); }}
+        />
+      )}
     </div>
   );
 }
@@ -758,9 +823,30 @@ function UserSessionsPanel({
   sessions: AdminLoginSession[];
 }) {
   const devices = user.registeredDevices ?? [];
+  const suspiciousCount = sessions.filter((s) => s.flaggedSuspicious).length;
+  const totalLogins = devices.reduce((n, d) => n + (d.loginCount ?? 0), 0);
 
   return (
     <>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-body" style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Globe2 size={18} color="var(--brand-primary)" />
+            <span style={{ fontSize: 14 }}>استُخدم الحساب على <strong>{devices.length}</strong> جهاز{devices.length === 1 ? '' : 'ة'}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Smartphone size={18} color="var(--brand-primary)" />
+            <span style={{ fontSize: 14 }}>إجمالي مرات الدخول: <strong>{totalLogins || '—'}</strong></span>
+          </div>
+          {suspiciousCount > 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <AlertTriangle size={16} color="#EF4444" />
+              <Badge variant="red">{suspiciousCount} تسجيل دخول مشبوه</Badge>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header">
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -800,16 +886,22 @@ function UserSessionsPanel({
                   <th>النظام</th>
                   <th>معرّف الجهاز</th>
                   <th>آخر IP</th>
+                  <th>الاتصال</th>
                   <th>الموقع</th>
                   <th>مرات الدخول</th>
                   <th>آخر نشاط</th>
                 </tr>
               </thead>
               <tbody>
-                {devices.map((d: AdminRegisteredDevice) => (
-                  <tr key={d.id}>
+                {devices.map((d: AdminRegisteredDevice) => {
+                  const isCurrent = !!user.lastLoginDeviceId && d.id === user.lastLoginDeviceId;
+                  return (
+                  <tr key={d.id} style={isCurrent ? { background: 'rgba(16,185,129,0.06)' } : undefined}>
                     <td>
-                      <div style={{ fontWeight: 700 }}>{d.name || '—'}</div>
+                      <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {d.name || '—'}
+                        {isCurrent ? <Badge variant="green">الجهاز الحالي</Badge> : null}
+                      </div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
                         {d.brand} {d.model}
                       </div>
@@ -819,11 +911,19 @@ function UserSessionsPanel({
                       {d.deviceIdentifier || d.id}
                     </td>
                     <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{d.lastIp || '—'}</td>
+                    <td>
+                      {d.connectionType ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                          <Wifi size={13} /> {d.connectionType}
+                        </span>
+                      ) : '—'}
+                    </td>
                     <td style={{ fontSize: 12, maxWidth: 200 }}>{formatLocation(d.lastLocation)}</td>
                     <td>{d.loginCount ?? '—'}</td>
                     <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>{timeAgo(d.lastActiveAt)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -850,11 +950,12 @@ function UserSessionsPanel({
                   <th>معرّف الجهاز</th>
                   <th>الموقع</th>
                   <th>إصدار التطبيق</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {sessions.map((s) => (
-                  <tr key={s.id}>
+                  <tr key={s.id} style={s.flaggedSuspicious ? { background: 'rgba(239,68,68,0.06)' } : undefined}>
                     <td style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{formatDate(s.createdAt)}</td>
                     <td>{loginMethodLabel(s.method)}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{s.ip || '—'}</td>
@@ -862,6 +963,7 @@ function UserSessionsPanel({
                       <div style={{ fontWeight: 600 }}>{s.deviceName || '—'}</div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                         {s.brand} {s.model} · {s.platform} {s.osVersion}
+                        {s.connectionType ? ` · ${s.connectionType}` : ''}
                       </div>
                     </td>
                     <td style={{ fontFamily: 'monospace', fontSize: 11, maxWidth: 160, wordBreak: 'break-all' }}>
@@ -869,6 +971,14 @@ function UserSessionsPanel({
                     </td>
                     <td style={{ fontSize: 12, maxWidth: 200 }}>{formatLocation(s.location)}</td>
                     <td style={{ fontSize: 12 }}>{s.appVersion || '—'}</td>
+                    <td>
+                      {s.flaggedSuspicious ? (
+                        <Badge variant="red">
+                          <AlertTriangle size={11} style={{ display: 'inline', marginInlineEnd: 3 }} />
+                          مشبوه
+                        </Badge>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>

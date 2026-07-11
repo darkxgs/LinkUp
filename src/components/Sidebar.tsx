@@ -1,123 +1,11 @@
 import { useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ADMIN_BASE, adminPath } from '@/lib/adminPaths';
-import {
-  LayoutDashboard,
-  Users,
-  Radio,
-  Building2,
-  Wallet,
-  Gift,
-  Crown,
-  Award,
-  Coins,
-  Gamepad2,
-  Heart,
-  FileText,
-  TrendingUp,
-  Settings,
-  Sparkles,
-  LogOut,
-  Bell,
-  History,
-  ArrowUpFromLine,
-  Package,
-  ShoppingBag,
-  Headphones,
-  Phone,
-  ShieldCheck,
-  Flag,
-  Frame,
-  Layers,
-  Clock,
-  Smartphone,
-  UserCog,
-  Smile,
-  Bot,
-} from 'lucide-react';
+import { adminPath } from '@/lib/adminPaths';
+import { Crown, LogOut } from 'lucide-react';
 import { useAdminProfile } from '@/contexts/AdminProfileContext';
 import { useAdminAlerts } from '@/contexts/AdminAlertsContext';
 import { BrandLogo } from '@/components/BrandLogo';
-import type { PermissionKey } from '@/services/admin';
-
-const NAV_SECTIONS = [
-  {
-    title: 'عام',
-    items: [
-      { to: ADMIN_BASE, label: 'لوحة المعلومات', icon: LayoutDashboard, end: true },
-      { to: adminPath('/analytics'), label: 'الإحصائيات والأرباح', icon: TrendingUp, perm: 'analytics' },
-      { to: adminPath('/call-usage'), label: 'استهلاك دقائق المزوّد', icon: Clock, perm: 'analytics' },
-    ],
-  },
-  {
-    title: 'الإدارة',
-    items: [
-      { to: adminPath('/users'), label: 'المستخدمون', icon: Users, perm: 'users' },
-      { to: adminPath('/staff'), label: 'موظفو التطبيق', icon: UserCog, perm: 'users' },
-      { to: adminPath('/kyc-requests'), label: 'طلبات التحقق من الهوية', icon: ShieldCheck, perm: 'users' },
-    ],
-  },
-  {
-    title: 'الغرف الصوتية المباشرة',
-    items: [
-      { to: adminPath('/rooms'), label: 'الغرف الصوتية', icon: Radio, perm: 'rooms' },
-      { to: adminPath('/room-decor'), label: 'تخصيص الروم (إطارات/خلفيات)', icon: Frame, perm: 'rooms' },
-      { to: adminPath('/room-reactions'), label: 'رموز الروم (GIF/صور)', icon: Smile, perm: 'rooms' },
-    ],
-  },
-  {
-    title: 'الوكالات',
-    items: [
-      { to: adminPath('/agencies'), label: 'الوكالات', icon: Building2, perm: 'agencies' },
-      { to: adminPath('/agency-levels'), label: 'مستويات الوكالة', icon: TrendingUp, perm: 'agencies' },
-      { to: adminPath('/agency-prince'), label: 'أمير الوكلاء', icon: Crown, perm: 'agencies' },
-      { to: adminPath('/agency-applications'), label: 'طلبات فتح الوكالة', icon: FileText, perm: 'applications' },
-    ],
-  },
-  {
-    title: 'المالية',
-    items: [
-      { to: adminPath('/wallet'), label: 'الشحن والسحب', icon: Wallet, badge: '!', perm: 'wallet' },
-      { to: adminPath('/withdrawals'), label: 'طلبات السحب', icon: ArrowUpFromLine, perm: 'withdrawals' },
-      { to: adminPath('/bot'), label: 'بوت تيليغرام (شحن)', icon: Bot, perm: 'bot' },
-      { to: adminPath('/packages'), label: 'باقات الشحن', icon: Coins, perm: 'gifts' },
-      { to: adminPath('/gifts'), label: 'الهدايا', icon: Gift, perm: 'gifts' },
-      { to: adminPath('/store'), label: 'متجر التطبيق', icon: ShoppingBag, perm: 'gifts' },
-      { to: adminPath('/lucky-bag'), label: 'حقيبة الحظ', icon: Package, perm: 'gifts' },
-      { to: adminPath('/room-throne'), label: 'عرش الغرفة', icon: Crown, perm: 'gifts' },
-      { to: adminPath('/vip'), label: 'العضويات VIP', icon: Crown, perm: 'gifts' },
-      { to: adminPath('/aristocracy'), label: 'الأرستقراطية', icon: Crown, perm: 'gifts' },
-      { to: adminPath('/rewards-center'), label: 'مركز المكافآت', icon: Gift, perm: 'gifts' },
-      { to: adminPath('/host-tasks'), label: 'مهام المضيفة', icon: Award, perm: 'gifts' },
-      { to: adminPath('/titles'), label: 'الألقاب (لقبي)', icon: Award, perm: 'gifts' },
-      { to: adminPath('/gift-privileges'), label: 'منح الامتيازات', icon: Sparkles, perm: 'gifts' },
-      { to: adminPath('/privacy'), label: 'الخصوصية', icon: ShieldCheck, perm: 'gifts' },
-      { to: adminPath('/call-pricing'), label: 'تسعير المكالمات والمطابقة', icon: Phone, perm: 'wallet' },
-    ],
-  },
-  {
-    title: 'المحتوى',
-    items: [
-      { to: adminPath('/posts'), label: 'المنشورات / اللحظات', icon: FileText, perm: 'posts' },
-      { to: adminPath('/games'), label: 'الألعاب', icon: Gamepad2, perm: 'posts' },
-      { to: adminPath('/relationships'), label: 'العلاقات', icon: Heart, perm: 'posts' },
-      { to: adminPath('/chat-backgrounds'), label: 'خلفيات المحادثة', icon: Layers, perm: 'posts' },
-      { to: adminPath('/notifications'), label: 'إشعارات المستخدمين', icon: Bell, perm: 'notifications' },
-      { to: adminPath('/about-pages'), label: 'حول التطبيق', icon: FileText, perm: 'posts' },
-      { to: adminPath('/support'), label: 'مركز الدعم', icon: Headphones, perm: 'support' },
-      { to: adminPath('/reports'), label: 'البلاغات', icon: Flag, perm: 'support' },
-    ],
-  },
-  {
-    title: 'النظام',
-    items: [
-      { to: adminPath('/admins'), label: 'المشرفون والصلاحيات', icon: ShieldCheck, superOnly: true },
-      { to: adminPath('/logs'), label: 'سجل النشاط', icon: History, superOnly: true },
-      { to: adminPath('/settings'), label: 'الإعدادات', icon: Settings, perm: 'settings' },
-      { to: adminPath('/app-release'), label: 'إصدار التطبيق (APK)', icon: Smartphone, perm: 'settings' },
-    ],
-  },
-];
+import { NAV_SECTIONS, navItemPerm } from '@/lib/navConfig';
 
 interface Props {
   open: boolean;
@@ -136,8 +24,8 @@ export default function Sidebar({ open, onClose, onLogout }: Props) {
       NAV_SECTIONS.map((section) => ({
         ...section,
         items: section.items.filter((item) => {
-          if ((item as any).superOnly) return isSuper;
-          const perm = (item as any).perm as PermissionKey | undefined;
+          if (item.superOnly) return isSuper;
+          const perm = navItemPerm(item);
           return isSuper || !perm || can(perm);
         }),
       })).filter((section) => section.items.length > 0),
@@ -168,12 +56,12 @@ export default function Sidebar({ open, onClose, onLogout }: Props) {
                 const dynamicBadge =
                   item.to === adminPath('/agencies') && partyPendingCount > 0
                     ? String(partyPendingCount > 9 ? '9+' : partyPendingCount)
-                    : (item as { badge?: string }).badge;
+                    : item.badge;
                 return (
                   <NavLink
                     key={item.to}
                     to={item.to}
-                    end={(item as { end?: boolean }).end}
+                    end={item.end}
                     className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
                     onClick={onClose}
                   >

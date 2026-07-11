@@ -352,7 +352,12 @@ export default function UsersPage() {
                       />
                     </td>
                     <td>
-                      <div className="table-user">
+                      <div
+                        className="table-user"
+                        onClick={() => navigate(adminPath(`/users/${u.uid}`))}
+                        style={{ cursor: 'pointer' }}
+                        title="تفاصيل وتعديل"
+                      >
                         <img src={u.avatar || AVATAR_FALLBACK} alt="" loading="lazy" />
                         <div className="table-user-info">
                           <p>

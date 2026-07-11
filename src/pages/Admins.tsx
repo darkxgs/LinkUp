@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ShieldCheck, Plus, Trash2, Pencil, X, Globe, Crown, Lock, UserCheck } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ShieldCheck, Plus, Trash2, Pencil, X, Globe, Crown, Lock, UserCheck, Search, KeyRound } from 'lucide-react';
 import { Loading, Empty, Badge } from '@/components/Common';
 import { CountrySelect, formatCountryLabel } from '@/components/CountrySelect';
 import { useAdminProfile } from '@/contexts/AdminProfileContext';
@@ -7,23 +7,51 @@ import {
   listAdmins, createAdminUser, updateAdminUser, deleteAdminUser,
   logAdminAction, PERMISSION_SECTIONS, type AdminProfile,
 } from '@/services/admin';
+import { PermissionSelect } from '@/components/PermissionSelect';
 
 const EMPTY_PERMS = () =>
   Object.fromEntries(PERMISSION_SECTIONS.map((s) => [s.key, false])) as Record<string, boolean>;
+
+const PAGE_SIZE = 20;
+type RoleFilter = 'all' | 'super' | 'country' | 'disabled';
 
 export default function AdminsPage() {
   const { isSuper, profile } = useAdminProfile();
   const [admins, setAdmins] = useState<AdminProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<AdminProfile | null>(null);
+  const [managingPerms, setManagingPerms] = useState<AdminProfile | null>(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
+  const [page, setPage] = useState(0);
 
   const load = () => {
     setLoading(true);
     listAdmins().then((a) => { setAdmins(a); setLoading(false); });
   };
   useEffect(load, []);
+
+  const filtered = useMemo(() => admins.filter((a) => {
+    const q = search.toLowerCase().trim();
+    const matchSearch = !q ||
+      a.name.toLowerCase().includes(q) ||
+      a.email.toLowerCase().includes(q) ||
+      a.uid.toLowerCase().includes(q) ||
+      (a.countries ?? []).some((c) => c.toLowerCase().includes(q));
+    const matchFilter =
+      roleFilter === 'all' ? true :
+      roleFilter === 'super' ? a.role === 'super' :
+      roleFilter === 'country' ? a.role === 'country' :
+      roleFilter === 'disabled' ? !!a.disabled : true;
+    return matchSearch && matchFilter;
+  }), [admins, search, roleFilter]);
+
+  useEffect(() => { setPage(0); }, [search, roleFilter]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const paged = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   if (!isSuper) {
     return (
@@ -75,15 +103,33 @@ export default function AdminsPage() {
         </button>
       </div>
 
+      <div className="filters-bar">
+        <div className="search-box">
+          <Search size={18} color="var(--text-muted)" />
+          <input
+            placeholder="ابحث بالاسم، البريد، الدولة، UID..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <select className="filter-select" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}>
+          <option value="all">كل المشرفين</option>
+          <option value="super">مدير نظام</option>
+          <option value="country">مشرف دول</option>
+          <option value="disabled">معطّلون</option>
+        </select>
+      </div>
+
       <div className="card">
-        {loading ? <Loading /> : admins.length === 0 ? <Empty text="لا يوجد مشرفون" /> : (
+        {loading ? <Loading /> : filtered.length === 0 ? <Empty text="لا يوجد مشرفون" /> : (
+          <>
           <div className="table-wrap">
             <table className="data-table">
               <thead>
-                <tr><th>المشرف</th><th>الدور</th><th>الدول</th><th>الصلاحيات</th><th>الحالة</th><th>إجراءات</th></tr>
+                <tr><th>المشرف</th><th>الدور</th><th>الدول</th><th>الصلاحيات</th><th>إدارة الصلاحيات</th><th>الحالة</th><th>إجراءات</th></tr>
               </thead>
               <tbody>
-                {admins.map((a) => {
+                {paged.map((a) => {
                   const permCount = a.role === 'super'
                     ? PERMISSION_SECTIONS.length
                     : Object.values(a.permissions ?? {}).filter(Boolean).length;
@@ -103,7 +149,16 @@ export default function AdminsPage() {
                       <td style={{ fontSize: 13 }}>
                         {a.role === 'super' ? 'كل الدول' : (a.countries ?? []).map(formatCountryLabel).join('، ') || '—'}
                       </td>
-                      <td><Badge variant="blue">{permCount} قسم</Badge></td>
+                      <td><Badge variant="blue">{permCount} صفحة</Badge></td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {a.role === 'super' ? (
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
+                        ) : (
+                          <button className="btn btn-ghost btn-sm" onClick={() => setManagingPerms(a)} style={{ color: 'var(--brand-primary)' }}>
+                            <KeyRound size={14} /> إدارة الصلاحيات
+                          </button>
+                        )}
+                      </td>
                       <td>{a.disabled ? <Badge variant="red">معطّل</Badge> : <Badge variant="green">نشط</Badge>}</td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 6 }}>
@@ -124,11 +179,78 @@ export default function AdminsPage() {
               </tbody>
             </table>
           </div>
+          {pageCount > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '14px 0 2px' }}>
+              <button
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={safePage <= 0}
+                style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', cursor: safePage <= 0 ? 'default' : 'pointer', opacity: safePage <= 0 ? 0.5 : 1 }}
+              >
+                السابق
+              </button>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                صفحة {safePage + 1} من {pageCount} · {filtered.length} مشرف
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                disabled={safePage >= pageCount - 1}
+                style={{ padding: '6px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', cursor: safePage >= pageCount - 1 ? 'default' : 'pointer', opacity: safePage >= pageCount - 1 ? 0.5 : 1 }}
+              >
+                التالي
+              </button>
+            </div>
+          )}
+          </>
         )}
       </div>
 
       {creating && <AdminFormModal onClose={() => setCreating(false)} onSaved={() => { setCreating(false); load(); }} />}
       {editing && <AdminFormModal admin={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {managingPerms && (
+        <ManagePermissionsModal
+          admin={managingPerms}
+          onClose={() => setManagingPerms(null)}
+          onSaved={() => { setManagingPerms(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ==================== نافذة إدارة الصلاحيات فقط ====================
+function ManagePermissionsModal({ admin, onClose, onSaved }: {
+  admin: AdminProfile; onClose: () => void; onSaved: () => void;
+}) {
+  const [perms, setPerms] = useState<Record<string, boolean>>({ ...EMPTY_PERMS(), ...(admin.permissions ?? {}) });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateAdminUser({ targetUid: admin.uid, permissions: perms });
+      await logAdminAction('تعديل صلاحيات مشرف', admin.name, admin.email);
+      onSaved();
+    } catch (e: any) { alert('فشل: ' + (e?.message ?? 'خطأ')); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <div className="modal-header">
+          <h3>إدارة صلاحيات {admin.name}</h3>
+          <button className="action-icon" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="modal-body">
+          <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 12 }}>
+            {admin.email} — تعديل الصفحات المسموح بالوصول إليها فقط (بدون تغيير الاسم/الدولة/الدور).
+          </p>
+          <PermissionSelect value={perms} onChange={setPerms} />
+          <button className="btn-primary" onClick={handleSave} disabled={saving} style={{ width: '100%', marginTop: 16, justifyContent: 'center' }}>
+            {saving ? 'جارٍ الحفظ...' : 'حفظ الصلاحيات'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -154,7 +276,6 @@ function AdminFormModal({ admin, onClose, onSaved }: {
     setPickCountry('');
   };
   const removeCountry = (code: string) => setCountries((prev) => prev.filter((c) => c !== code));
-  const togglePerm = (key: string) => setPerms((p) => ({ ...p, [key]: !p[key] }));
 
   const handleSave = async () => {
     if (!isEdit && (!email.trim() || password.length < 6)) return alert('بريد صالح وكلمة مرور (6+) مطلوبان');
@@ -216,16 +337,9 @@ function AdminFormModal({ admin, onClose, onSaved }: {
                 </div>
               </Field>
 
-              <Field label="الصلاحيات (الأقسام المتاحة)">
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  {PERMISSION_SECTIONS.map((s) => (
-                    <label key={s.key} className={`perm-toggle ${perms[s.key] ? 'on' : ''}`}>
-                      <input type="checkbox" checked={!!perms[s.key]} onChange={() => togglePerm(s.key)} />
-                      <span>{s.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </Field>
+              <div style={{ marginBottom: 14 }}>
+                <PermissionSelect value={perms} onChange={setPerms} />
+              </div>
             </>
           )}
 
