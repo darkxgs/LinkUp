@@ -7414,6 +7414,12 @@ export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () =>
         const joinedAt = Number(memberSnap.child('joinedAt').val()) || 0;
         if (now - joinedAt < STALE_MS) return; // انضمام حديث — أمهله
         if (isStale(uid)) {
+          // غياب مفتاح presence لحظياً ليس ركوداً مؤكداً — يُحذف بـonDisconnect
+          // عند أي تقطع عابر ولا يُعاد إلا بنبضة كل دقيقتين. مع مؤشر
+          // userCurrentRoom يشير لهذه الغرفة نتركه (نفس قاعدة الغموض في فرع
+          // المقاعد) — حذفه كان يشغّل سلسلة prune في العملاء فتُفرَّغ مقاعد حية.
+          const lastSeen = Number(presence[uid]) || 0;
+          if (lastSeen === 0 && pointers[uid]?.roomId === roomId) return;
           updates[`roomAudience/${roomId}/${uid}`] = null;
           updates[`userCurrentRoom/${uid}`] = null;
           return;
@@ -7625,7 +7631,7 @@ async function recomputeAgencyMemberCounts(agencyId: string): Promise<void> {
 }
 
 /** أي إنشاء/حذف/نقل عضوية من أي مسار — يُبقي عدّاد الأعضاء حقيقياً دائماً */
-export const syncAgencyMemberCountOnWrite = onDocumentWritten(
+export const agencyMemberCountSyncV2 = onDocumentWritten(
   'agencyMembers/{memberId}',
   async (event) => {
     const before = event.data?.before?.data();
@@ -7639,7 +7645,7 @@ export const syncAgencyMemberCountOnWrite = onDocumentWritten(
       try {
         await recomputeAgencyMemberCounts(id);
       } catch (e) {
-        console.error('syncAgencyMemberCountOnWrite:', id, e);
+        console.error('agencyMemberCountSyncV2:', id, e);
       }
     }
   },
@@ -8178,7 +8184,7 @@ export const adminDiscoverAristocracyUploads = onCall(async (request) => {
 // ==================== SHARE LINKS (روابط مختصرة + Deep Link) ====================
 export { createShareLink, shareRedirect, resolveShareLink } from './shareLinks';
 export { recordLoginSession } from './loginSession';
-export { processKycVerification, verifyGenderFace, repairKycMismatchBan, syncKycStatusToUser } from './kycVerification';
+export { processKycVerification, verifyGenderFace, repairKycMismatchBan, kycStatusSyncV2 } from './kycVerification';
 export { getLandmarkQuizRound, getLandmarkCountries } from './intelligenceLandmarkQuiz';
 export { placeIntelligenceGameBet } from './intelligenceGames';
 export { roomGamesApi } from './roomGamesApi';

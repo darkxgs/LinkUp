@@ -440,7 +440,8 @@ export const processKycVerification = onCall({ memory: '512MiB', timeoutSeconds:
  * بدونها يبقى المستخدم «غير موثّق» في التطبيق رغم موافقة الإدارة — «وثّقت مرتين وما تغيّر شيء».
  * كتابات دوال KYC نفسها تحمل syncedStatus مطابقاً للحالة فلا تُعاد معالجتها (ولا تتكرر الإشعارات).
  */
-export const syncKycStatusToUser = onDocumentUpdated('kycRequests/{uid}', async (event) => {
+// الاسم V2: كان syncKycStatusToUser HTTPS قديمة في الإنتاج، وتغيير النوع إلى trigger مرفوض من Firebase
+export const kycStatusSyncV2 = onDocumentUpdated('kycRequests/{uid}', async (event) => {
   const after = event.data?.after.data();
   if (!after) return;
 
