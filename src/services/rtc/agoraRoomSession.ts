@@ -13,7 +13,8 @@
  *   تطبيق الحالة عند reconnected — تسقط حيل verifyMicActuallyMuted
  *   وحارس TrackUnmuted وإعادة الـ600ms.
  * - كتم السماع أمر واحد (setAllRemoteMuted) — تسقط مؤقتات إعادة التطبيق
- *   120/450/1200/2500ms؛ ويبقى نقل كتم موسيقى expo-av والمؤثرات المحلية.
+ *   120/450/1200/2500ms؛ ويبقى نقل الكتم لسماع الـDJ المحلي للموسيقى
+ *   (playout خلط Agora) وللمؤثرات المحلية (expo-av).
  * - السماعة عبر setSpeakerphone + حدث audioRouteChanged — يسقط poll الأجهزة.
  *
  * ملاحظة الأجيال: أحداث المحرك يحرسها joinGeneration داخل agoraEngine —
@@ -333,8 +334,9 @@ class AgoraRoomSessionManager {
 
   setRemoteAudioMuted(muted: boolean): void {
     this.remoteAudioMuted = muted;
-    // كتم صوت الروم يشمل موسيقى الروم المشتركة — تُشغَّل محلياً عبر expo-av
-    // لا عبر المحرك، فكانت تبقى مسموعة رغم كتم الروم (نفس نقل المرجع)
+    // موسيقى الروم عند المستمعين تصل ضمن ستريم الـDJ فيغطيها كتم المحرك
+    // (setAllRemoteMuted)؛ أما جهاز الـDJ نفسه فسماعه المحلي للموسيقى
+    // (playout الخلط) مستقل عن المسارات البعيدة — يكتمه المدير هنا
     void import('@/services/roomMusicPlaybackManager')
       .then((m) => m.roomMusicPlaybackManager.setMutedAll(muted))
       .catch(() => {});
@@ -374,6 +376,7 @@ class AgoraRoomSessionManager {
         if (!uid || this.roomName !== roomName) return;
         const myUid = uid;
         seatsRefHolder = rtdbRef(realtimeDb, `rooms/${match[1]}/seats`);
+        const shortRoomId = match[1]!;
         handler = (snap: DataSnapshot) => {
           if (this.roomName !== roomName) return;
           const seats = (snap.val() ?? {}) as Record<
@@ -389,10 +392,25 @@ class AgoraRoomSessionManager {
           }
           if (!mySeat) {
             this.seatAdminMuted = false;
+            // نزلتُ عن المقعد/أُنزلت أثناء بث موسيقى — إيقاف فوري للخلط
+            // ومسح عقدة العرض؛ الطابور يبقى محفوظاً في RTDB لمن يتابعه.
+            // يعيش هنا (مع جلسة الصوت) فيعمل حتى مع تصغير الروم (PiP).
+            void import('@/services/roomMusicPlaybackManager')
+              .then((m) => m.roomMusicPlaybackManager.handleOffSeatStop(shortRoomId))
+              .catch(() => {});
             return;
           }
           const muted = mySeat.isMuted === true;
-          this.seatAdminMuted = muted && !!mySeat.mutedBy && mySeat.mutedBy !== myUid;
+          const adminMuted = muted && !!mySeat.mutedBy && mySeat.mutedBy !== myUid;
+          // كتم إداري وصل للتو (مشرف/وكيل) وأنا أبث موسيقى — قرار معتمد:
+          // الكتم الإداري يوقف الموسيقى أيضاً (stopAudioMixing + مسح العقدة
+          // + toast «أوقف مشرفٌ الموسيقى») بخلاف الكتم الذاتي الذي يُبقيها
+          if (adminMuted && !this.seatAdminMuted) {
+            void import('@/services/roomMusicPlaybackManager')
+              .then((m) => m.roomMusicPlaybackManager.handleAdminMuteStop(shortRoomId))
+              .catch(() => {});
+          }
+          this.seatAdminMuted = adminMuted;
           if (this.canPublish && this.isMuted !== muted) {
             void this.applyMicMuted(muted).catch(() => {});
           }

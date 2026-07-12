@@ -164,40 +164,87 @@ export async function addTrackToRoomLibrary(
   }
 }
 
-/** يحوّل مسار الجهاز المحلي إلى رابط سحابي جاهز للبث للجميع */
-export async function resolveTrackUrlForBroadcast(
+/**
+ * «تثبيت في صندوق الروم» — الرفع إلى Storage صار اختيارياً بالكامل:
+ * التشغيل يعمل من الملف المحلي مباشرة (خلط Agora)، وهذا الزر يرفع الملف
+ * بالخلفية ويثبّته في roomMusicLibrary ليبقى بعد الخروج ويُتاح لأي DJ آخر.
+ * يُحدَّث أيضاً رابط المقطع في قائمة الانتظار حتى يصبح قابلاً للتشغيل من
+ * أي جهاز (كان local:// «غير متاح» لغير صاحبه).
+ */
+export async function pinTrackToRoomBox(
   roomId: string,
-  url: string,
-): Promise<string> {
-  const { isDeviceLocalMusicUrl, getDeviceMusicTrack } = await import('./roomMusicDeviceLibrary');
-  if (!isDeviceLocalMusicUrl(url)) return url;
+  track: Pick<UserMusicTrack, 'id' | 'url' | 'title' | 'fileName' | 'addedAt'>,
+): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid || !roomId) throw new Error('يجب تسجيل الدخول');
 
-  const trackId = url.replace(/^local:\/\//, '');
+  // رابط سحابي أصلاً — تثبيت مباشر بلا رفع
+  if (isPersistableTrackUrl(track.url)) {
+    await addTrackToRoomLibrary(roomId, { ...track, addedAt: track.addedAt, addedByUid: uid });
+    return;
+  }
+
+  const { isDeviceLocalMusicUrl, getDeviceMusicTrack, updateDeviceMusicTrackRemoteUrl } =
+    await import('./roomMusicDeviceLibrary');
+  if (!isDeviceLocalMusicUrl(track.url)) {
+    throw new Error('هذا المقطع لا يمكن تثبيته');
+  }
+  const trackId = track.url.replace(/^local:\/\//, '');
   const deviceTrack = await getDeviceMusicTrack(trackId);
   if (!deviceTrack?.localUri) {
     throw new Error('الملف غير موجود على الجهاز — أعد اختياره من الجهاز');
   }
 
-  if (deviceTrack.remoteUrl) {
-    const { resolveLocalPlayableUri } = await import('./roomMusicLocal');
-    const local = await resolveLocalPlayableUri(deviceTrack.remoteUrl);
-    if (local !== deviceTrack.remoteUrl) return deviceTrack.remoteUrl;
+  // رُفع سابقاً — ثبّت الرابط الجاهز
+  let remoteUrl = deviceTrack.remoteUrl;
+  if (!remoteUrl) {
+    const picked = {
+      uri: deviceTrack.localUri,
+      name: deviceTrack.fileName ?? deviceTrack.title,
+    } as DocumentPicker.DocumentPickerAsset;
+    const uploaded = await uploadAudioFileToRoomStorage(
+      roomId,
+      picked,
+      undefined,
+      deviceTrack.localUri,
+    );
+    remoteUrl = uploaded.url;
+    await updateDeviceMusicTrackRemoteUrl(trackId, remoteUrl);
   }
 
-  const picked = {
-    uri: deviceTrack.localUri,
-    name: deviceTrack.fileName ?? deviceTrack.title,
-  } as DocumentPicker.DocumentPickerAsset;
+  await addTrackToRoomLibrary(roomId, {
+    id: track.id,
+    title: track.title,
+    url: remoteUrl,
+    fileName: track.fileName,
+    addedAt: track.addedAt || Date.now(),
+    addedByUid: uid,
+  });
 
-  const uploaded = await uploadAudioFileToRoomStorage(
-    roomId,
-    picked,
-    undefined,
-    deviceTrack.localUri,
-  );
-  const { updateDeviceMusicTrackRemoteUrl } = await import('./roomMusicDeviceLibrary');
-  await updateDeviceMusicTrackRemoteUrl(trackId, uploaded.url);
-  return uploaded.url;
+  // مقاطع القائمة بالرابط المحلي القديم — حدّثها للرابط السحابي ذرّياً
+  try {
+    const { runTransaction, ref: rtdbRef } = await import('firebase/database');
+    await runTransaction(
+      rtdbRef(realtimeDb, `rooms/${roomId}/musicQueue`),
+      (raw: { items?: unknown } | null) => {
+        if (!raw) return raw;
+        const items = (
+          Array.isArray(raw.items) ? raw.items : Object.values(raw.items ?? {})
+        ) as { url?: string }[];
+        let changed = false;
+        for (const it of items) {
+          if (it && it.url === track.url) {
+            it.url = remoteUrl;
+            changed = true;
+          }
+        }
+        if (!changed) return raw;
+        return { items, updatedAt: Date.now() };
+      },
+    );
+  } catch {
+    // تحسين اختياري — القائمة تبقى بالمسار المحلي (يعمل على جهاز صاحبه)
+  }
 }
 
 /** @deprecated استخدم loadRoomMusicLibrary(roomId) */

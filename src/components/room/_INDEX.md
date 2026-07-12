@@ -22,8 +22,7 @@ The largest component group: everything that renders inside a live audio room â€
 - `MessageActionSheet.tsx`
 - `MusicPlayingBars.tsx`
 - `MusicPulseWidget.tsx`
-- `MusicShareModal.tsx`
-- `MusicSharePicker.tsx`
+- `MusicVolumeSlider.tsx`
 - `PinnedMessagesBanner.tsx`
 - `RoomAgencyInvitePopup.tsx`
 - `RoomAppLifecycle.tsx`
@@ -59,11 +58,9 @@ The largest component group: everything that renders inside a live audio room â€
 - `RoomMemberActionMenu.tsx`
 - `RoomMicInvitePopup.tsx`
 - `RoomMusicAddPanel.tsx`
-- `RoomMusicDisc.tsx`
 - `RoomMusicFloatingOverlay.tsx`
 - `RoomMusicPlaybackBar.tsx`
 - `RoomMusicPlaybackHost.tsx`
-- `RoomMusicPlayer.tsx`
 - `RoomMusicSheet.tsx`
 - `RoomPasswordGateHost.tsx`
 - `RoomPasswordGateModal.tsx`

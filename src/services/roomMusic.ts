@@ -1,5 +1,5 @@
 /**
- * Room Music — مشاركة موسيقى متزامنة في الروم (RTDB + Firebase Storage)
+ * Room Music — حالة موسيقى الروم في RTDB (واجهة عرض فقط)
  *
  * rooms/{roomId}/music = {
  *   url, title, fileName,
@@ -7,11 +7,15 @@
  *   addedAt, currentTime, isPlaying,
  *   lastUpdateBy, lastUpdatedAt, duration?, volume?,
  * }
+ *
+ * الصوت الفعلي لا يمر من هنا إطلاقاً: جهاز الـDJ يخلط الملف داخل فريمات
+ * مايكه المنشورة عبر Agora (roomMusicPlaybackManager) فيسمعه الجميع من
+ * ستريم واحد متزامناً — هذه العقدة تغذّي الواجهات فقط (من يشغّل ماذا،
+ * موضع التقدم عبر heartbeat الـDJ كل 4 ثوانٍ، ومستوى صوت الجمهور).
  */
 
 import {
   ref,
-  set,
   update,
   get,
   remove,
@@ -21,6 +25,7 @@ import {
 } from 'firebase/database';
 import { doc, getDoc } from 'firebase/firestore';
 import { realtimeDb, auth, firestore } from './firebase/index';
+import { useRoomMusicUiStore } from '@/stores/roomMusicUiStore';
 import { resolveSupervisorPermissions } from './firebase/roomMemberRoles';
 import {
   parseStaffFromUserData,
@@ -52,6 +57,7 @@ export const serverNow = (): number => {
 };
 
 export interface RoomMusic {
+  /** رابط https (صندوق الروم) أو local://trackId (ملف على جهاز الـDJ) — للعرض/التخطي فقط */
   url: string;
   title: string;
   fileName?: string;
@@ -64,12 +70,8 @@ export interface RoomMusic {
   lastUpdateBy: string;
   lastUpdatedAt: number;
   duration?: number;
-  /** مستوى الصوت المشترك (0–1) — يتحكم به الـ DJ */
+  /** مستوى صوت الجمهور (0–1) — يتحكم به الـ DJ (adjustAudioMixingPublishVolume) */
   volume?: number;
-  /** مسار مؤقت في Storage — يُحذف عند إيقاف البث المباشر */
-  storagePath?: string;
-  /** بث مباشر من الجهاز — لا يُحفظ في مكتبة الغرفة */
-  liveRelay?: boolean;
 }
 
 async function resolveUserMeta() {
@@ -131,15 +133,17 @@ export const addMusicToRoom = async (
   title: string,
   fileName?: string,
   durationSec?: number,
-  extras?: Pick<RoomMusic, 'storagePath' | 'liveRelay'>,
 ): Promise<void> => {
   const { user, userName, userAvatar } = await resolveUserMeta();
   await assertCanBroadcastRoomMusic(roomId);
 
-  const music: RoomMusic = {
+  // update() لا set() الاستبدالي — كتابة متزامنة أخرى على العقدة (نبضة
+  // مزامنة/صوت) لا تُمحى بالكامل؛ والحقول الاختيارية الغائبة تُصفَّر بـnull
+  // صراحةً حتى لا يرث المقطعُ الجديد duration/fileName مقطعٍ سابق.
+  const music: Record<string, unknown> = {
     url,
     title: title.trim() || fileName || 'مقطع صوتي',
-    fileName,
+    fileName: fileName ?? null,
     addedBy: user.uid,
     addedByName: userName,
     addedByAvatar: userAvatar,
@@ -149,31 +153,18 @@ export const addMusicToRoom = async (
     volume: 1,
     lastUpdateBy: user.uid,
     // طابع سيرفر — حتى لا يتأثر التزامن بساعة جهاز الـDJ
-    lastUpdatedAt: serverTimestamp() as unknown as number,
-    duration: durationSec,
-    ...(extras?.storagePath ? { storagePath: extras.storagePath } : {}),
-    ...(extras?.liveRelay ? { liveRelay: true } : {}),
+    lastUpdatedAt: serverTimestamp(),
+    duration: durationSec ?? null,
   };
 
-  Object.keys(music).forEach((k) => {
-    if ((music as unknown as Record<string, unknown>)[k] === undefined) {
-      delete (music as unknown as Record<string, unknown>)[k];
-    }
-  });
+  await update(ref(realtimeDb, `rooms/${roomId}/music`), music);
 
-  await set(ref(realtimeDb, `rooms/${roomId}/music`), music);
+  // صرتُ أنا الـDJ — فُكّ الإخفاء المحلي لواجهة الموسيقى إجبارياً: تركيب
+  // RoomMusicPlaybackHost (المشروط بعدم الإخفاء) هو ما يستدعي syncDjBroadcast
+  // ويبدأ الخلط؛ من أخفى موسيقى غيره بزر X ثم شغّل موسيقاه كانت عقدته
+  // تُكتب «يشغّل الآن» للجميع بلا صوت وزر إيقافها بلا سياق (عقدة شبح).
+  useRoomMusicUiStore.getState().resetDismiss();
 };
-
-async function purgeEphemeralMusicStorage(music: Partial<RoomMusic>): Promise<void> {
-  if (!music.liveRelay || !music.storagePath) return;
-  try {
-    const { storage } = await import('./firebase/index');
-    const { ref: storageRef, deleteObject } = await import('firebase/storage');
-    await deleteObject(storageRef(storage, music.storagePath));
-  } catch {
-    // ignore
-  }
-}
 
 export type RoomMusicControlOpts = {
   staff?: PlatformStaffUser | null;
@@ -255,9 +246,7 @@ export const removeMusicFromRoom = async (roomId: string): Promise<void> => {
   const musicRef = ref(realtimeDb, `rooms/${roomId}/music`);
   const snap = await get(musicRef);
   if (!snap.exists()) return;
-  const current = snap.val() as Partial<RoomMusic>;
   await assertCanStopRoomMusic(roomId);
-  await purgeEphemeralMusicStorage(current);
   await remove(musicRef);
 };
 

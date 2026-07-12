@@ -26,22 +26,26 @@ import {
   loadRoomMusicLibrary,
   subscribeToRoomMusicLibrary,
   pickDeviceAudioFiles,
+  pinTrackToRoomBox,
   type UserMusicTrack,
 } from '@/services/roomMusicLibrary';
 import { RoomMusicFileTooLargeError } from '@/constants/roomMusic';
 import {
   waitAfterSheetDismiss,
-  startInstantLocalBroadcast,
-  relayLocalMusicToQueue,
+  addDeviceFilesToRoomMusic,
 } from '@/services/roomMusicUpload';
 import {
   subscribeToRoomMusicQueue,
   playOrQueueTrack,
+  playTrackNowInRoom,
   playAllTracksInRoom,
+  advanceRoomMusicQueue,
   removeFromRoomMusicQueue,
+  isQueueItemUnavailableFor,
   type RoomMusicQueueItem,
 } from '@/services/roomMusicQueue';
 import type { RoomMusic } from '@/services/roomMusic';
+import { auth } from '@/services/firebase';
 
 type Tab = 'library' | 'queue';
 type Panel = 'main' | 'add';
@@ -72,7 +76,7 @@ export function RoomMusicSheet({
 }: Props) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const { showAlert } = useAlert();
+  const { showAlert, showToast } = useAlert();
   const playback = useRoomMusicPlaybackContext();
 
   const [panel, setPanel] = useState<Panel>('main');
@@ -84,6 +88,11 @@ export function RoomMusicSheet({
   const [busyUrl, setBusyUrl] = useState<string | null>(null);
   const [playAllBusy, setPlayAllBusy] = useState(false);
   const [pickingFiles, setPickingFiles] = useState(false);
+  const [pinningId, setPinningId] = useState<string | null>(null);
+
+  const myUid = auth.currentUser?.uid;
+  /** الـDJ الفعّال لتقييم إتاحة مقاطع القائمة — صاحب الموسيقى الحالية أو أنا */
+  const activeDjUid = roomMusic?.addedBy ?? myUid;
 
   const refreshLibrary = useCallback(async () => {
     setLoadingLib(true);
@@ -198,37 +207,37 @@ export function RoomMusicSheet({
       const files = await pickDeviceAudioFiles();
       if (!files.length) return;
 
-      const first = files[0];
-      const canInstantPlay = (canControl || !roomMusic) && first != null;
-      let rest = files;
-      if (canInstantPlay) {
-        rest = files.slice(1);
-        await startInstantLocalBroadcast(
-          roomId,
-          first,
-          {
-            onUploadError: (msg) =>
-              showAlert({ type: 'error', title: t('common.error'), message: msg }),
-          },
-          { saveToLibrary: false },
-        );
+      // كل الملفات تدخل مكتبة الجهاز والطابور دفعة — التشغيل الفوري فقط
+      // حين لا توجد موسيقى (الإضافة لا تقطع أبداً؛ للقطع زر «تشغيل الآن»)
+      const result = await addDeviceFilesToRoomMusic(roomId, files, roomMusic);
+
+      if (result.failed.length) {
+        // تجميع النتائج بدل ابتلاع الأخطاء: «أُضيفت 4 من 5 — تعذّر فتح X»
+        const names = result.failed
+          .map((f) => `${f.name} (${f.reason})`)
+          .join('، ');
+        showAlert({
+          type: result.added ? 'warning' : 'error',
+          title: t('room.musicAddedSummary', {
+            added: result.added,
+            total: result.total,
+          }),
+          message: t('room.musicAddFailedFiles', { names }),
+        });
+      } else if (result.playedNow) {
         showAlert({
           type: 'success',
           title: t('room.musicLiveTitle'),
           message: t('room.musicLiveMessage'),
         });
-      }
-
-      for (const file of rest) {
-        void relayLocalMusicToQueue(roomId, file).catch(() => {});
-      }
-      if (!canInstantPlay) {
+      } else {
         showAlert({
           type: 'success',
           title: t('common.success'),
-          message: t('room.musicAddedToQueue', { count: files.length }),
+          message: t('room.musicAddedToQueue', { count: result.added }),
         });
       }
+      if (result.added) setTab('queue');
     } catch (e) {
       const msg =
         e instanceof RoomMusicFileTooLargeError
@@ -241,22 +250,83 @@ export function RoomMusicSheet({
       setPickingFiles(false);
       onReopen?.();
     }
-  }, [pickingFiles, onClose, onReopen, roomId, showAlert, t, canControl, roomMusic]);
+  }, [pickingFiles, onClose, onReopen, roomId, showAlert, t, roomMusic]);
+
+  /** «متابعة الطابور» — بعد نزول/مغادرة الـDJ: أي جالس يتابع من المقطع التالي */
+  const continueQueue = useCallback(async () => {
+    if (playAllBusy) return;
+    setPlayAllBusy(true);
+    try {
+      const advanced = await advanceRoomMusicQueue(roomId);
+      if (advanced) {
+        setTab('queue');
+        showAlert({
+          type: 'success',
+          title: t('room.musicLiveTitle'),
+          message: t('room.musicLiveMessage'),
+        });
+      } else {
+        // كل مقاطع الطابور ملفات محلية على أجهزة أصحابها — الصمت كان
+        // يوحي أن الزر معطّل؛ رسالة صريحة بدل لا-شيء
+        showAlert({
+          type: 'info',
+          title: t('room.musicContinueQueue'),
+          message: t('room.musicQueueNonePlayable'),
+        });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : t('room.musicUploadFailed');
+      showAlert({ type: 'error', title: t('common.error'), message: msg });
+    } finally {
+      setPlayAllBusy(false);
+    }
+  }, [playAllBusy, roomId, showAlert, t]);
+
+  /** «تشغيل الآن» الصريح — قطع متعمد للمقطع الحالي */
+  const handlePlayNow = useCallback(
+    async (track: Pick<UserMusicTrack, 'url' | 'title' | 'fileName'>) => {
+      setBusyUrl(track.url);
+      try {
+        await playTrackNowInRoom(roomId, track);
+        setTab('queue');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : t('room.musicUploadFailed');
+        showAlert({ type: 'error', title: t('common.error'), message: msg });
+      } finally {
+        setBusyUrl(null);
+      }
+    },
+    [roomId, showAlert, t],
+  );
+
+  /** «تثبيت في صندوق الروم» — رفع اختياري بالخلفية ليبقى المقطع مشتركاً */
+  const handlePinTrack = useCallback(
+    async (track: UserMusicTrack) => {
+      if (pinningId) return;
+      setPinningId(track.id);
+      try {
+        await pinTrackToRoomBox(roomId, track);
+        showToast(t('room.musicPinnedToRoomBox'));
+      } catch {
+        showToast(t('room.musicPinFailed'));
+      } finally {
+        setPinningId(null);
+      }
+    },
+    [pinningId, roomId, showToast, t],
+  );
 
   const handlePlayAll = async () => {
-    const source =
+    // append-only: المقطع الشغّال حالياً لا يُعاد إلحاقه بالقائمة (كان يتكرر)
+    const source = (
       tab === 'queue'
-        ? [
-            ...(roomMusic
-              ? [{ url: roomMusic.url, title: roomMusic.title, fileName: roomMusic.fileName }]
-              : []),
-            ...filteredQueue.map((item) => ({
-              url: item.url,
-              title: item.title,
-              fileName: item.fileName,
-            })),
-          ]
-        : filteredLibrary;
+        ? filteredQueue.map((item) => ({
+            url: item.url,
+            title: item.title,
+            fileName: item.fileName,
+          }))
+        : filteredLibrary
+    ).filter((trk) => trk.url !== roomMusic?.url);
     if (!source.length) return;
     if (!canControl && roomMusic) {
       showAlert({
@@ -344,6 +414,11 @@ export function RoomMusicSheet({
   const renderLibraryRow = (track: UserMusicTrack) => {
     const playing = isCurrentlyPlaying(track.url);
     const busy = busyUrl === track.url;
+    // «تشغيل الآن» الصريح — للقطع المتعمد أثناء تشغيل مقطع آخر
+    const showPlayNow = !!roomMusic && !playing && (canControl || canManageMusic);
+    // «تثبيت في صندوق الروم» — رفع اختياري لمقاطعي المحلية (لا رفع إجباري)
+    const canPin =
+      track.url.startsWith('local://') && (!track.addedByUid || track.addedByUid === myUid);
     return (
       <View style={styles.songRow}>
         <Pressable
@@ -361,6 +436,34 @@ export function RoomMusicSheet({
             </Text>
           )}
         </Pressable>
+        {showPlayNow ? (
+          <Pressable
+            onPress={() => void handlePlayNow(track)}
+            disabled={busy}
+            style={styles.playNowBtn}
+            hitSlop={6}
+          >
+            <Text variant="caption" weight="bold" color="#FFB74D">
+              {t('room.musicPlayNow')}
+            </Text>
+          </Pressable>
+        ) : null}
+        {canPin ? (
+          <Pressable
+            onPress={() => void handlePinTrack(track)}
+            disabled={pinningId === track.id}
+            style={styles.pinBtn}
+            hitSlop={6}
+          >
+            {pinningId === track.id ? (
+              <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
+            ) : (
+              <Text variant="caption" color="rgba(255,255,255,0.6)">
+                {t('room.musicPinToRoomBox')}
+              </Text>
+            )}
+          </Pressable>
+        ) : null}
         <View style={styles.songMeta}>
           <Text
             variant="body"
@@ -382,8 +485,12 @@ export function RoomMusicSheet({
   const renderQueueRow = (qItem: RoomMusicQueueItem) => {
     const playing = isCurrentlyPlaying(qItem.url);
     const busy = busyUrl === qItem.url;
+    // ملف محلي على جهاز DJ سابق/عضو آخر — لا يمكن خلطه من هذا الجهاز
+    const unavailable = isQueueItemUnavailableFor(qItem, activeDjUid);
+    const showPlayNow =
+      !!roomMusic && !playing && !unavailable && (canControl || canManageMusic);
     return (
-      <View style={styles.songRow}>
+      <View style={[styles.songRow, unavailable ? styles.rowUnavailable : null]}>
         {canControl ? (
           <Pressable
             onPress={() => void removeFromRoomMusicQueue(roomId, qItem.id)}
@@ -401,16 +508,35 @@ export function RoomMusicSheet({
                 fileName: qItem.fileName,
               })
             }
-            disabled={playing || busy}
+            disabled={playing || busy || unavailable}
             style={styles.iconBtn}
           >
             {busy ? <ActivityIndicator size="small" color="#FF4D4F" /> : null}
           </Pressable>
         )}
+        {showPlayNow ? (
+          <Pressable
+            onPress={() =>
+              void handlePlayNow({
+                url: qItem.url,
+                title: qItem.title,
+                fileName: qItem.fileName,
+              })
+            }
+            disabled={busy}
+            style={styles.playNowBtn}
+            hitSlop={6}
+          >
+            <Text variant="caption" weight="bold" color="#FFB74D">
+              {t('room.musicPlayNow')}
+            </Text>
+          </Pressable>
+        ) : null}
         {playing ? <MusicPlayingBars active /> : <View style={styles.barsPlaceholder} />}
         {renderAvatar(undefined, qItem.addedByName)}
         <Pressable
           style={styles.songMeta}
+          disabled={unavailable}
           onPress={() =>
             void handlePlayTrack({
               url: qItem.url,
@@ -421,14 +547,16 @@ export function RoomMusicSheet({
         >
           <Text
             variant="body"
-            color={playing ? '#FF4D4F' : '#fff'}
+            color={playing ? '#FF4D4F' : unavailable ? 'rgba(255,255,255,0.45)' : '#fff'}
             numberOfLines={1}
             align="right"
           >
             {qItem.title}
           </Text>
           <Text variant="caption" color="rgba(255,255,255,0.45)" numberOfLines={1} align="right">
-            {qItem.addedByName}
+            {unavailable
+              ? `${qItem.addedByName} — ${t('room.musicUnavailableTrack')}`
+              : qItem.addedByName}
           </Text>
         </Pressable>
         {renderThumb()}
@@ -547,19 +675,37 @@ export function RoomMusicSheet({
 
             {!showPlayerBar ? (
               <View style={styles.footer}>
-                <Pressable
-                  style={[styles.footerBtn, styles.footerPlayAll]}
-                  onPress={() => void handlePlayAll()}
-                  disabled={playAllBusy || !rows.length}
-                >
-                  {playAllBusy ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text variant="body" weight="bold" color="#fff">
-                      {t('room.musicPlayAll')}
-                    </Text>
-                  )}
-                </Pressable>
+                {/* لا موسيقى والطابور غير فارغ (نزل الـDJ السابق) — أي جالس
+                    يتابع الطابور فيصبح الـDJ الجديد من المقطع التالي */}
+                {!roomMusic && queue.length > 0 ? (
+                  <Pressable
+                    style={[styles.footerBtn, styles.footerPlayAll]}
+                    onPress={() => void continueQueue()}
+                    disabled={playAllBusy}
+                  >
+                    {playAllBusy ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text variant="body" weight="bold" color="#fff">
+                        {t('room.musicContinueQueue')}
+                      </Text>
+                    )}
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    style={[styles.footerBtn, styles.footerPlayAll]}
+                    onPress={() => void handlePlayAll()}
+                    disabled={playAllBusy || !rows.length}
+                  >
+                    {playAllBusy ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text variant="body" weight="bold" color="#fff">
+                        {t('room.musicPlayAll')}
+                      </Text>
+                    )}
+                  </Pressable>
+                )}
                 <Pressable
                   style={[styles.footerBtn, styles.footerAdd]}
                   onPress={() => void pickAndAddFromDevice()}
@@ -679,6 +825,21 @@ const styles = StyleSheet.create({
     width: 28,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  playNowBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 183, 77, 0.14)',
+  },
+  pinBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  rowUnavailable: {
+    opacity: 0.55,
   },
   barsPlaceholder: {
     width: 22,

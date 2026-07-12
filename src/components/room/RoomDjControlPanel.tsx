@@ -1,7 +1,12 @@
 /**
  * RoomDjControlPanel — لوحة DJ مع التحكم بالصوت والتشغيل
+ *
+ * الصوت عبر خلط Agora على جهاز الـDJ: قناتان مستقلتان («صوت الجمهور» =
+ * adjustAudioMixingPublishVolume، «سماعي أنا» = playout المحلي) — معاً
+ * افتراضياً مع إمكانية الفصل؛ وعند المستمع خافض «صوت الـDJ» المحلي
+ * (يخفض كلامه وموسيقاه معاً — ستريم واحد).
  */
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -20,18 +25,20 @@ import {
   X,
   Music2,
   Radio,
-  Volume2,
   VolumeX,
   ChevronDown,
   ChevronUp,
-  Minus,
-  Plus,
+  Link2,
+  Link2Off,
+  MicOff,
 } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 
 import { Text } from '@/components/ui';
 import type { RoomMusic } from '@/services/roomMusic';
 import { useRoomMusicUiStore } from '@/stores/roomMusicUiStore';
+import { roomAudioSession } from '@/services/roomAudioSession';
+import { MusicVolumeSlider } from './MusicVolumeSlider';
 import { lu } from '@/theme/lu-brand';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -44,87 +51,6 @@ function formatTime(sec: number): string {
   const r = s % 60;
   return `${m}:${r.toString().padStart(2, '0')}`;
 }
-
-type VolumeSliderProps = {
-  value: number;
-  onChange: (v: number) => void;
-  disabled?: boolean;
-};
-
-function VolumeSlider({ value, onChange, disabled }: VolumeSliderProps) {
-  const step = 0.05;
-  const progress = Math.round(value * 100);
-
-  const dec = () => onChange(Math.max(0, Math.round((value - step) * 20) / 20));
-  const inc = () => onChange(Math.min(1, Math.round((value + step) * 20) / 20));
-
-  return (
-    <View style={volStyles.wrap}>
-      <Pressable onPress={dec} disabled={disabled} style={volStyles.btn}>
-        <Minus size={14} color="#fff" strokeWidth={2.5} />
-      </Pressable>
-      <View style={volStyles.track}>
-        <View style={[volStyles.fill, { width: `${progress}%` }]} />
-        <View style={[volStyles.thumb, { left: `${progress}%` }]} />
-      </View>
-      <Pressable onPress={inc} disabled={disabled} style={volStyles.btn}>
-        <Plus size={14} color="#fff" strokeWidth={2.5} />
-      </Pressable>
-      <Text variant="caption" color="rgba(255,255,255,0.55)" style={volStyles.pct}>
-        {progress}%
-      </Text>
-    </View>
-  );
-}
-
-const volStyles = StyleSheet.create({
-  wrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 10,
-  },
-  btn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  track: {
-    flex: 1,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    overflow: 'visible',
-    justifyContent: 'center',
-  },
-  fill: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    borderRadius: 3,
-    backgroundColor: lu.colors.pink,
-  },
-  thumb: {
-    position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginLeft: -7,
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: lu.colors.pink,
-    top: -4,
-  },
-  pct: {
-    width: 36,
-    textAlign: 'center',
-    fontSize: 11,
-  },
-});
 
 type PlaybackApi = {
   isController: boolean;
@@ -151,6 +77,22 @@ export function RoomDjControlPanel({ music, playback }: Props) {
   const toggleDjPanel = useRoomMusicUiStore((s) => s.toggleDjPanel);
   const localListenerVolume = useRoomMusicUiStore((s) => s.localListenerVolume);
   const setLocalListenerVolume = useRoomMusicUiStore((s) => s.setLocalListenerVolume);
+  const djPlayoutVolume = useRoomMusicUiStore((s) => s.djPlayoutVolume);
+  const setDjPlayoutVolume = useRoomMusicUiStore((s) => s.setDjPlayoutVolume);
+  const volumesLinked = useRoomMusicUiStore((s) => s.djVolumesLinked);
+  const setVolumesLinked = useRoomMusicUiStore((s) => s.setDjVolumesLinked);
+
+  // مايك جلسة الصوت — لمؤشر «مايكك مكتوم والموسيقى مستمرة»
+  const [micMuted, setMicMuted] = useState(
+    () => roomAudioSession.getSnapshot().isMuted,
+  );
+  useEffect(
+    () =>
+      roomAudioSession.subscribe(() =>
+        setMicMuted(roomAudioSession.getSnapshot().isMuted),
+      ),
+    [],
+  );
 
   const spin = useRef(new Animated.Value(0)).current;
 
@@ -185,24 +127,14 @@ export function RoomDjControlPanel({ music, playback }: Props) {
     toggleDjPanel();
   }, [toggleDjPanel]);
 
-  const volumeValue = playback.isController
-    ? playback.broadcastVolume
-    : localListenerVolume;
-
-  const handleVolumeChange = useCallback(
+  // القناتان معاً (افتراضي): شريط واحد يضبط صوت الجمهور وسماعي أنا معاً
+  const handleLinkedVolumeChange = useCallback(
     (v: number) => {
-      if (playback.isController) {
-        playback.setBroadcastVolume(v);
-        return;
-      }
-      setLocalListenerVolume(v);
+      playback.setBroadcastVolume(v);
+      setDjPlayoutVolume(v);
     },
-    [playback, setLocalListenerVolume],
+    [playback, setDjPlayoutVolume],
   );
-
-  const volumeLabel = playback.isController
-    ? t('room.musicDjVolume')
-    : t('room.musicListenerVolume');
 
   return (
     <View style={styles.wrap}>
@@ -287,17 +219,66 @@ export function RoomDjControlPanel({ music, playback }: Props) {
             {playback.duration > 0 ? ` / ${formatTime(playback.duration)}` : ''}
           </Text>
 
-          <View style={styles.volumeRow}>
-            {volumeValue < 0.05 ? (
-              <VolumeX size={16} color="rgba(255,255,255,0.6)" />
-            ) : (
-              <Volume2 size={16} color="rgba(255,255,255,0.85)" />
-            )}
-            <Text variant="caption" color="rgba(255,255,255,0.65)" style={styles.volumeLabel}>
-              {volumeLabel}
-            </Text>
-          </View>
-          <VolumeSlider value={volumeValue} onChange={handleVolumeChange} />
+          {playback.isController && micMuted && playback.localPlaying ? (
+            <View style={styles.micMutedPill}>
+              <MicOff size={12} color="#FFD54F" />
+              <Text variant="caption" color="#FFD54F" style={styles.micMutedText}>
+                {t('room.musicMicMutedMusicOn')}
+              </Text>
+            </View>
+          ) : null}
+
+          {playback.isController ? (
+            <View style={styles.volumeArea}>
+              <Pressable
+                onPress={() => setVolumesLinked(!volumesLinked)}
+                style={styles.linkToggle}
+                hitSlop={8}
+              >
+                {volumesLinked ? (
+                  <Link2 size={14} color="rgba(255,255,255,0.75)" />
+                ) : (
+                  <Link2Off size={14} color="rgba(255,255,255,0.75)" />
+                )}
+                <Text variant="caption" color="rgba(255,255,255,0.6)" style={styles.linkLabel}>
+                  {volumesLinked ? t('room.musicUnlinkVolumes') : t('room.musicLinkVolumes')}
+                </Text>
+              </Pressable>
+              {volumesLinked ? (
+                <MusicVolumeSlider
+                  value={playback.broadcastVolume}
+                  onChange={handleLinkedVolumeChange}
+                  label={t('room.musicDjVolume')}
+                  fillColor={lu.colors.pink}
+                />
+              ) : (
+                <>
+                  <MusicVolumeSlider
+                    value={playback.broadcastVolume}
+                    onChange={playback.setBroadcastVolume}
+                    label={t('room.musicAudienceVolume')}
+                    fillColor={lu.colors.pink}
+                  />
+                  <MusicVolumeSlider
+                    value={djPlayoutVolume}
+                    onChange={setDjPlayoutVolume}
+                    label={t('room.musicMyMonitorVolume')}
+                    fillColor={lu.colors.pink}
+                  />
+                </>
+              )}
+            </View>
+          ) : (
+            <View style={styles.volumeArea}>
+              <MusicVolumeSlider
+                value={localListenerVolume}
+                onChange={setLocalListenerVolume}
+                label={t('room.musicDjPlaybackVolume')}
+                hint={t('room.musicDjVolumeHint')}
+                fillColor={lu.colors.pink}
+              />
+            </View>
+          )}
 
           <View style={styles.footerRow}>
             {playback.isController ? (
@@ -452,13 +433,30 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   time: { marginTop: 6, fontSize: 10 },
-  volumeRow: {
+  micMutedPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     gap: 6,
-    marginTop: 10,
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 213, 79, 0.14)',
   },
-  volumeLabel: { fontSize: 11 },
+  micMutedText: { fontSize: 10 },
+  volumeArea: {
+    marginTop: 10,
+    gap: 4,
+  },
+  linkToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: 4,
+    marginBottom: 2,
+  },
+  linkLabel: { fontSize: 10 },
   footerRow: {
     flexDirection: 'row',
     alignItems: 'center',

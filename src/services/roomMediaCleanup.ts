@@ -1,5 +1,5 @@
 /**
- * إيقاف الموسيقى/الفيدio عند مغادرة الروم — محلياً ومن RTDB إن كان المستخدم هو المُشغّل
+ * إيقاف الموسيقى/الفيديو عند مغادرة الروم — محلياً ومن RTDB إن كان المستخدم هو المُشغّل
  */
 import { ref, get, remove } from 'firebase/database';
 import { realtimeDb } from './firebase/index';
@@ -26,15 +26,8 @@ export async function cleanupRoomMediaOnLeave(
         if (musicSnap.exists()) {
           const music = musicSnap.val() as RoomMusic;
           if (music.addedBy === uid) {
-            if (music.liveRelay && music.storagePath) {
-              try {
-                const { storage } = await import('./firebase/index');
-                const { ref: storageRef, deleteObject } = await import('firebase/storage');
-                await deleteObject(storageRef(storage, music.storagePath));
-              } catch {
-                // ignore
-              }
-            }
+            // حذف العقدة يكفي — مراقب مدير الخلط يوقف بث الـDJ فوراً،
+            // والطابور يبقى في RTDB لمن يتابعه («متابعة الطابور»)
             await remove(musicRef);
           }
         }

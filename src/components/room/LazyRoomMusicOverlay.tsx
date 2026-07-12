@@ -3,10 +3,9 @@ import { useRoomMusicUiStore } from '@/stores/roomMusicUiStore';
 
 export function LazyRoomMusicOverlay() {
   const activeRoomId = useRoomMusicUiStore((s) => s.activeRoomId);
-  const showSharePicker = useRoomMusicUiStore((s) => s.showSharePicker);
   const [Overlay, setOverlay] = useState<React.ComponentType | null>(null);
 
-  const shouldMount = Boolean(activeRoomId) || showSharePicker;
+  const shouldMount = Boolean(activeRoomId);
 
   useEffect(() => {
     if (!shouldMount || Overlay) return;

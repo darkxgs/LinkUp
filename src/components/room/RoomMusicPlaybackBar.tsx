@@ -1,30 +1,30 @@
 /**
  * شريط تحكم الموسيقى السفلي — داخل شاشة الموسيقى الكاملة
+ *
+ * الصوت عبر خلط Agora: للـDJ قناتان («صوت الجمهور» تُنشر للجميع و«سماعي
+ * أنا» محلي) معاً افتراضياً مع إمكانية الفصل؛ وللمستمع خافض «صوت الـDJ»
+ * المحلي — يخفض كلامه وموسيقاه معاً (ستريم واحد).
  */
-import React, { useCallback, useRef, useState } from 'react';
-import {
-  View,
-  StyleSheet,
-  Pressable,
-  PanResponder,
-  type LayoutChangeEvent,
-} from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, StyleSheet, Pressable } from 'react-native';
 import {
   Play,
   Pause,
-  Volume2,
-  VolumeX,
   SkipBack,
   SkipForward,
-  Repeat,
+  Link2,
+  Link2Off,
+  MicOff,
 } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 
 import { Text } from '@/components/ui';
 import type { RoomMusicPlaybackApi } from '@/contexts/RoomMusicPlaybackContext';
 import { advanceRoomMusicQueue } from '@/services/roomMusicQueue';
-import { removeMusicFromRoom, updateMusicPlayback } from '@/services/roomMusic';
+import { removeMusicFromRoom } from '@/services/roomMusic';
+import { roomAudioSession } from '@/services/roomAudioSession';
 import { useRoomMusicUiStore } from '@/stores/roomMusicUiStore';
+import { MusicVolumeSlider } from './MusicVolumeSlider';
 
 function formatTime(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -32,136 +32,6 @@ function formatTime(sec: number): string {
   const r = s % 60;
   return `${m.toString().padStart(2, '0')}:${r.toString().padStart(2, '0')}`;
 }
-
-type VolumeDragSliderProps = {
-  value: number;
-  onChange: (v: number) => void;
-};
-
-function VolumeDragSlider({ value, onChange }: VolumeDragSliderProps) {
-  // سلايدر عمودي: أعلى = أقوى — يلغي انعكاس الاتجاه في واجهة RTL نهائياً
-  // (الأفقي كان «بقوّيه بيضعف»). السحب يعتمد إحداثيات النافذة (pageY) بدل
-  // locationX التي تقفز عشوائياً حين يخرج الإصبع عن الشريط (سبب الخشونة).
-  const trackRef = useRef<View>(null);
-  const trackTop = useRef(0);
-  const trackH = useRef(1);
-
-  const setFromPageY = useCallback(
-    (pageY: number) => {
-      const h = trackH.current;
-      if (h <= 0) return;
-      const ratio = 1 - (pageY - trackTop.current) / h;
-      let next = Math.max(0, Math.min(1, ratio));
-      // قنص للصفر: أيقونة الكتم (VolumeX) تظهر تحت 5% — إفلات الإصبع عند حافة
-      // المسار كان يترك 1–4% صوتاً مسموعاً بينما الواجهة تدّعي «مكتوم»
-      if (next < 0.05) next = 0;
-      onChange(Math.round(next * 100) / 100);
-    },
-    [onChange],
-  );
-
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
-        const pageY = evt.nativeEvent.pageY;
-        trackRef.current?.measureInWindow((_x, y, _w, h) => {
-          trackTop.current = y;
-          if (h > 0) trackH.current = h;
-          setFromPageY(pageY);
-        });
-      },
-      onPanResponderMove: (evt) => setFromPageY(evt.nativeEvent.pageY),
-    }),
-  ).current;
-
-  const onLayout = (e: LayoutChangeEvent) => {
-    if (e.nativeEvent.layout.height > 0) trackH.current = e.nativeEvent.layout.height;
-  };
-
-  const progress = Math.round(value * 100);
-
-  return (
-    <View style={volStyles.wrap}>
-      <Text variant="caption" color="rgba(255,255,255,0.55)" style={volStyles.pct}>
-        {progress}%
-      </Text>
-      <View
-        ref={trackRef}
-        collapsable={false}
-        onLayout={onLayout}
-        style={volStyles.vTouch}
-        {...pan.panHandlers}
-      >
-        <View style={volStyles.vTrack}>
-          <View style={[volStyles.vFill, { height: `${progress}%` }]} />
-          <View style={[volStyles.vThumb, { bottom: `${progress}%` }]} />
-        </View>
-      </View>
-      {value < 0.05 ? (
-        <VolumeX size={18} color="rgba(255,255,255,0.65)" />
-      ) : (
-        <Volume2 size={18} color="rgba(255,255,255,0.85)" />
-      )}
-    </View>
-  );
-}
-
-const volStyles = StyleSheet.create({
-  wrap: {
-    alignSelf: 'center',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-    paddingHorizontal: 4,
-  },
-  vTouch: {
-    width: 44,
-    height: 110,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  vTrack: {
-    width: 6,
-    height: '100%',
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    overflow: 'visible',
-    alignItems: 'center',
-  },
-  vFill: {
-    position: 'absolute',
-    bottom: 0,
-    width: 6,
-    borderRadius: 3,
-    backgroundColor: '#FF6B35',
-  },
-  vThumb: {
-    position: 'absolute',
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    marginBottom: -8,
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#FF6B35',
-  },
-  thumb: {
-    position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginLeft: -7,
-    backgroundColor: '#fff',
-    top: 7,
-  },
-  pct: {
-    width: 36,
-    textAlign: 'right',
-    fontSize: 11,
-  },
-});
 
 type Props = {
   roomId: string;
@@ -172,33 +42,39 @@ export function RoomMusicPlaybackBar({ roomId, playback }: Props) {
   const { t } = useTranslation();
   const localListenerVolume = useRoomMusicUiStore((s) => s.localListenerVolume);
   const setLocalListenerVolume = useRoomMusicUiStore((s) => s.setLocalListenerVolume);
-  const [loopOn, setLoopOn] = useState(false);
+  const djPlayoutVolume = useRoomMusicUiStore((s) => s.djPlayoutVolume);
+  const setDjPlayoutVolume = useRoomMusicUiStore((s) => s.setDjPlayoutVolume);
+  const volumesLinked = useRoomMusicUiStore((s) => s.djVolumesLinked);
+  const setVolumesLinked = useRoomMusicUiStore((s) => s.setDjVolumesLinked);
+
+  // مايك جلسة الصوت — مؤشر «مايكك مكتوم والموسيقى مستمرة» للـDJ
+  const [micMuted, setMicMuted] = useState(
+    () => roomAudioSession.getSnapshot().isMuted,
+  );
+  useEffect(
+    () =>
+      roomAudioSession.subscribe(() =>
+        setMicMuted(roomAudioSession.getSnapshot().isMuted),
+      ),
+    [],
+  );
 
   const progress =
     playback.duration > 0 ? Math.min(playback.position / playback.duration, 1) : 0;
 
-  const volumeValue = playback.isController
-    ? playback.broadcastVolume
-    : localListenerVolume;
-
-  const handleVolumeChange = useCallback(
-    (next: number) => {
-      let clamped = Math.max(0, Math.min(1, next));
-      // احتياط: أي قيمة تحت عتبة أيقونة الكتم = كتم حقيقي (صفر)
-      if (clamped < 0.05) clamped = 0;
-      if (playback.isController) {
-        playback.setBroadcastVolume(clamped);
-        return;
-      }
-      setLocalListenerVolume(clamped);
+  // القناتان معاً (افتراضي) — شريط واحد يضبط النشر والسماع المحلي معاً
+  const handleLinkedVolumeChange = useCallback(
+    (v: number) => {
+      playback.setBroadcastVolume(v);
+      setDjPlayoutVolume(v);
     },
-    [playback, setLocalListenerVolume],
+    [playback, setDjPlayoutVolume],
   );
 
   const handleSkipBack = useCallback(async () => {
     if (!playback.isController) return;
-    await updateMusicPlayback(roomId, { currentTime: 0, isPlaying: true });
-  }, [playback.isController, roomId]);
+    await playback.seekTo(0);
+  }, [playback]);
 
   const handleSkipNext = useCallback(async () => {
     if (!playback.isController) return;
@@ -252,15 +128,59 @@ export function RoomMusicPlaybackBar({ roomId, playback }: Props) {
           <SkipForward size={24} color={playback.isController ? '#fff' : 'rgba(255,255,255,0.25)'} />
         </Pressable>
 
-        <Pressable onPress={() => setLoopOn((v) => !v)} style={styles.sideBtn}>
-          <Repeat size={22} color={loopOn ? '#FF6B35' : 'rgba(255,255,255,0.65)'} />
-        </Pressable>
+        {playback.isController ? (
+          <Pressable onPress={() => setVolumesLinked(!volumesLinked)} style={styles.sideBtn}>
+            {volumesLinked ? (
+              <Link2 size={20} color="#FF6B35" />
+            ) : (
+              <Link2Off size={20} color="rgba(255,255,255,0.65)" />
+            )}
+          </Pressable>
+        ) : (
+          <View style={styles.sideBtn} />
+        )}
       </View>
 
-      <VolumeDragSlider value={volumeValue} onChange={handleVolumeChange} />
-      <Text variant="caption" color="rgba(255,255,255,0.4)" align="center" style={styles.volHint}>
-        {playback.isController ? t('room.musicDjVolume') : t('room.musicListenerVolume')}
-      </Text>
+      {playback.isController && micMuted && playback.localPlaying ? (
+        <View style={styles.micMutedPill}>
+          <MicOff size={12} color="#FFD54F" />
+          <Text variant="caption" color="#FFD54F" style={styles.micMutedText}>
+            {t('room.musicMicMutedMusicOn')}
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={styles.volumeArea}>
+        {playback.isController ? (
+          volumesLinked ? (
+            <MusicVolumeSlider
+              value={playback.broadcastVolume}
+              onChange={handleLinkedVolumeChange}
+              label={t('room.musicDjVolume')}
+            />
+          ) : (
+            <>
+              <MusicVolumeSlider
+                value={playback.broadcastVolume}
+                onChange={playback.setBroadcastVolume}
+                label={t('room.musicAudienceVolume')}
+              />
+              <MusicVolumeSlider
+                value={djPlayoutVolume}
+                onChange={setDjPlayoutVolume}
+                label={t('room.musicMyMonitorVolume')}
+              />
+            </>
+          )
+        ) : (
+          <MusicVolumeSlider
+            value={localListenerVolume}
+            onChange={setLocalListenerVolume}
+            label={t('room.musicDjPlaybackVolume')}
+            hint={t('room.musicDjVolumeHint')}
+          />
+        )}
+      </View>
     </View>
   );
 }
@@ -330,8 +250,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  volHint: {
-    marginTop: 4,
-    fontSize: 10,
+  micMutedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 213, 79, 0.14)',
+  },
+  micMutedText: { fontSize: 10 },
+  volumeArea: {
+    marginTop: 10,
+    gap: 4,
   },
 });

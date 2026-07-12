@@ -27,6 +27,9 @@ export interface AgoraSpeakerInfo {
   level: number;
 }
 
+/** ترجمة دلالية لحالة خلط الموسيقى (audio mixing) — الشاشات لا ترى enums أجورا */
+export type AgoraMixingSemantic = 'playing' | 'paused' | 'stopped' | 'failed';
+
 /** أحداث محايدة (لا تعرف Agora) — الشاشات/الجلسات تشترك بها لاحقاً */
 export type AgoraRtcEvent =
   | { type: 'connected' }
@@ -44,7 +47,21 @@ export type AgoraRtcEvent =
   /** حالة فيديو الطرف البعيد (بدأ/أوقف كاميرته) — لمكالمات الفيديو 1:1 */
   | { type: 'remoteVideo'; identity: string; enabled: boolean }
   /** جودة شبكة المستخدم المحلي (tx/rx بمقياس QualityType) — لقرار خفض دقة الفيديو */
-  | { type: 'networkQuality'; tx: number; rx: number };
+  | { type: 'networkQuality'; tx: number; rx: number }
+  /**
+   * حالة خلط الموسيقى على هذا الجهاز (onAudioMixingStateChanged) —
+   * state/reason خامان من SDK + ترجمة دلالية وأعلام جاهزة:
+   * allLoopsCompleted = انتهى المقطع طبيعياً (تشغيل التالي)،
+   * canNotOpen = تعذّر فتح الملف (صيغة غير مدعومة/مسار خاطئ → تخطٍّ).
+   */
+  | {
+      type: 'audioMixingStateChanged';
+      state: number;
+      reason: number;
+      semantic: AgoraMixingSemantic;
+      allLoopsCompleted: boolean;
+      canNotOpen: boolean;
+    };
 
 export type AgoraEventListener = (event: AgoraRtcEvent) => void;
 
@@ -67,6 +84,26 @@ const PENDING_ANNOUNCE_TIMEOUT_MS = 700;
 function clamp01(v: number): number {
   if (!Number.isFinite(v)) return 0;
   return Math.max(0, Math.min(1, v));
+}
+
+/** قصّ مستوى صوت 0..100 (واجهات خلط الموسيقى/إشارة التسجيل) */
+function clampVolume100(v: number): number {
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+
+/**
+ * تطبيع مسار ملف الخلط — SDK أندرويد/iOS يقبل مساراً مطلقاً أو https/content،
+ * أما لاحقة file:// (مسارات expo-file-system) فتُنزع مع فك ترميز النسبة المئوية.
+ */
+function normalizeMixingFilePath(p: string): string {
+  if (!p.startsWith('file://')) return p;
+  const raw = p.slice('file://'.length);
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 class AgoraEngineManager {
@@ -102,6 +139,15 @@ class AgoraEngineManager {
     resolve: () => void;
     reject: (e: Error) => void;
   } | null = null;
+
+  /**
+   * حالة خلط الموسيقى + الكتم المطلوب — كتم الـDJ أثناء الخلط لا يجوز أن
+   * يكتم المسار المنشور كله (muteLocalAudioStream يقتل الموسيقى مع المايك)،
+   * فنكتم إشارة التسجيل (المايك) فقط ونبقي النشر حياً. عند توقف الخلط تعود
+   * سياسة الكتم العادية (نشر + التقاط معاً).
+   */
+  private mixingActive = false;
+  private desiredMicMuted = false;
 
   // ==================== الاشتراك بالأحداث ====================
 
@@ -400,7 +446,166 @@ class AgoraEngineManager {
       onAudioRoutingChanged: (routing) => {
         this.emit({ type: 'audioRouteChanged', route: routing });
       },
+
+      onAudioMixingStateChanged: (state, reason) => {
+        // خلط الموسيقى محلي على جهاز الـDJ — لا connection في الحدث؛
+        // حارس الجلسة يكفي (لا خلط خارج جلسة حية)
+        if (!this.sessionActive) return;
+        const semantic: AgoraMixingSemantic =
+          state === m.AudioMixingStateType.AudioMixingStatePlaying
+            ? 'playing'
+            : state === m.AudioMixingStateType.AudioMixingStatePaused
+              ? 'paused'
+              : state === m.AudioMixingStateType.AudioMixingStateFailed
+                ? 'failed'
+                : 'stopped';
+        if (semantic === 'stopped' || semantic === 'failed') {
+          // انتهى الخلط (طبيعياً/بالإيقاف/بفشل فتح) — تعود سياسة الكتم العادية
+          this.mixingActive = false;
+          this.applyMicState();
+        }
+        this.emit({
+          type: 'audioMixingStateChanged',
+          state: state as number,
+          reason: reason as number,
+          semantic,
+          allLoopsCompleted:
+            reason === m.AudioMixingReasonType.AudioMixingReasonAllLoopsCompleted,
+          canNotOpen: reason === m.AudioMixingReasonType.AudioMixingReasonCanNotOpen,
+        });
+      },
     };
+  }
+
+  // ==================== خلط الموسيقى (جهاز الـDJ فقط) ====================
+
+  /**
+   * بدء خلط ملف موسيقي داخل فريمات المايك المنشورة — كل الغرفة تسمعه من
+   * ستريم الـDJ متزامناً حكماً. يقبل مساراً محلياً (file:///…) أو https.
+   * loopback:false = يُنشر للجميع؛ cycle:1 = مرة واحدة (الانتقال للتالية
+   * يقوده حدث stopped/AllLoopsCompleted).
+   */
+  startAudioMixing(
+    filePathOrHttpsUrl: string,
+    opts?: { loopback?: boolean; cycle?: number; startPosMs?: number },
+  ): boolean {
+    if (!this.engine) return false;
+    const path = normalizeMixingFilePath(filePathOrHttpsUrl);
+    try {
+      const code = this.engine.startAudioMixing(
+        path,
+        opts?.loopback ?? false,
+        opts?.cycle ?? 1,
+        Math.max(0, Math.round(opts?.startPosMs ?? 0)),
+      );
+      if (code !== 0) return false;
+    } catch {
+      return false;
+    }
+    this.mixingActive = true;
+    this.applyMicState();
+    return true;
+  }
+
+  /** إيقاف الخلط نهائياً — يعيد سياسة الكتم العادية فوراً */
+  stopAudioMixing(): void {
+    try {
+      this.engine?.stopAudioMixing();
+    } catch {
+      // ignore
+    }
+    this.mixingActive = false;
+    this.applyMicState();
+  }
+
+  /** إيقاف مؤقت — الخلط يبقى «نشطاً» (النشر حي، الكتم يبقى بإشارة التسجيل) */
+  pauseAudioMixing(): void {
+    try {
+      this.engine?.pauseAudioMixing();
+    } catch {
+      // ignore
+    }
+  }
+
+  resumeAudioMixing(): void {
+    try {
+      this.engine?.resumeAudioMixing();
+    } catch {
+      // ignore
+    }
+  }
+
+  /** القفز لموضع في المقطع الحالي (مللي ثانية) */
+  setAudioMixingPosition(ms: number): void {
+    try {
+      this.engine?.setAudioMixingPosition(Math.max(0, Math.round(ms)));
+    } catch {
+      // ignore
+    }
+  }
+
+  /** موضع التشغيل الحالي بالمللي ثانية — سالب عند الفشل/لا خلط */
+  getAudioMixingCurrentPosition(): number {
+    try {
+      return this.engine?.getAudioMixingCurrentPosition() ?? -1;
+    } catch {
+      return -1;
+    }
+  }
+
+  /** مدة المقطع بالمللي ثانية — سالب عند الفشل/لا خلط */
+  getAudioMixingDuration(): number {
+    try {
+      return this.engine?.getAudioMixingDuration() ?? -1;
+    } catch {
+      return -1;
+    }
+  }
+
+  /**
+   * ما يسمعه الآخرون من الموسيقى (0-100) — مستقل تماماً عن مايك الكلام
+   * (إشارة التسجيل) وعن سماع الـDJ نفسه (playout).
+   */
+  adjustAudioMixingPublishVolume(volume: number): void {
+    try {
+      this.engine?.adjustAudioMixingPublishVolume(clampVolume100(volume));
+    } catch {
+      // ignore
+    }
+  }
+
+  /** سماع الـDJ نفسه للموسيقى محلياً (0-100) — لا يؤثر على الجمهور */
+  adjustAudioMixingPlayoutVolume(volume: number): void {
+    try {
+      this.engine?.adjustAudioMixingPlayoutVolume(clampVolume100(volume));
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * مستوى إشارة التسجيل (المايك) 0-100 — تصفيرها يكتم كلام الـDJ مع
+   * استمرار الموسيقى المخلوطة. يُفضَّل setMicMuted (يدير الحالتين معاً).
+   */
+  adjustRecordingSignalVolume(volume: number): void {
+    try {
+      this.engine?.adjustRecordingSignalVolume(clampVolume100(volume));
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * مستوى سماع مستخدم بعيد بعينه محلياً (0-100) — خافض «صوت الـDJ» عند
+   * المستمع: يخفض كلامه وموسيقاه معاً (ستريم واحد).
+   */
+  adjustUserPlaybackSignalVolume(numericUid: number, volume: number): void {
+    if (!numericUid) return;
+    try {
+      this.engine?.adjustUserPlaybackSignalVolume(numericUid, clampVolume100(volume));
+    } catch {
+      // ignore
+    }
   }
 
   // ==================== العمليات ====================
@@ -479,6 +684,8 @@ class AgoraEngineManager {
     this.joinGeneration++;
     const wasActive = this.sessionActive;
     this.sessionActive = false;
+    // مغادرة القناة توقف الخلط في SDK — أعد علم الحالة حتى لا يعلق كتم المايك
+    this.mixingActive = false;
     this.currentChannel = '';
     this.localUid = 0;
     this.clearPendingAnnounce();
@@ -539,9 +746,48 @@ class AgoraEngineManager {
   /**
    * كتم المايك المحلي — الاثنان معاً (النشر + الالتقاط):
    * بعض الأجهزة (Tecno) تتجاهل واحدة وتُبقي البث حياً (نفس درس LiveKit).
+   * أثناء خلط الموسيقى: كتم إشارة التسجيل فقط (الموسيقى تستمر للجمهور).
    */
   setMicMuted(muted: boolean): void {
+    this.desiredMicMuted = muted;
+    this.applyMicState();
+  }
+
+  /** هل المايك مكتوم والموسيقى تُبث؟ — لمؤشر «مايكك مكتوم والموسيقى مستمرة» */
+  isMicMutedWhileMixing(): boolean {
+    return this.mixingActive && this.desiredMicMuted;
+  }
+
+  /** تطبيق حالة المايك الفعلية حسب حالة الخلط — آمن التكرار */
+  private applyMicState(): void {
     if (!this.engine) return;
+    const muted = this.desiredMicMuted;
+    if (this.mixingActive) {
+      // الموسيقى تُخلط داخل نفس المسار المنشور — النشر/الالتقاط يبقيان حيَّين
+      // وكتم كلام الـDJ يتم بتصفير إشارة التسجيل (المايك) وحدها
+      try {
+        this.engine.adjustRecordingSignalVolume(muted ? 0 : 100);
+      } catch {
+        // ignore
+      }
+      try {
+        this.engine.muteLocalAudioStream(false);
+      } catch {
+        // ignore
+      }
+      try {
+        this.engine.enableLocalAudio(true);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    // لا خلط — سياسة الكتم القياسية، مع إعادة إشارة التسجيل لوضعها الطبيعي
+    try {
+      this.engine.adjustRecordingSignalVolume(100);
+    } catch {
+      // ignore
+    }
     try {
       this.engine.muteLocalAudioStream(muted);
     } catch {
@@ -576,6 +822,16 @@ class AgoraEngineManager {
     } catch {
       // ignore
     }
+  }
+
+  /**
+   * القناة المنضم إليها حالياً ('' إن لا اتصال) — مدير خلط الموسيقى يتحقق
+   * منها قبل (إعادة) بدء الخلط: نفس المحرك تستعمله مكالمات 1:1
+   * (agoraCallSession)، وأي خلط على قناة مكالمة يسرّب موسيقى الروم
+   * داخل مايك المكالمة الخاصة.
+   */
+  getCurrentChannel(): string {
+    return this.sessionActive ? this.currentChannel : '';
   }
 
   /**
@@ -720,6 +976,7 @@ class AgoraEngineManager {
   release(): void {
     this.joinGeneration++;
     this.sessionActive = false;
+    this.mixingActive = false;
     this.clearPendingAnnounce();
     this.numericFallbackAnnounced.clear();
     this.uidToAccount.clear();

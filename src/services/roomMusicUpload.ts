@@ -1,62 +1,25 @@
 /**
- * اختيار ملف صوتي من الجهاز وبثه في الروم
+ * إضافة ملفات صوتية من الجهاز لموسيقى الروم — بلا رفع إجباري
  *
- * التشغيل يبدأ فوراً من الجهاز (نسخة محلية). الملف الأصلي يبقى عندك.
- * لسماع بقية الأعضاء يُرسل تلقائياً تدفق مؤقت للمزامنة فقط — لا يُحفظ في مكتبة الغرفة
- * ويُحذف من السحابة عند إيقاف الموسيقى.
+ * الملف يدخل مكتبة الجهاز (نسخة دائمة داخل التطبيق) ويُبث فوراً بمساره
+ * المحلي عبر خلط Agora على جهاز الـDJ — الجميع يسمعونه من ستريم الـDJ.
+ * الرفع إلى Storage صار زراً اختيارياً «تثبيت في صندوق الروم»
+ * (pinTrackToRoomBox في roomMusicLibrary) يعمل بالخلفية.
  */
 import { InteractionManager, Platform } from 'react-native';
-import * as DocumentPicker from 'expo-document-picker';
-import { ref, get, update } from 'firebase/database';
+import type * as DocumentPicker from 'expo-document-picker';
 
-import { addMusicToRoom } from '@/services/roomMusic';
-import {
-  uploadAudioFileToRoomStorage,
-  addTrackToRoomLibrary,
-  type UserMusicTrack,
-} from '@/services/roomMusicLibrary';
 import { saveLocalMusicCopy, rememberLocalCopy } from '@/services/roomMusicLocal';
-import {
-  addDeviceMusicTrack,
-  updateDeviceMusicTrackRemoteUrl,
-} from '@/services/roomMusicDeviceLibrary';
+import { addDeviceMusicTrack } from '@/services/roomMusicDeviceLibrary';
+import { addTrackToRoomLibrary } from '@/services/roomMusicLibrary';
+import { playAllTracksInRoom } from '@/services/roomMusicQueue';
+import type { RoomMusic } from '@/services/roomMusic';
 import {
   assertRoomMusicFileSize,
   formatRoomMusicMaxSizeLabel,
   RoomMusicFileTooLargeError,
 } from '@/constants/roomMusic';
-import { auth, realtimeDb } from '@/services/firebase';
-import { withRoomMediaPickerGuard } from '@/utils/roomMediaPickerGuard';
-
-/** أنواع MIME / UTType — iOS لا يفتح المنتقي أحياناً مع audio/* فقط */
-const AUDIO_PICKER_TYPES: string | string[] = Platform.select({
-  ios: [
-    'public.audio',
-    'public.mp3',
-    'public.mpeg-4-audio',
-    'com.apple.m4a-audio',
-    'audio/mpeg',
-    'audio/mp4',
-    'audio/x-m4a',
-    'audio/wav',
-  ],
-  android: ['audio/*', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/wav'],
-  default: 'audio/*',
-} as any)!;
-
-export class MusicPickCanceled extends Error {
-  constructor() {
-    super('canceled');
-    this.name = 'MusicPickCanceled';
-  }
-}
-
-export type InstantBroadcastOptions = {
-  /** إضافة لقائمة «الخاص» في هذه الجلسة فقط */
-  saveToLibrary?: boolean;
-  /** حذف نسخة المزامنة من السحابة عند الإيقاف — افتراضياً نعم */
-  ephemeralRelay?: boolean;
-};
+import { auth } from '@/services/firebase';
 
 /** بعد إغلاق Modal — ضروري على iOS وإلا يُلغى منتقي الملفات فوراً */
 export function waitAfterSheetDismiss(): Promise<void> {
@@ -68,192 +31,81 @@ export function waitAfterSheetDismiss(): Promise<void> {
   });
 }
 
-export async function pickRoomMusicFile(): Promise<DocumentPicker.DocumentPickerAsset> {
-  return withRoomMediaPickerGuard(async () => {
-    const res = await DocumentPicker.getDocumentAsync({
-      type: AUDIO_PICKER_TYPES,
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
-
-    if (res.canceled || !res.assets?.[0]?.uri) {
-      throw new MusicPickCanceled();
-    }
-
-    return res.assets[0];
-  });
-}
-
-/** @deprecated استخدم startInstantLocalBroadcast — بث فوري من الجهاز */
-export async function uploadAndBroadcastRoomMusic(
-  roomId: string,
-  picked: DocumentPicker.DocumentPickerAsset,
-  onProgress?: (percent: number) => void,
-  titleOverride?: string,
-): Promise<void> {
-  await startInstantLocalBroadcast(roomId, picked, undefined, {
-    saveToLibrary: false,
-    ephemeralRelay: true,
-  });
-  onProgress?.(100);
-  void titleOverride;
+export interface AddDeviceFilesResult {
+  /** عدد الملفات التي دخلت المكتبة/القائمة بنجاح */
+  added: number;
+  total: number;
+  /** أسماء الملفات المتعذرة مع سبب عربي مختصر */
+  failed: { name: string; reason: string }[];
+  /** true = لم يكن هناك موسيقى فبدأ أول ملف بالتشغيل فوراً */
+  playedNow: boolean;
 }
 
 /**
- * بث فوري من الجهاز — يبدأ التشغيل لحظياً من النسخة المحلية على جهاز صاحب الملف،
- * ويُرسل تدفق مؤقت بالخلفية للمزامنة؛ عند الإيقاف تُحذف نسخة السحابة.
+ * إدخال دفعة ملفات من الجهاز: نسخة محلية دائمة + مكتبة الجهاز + مكتبة
+ * الجلسة، ثم تشغيل/إلحاق عبر playAllTracksInRoom (append-only — لا قطع).
+ * الأخطاء لا تُبتلع: تُجمع لكل ملف وتعود للواجهة («أُضيفت 4 من 5 …»).
  */
-export async function startInstantLocalBroadcast(
+export async function addDeviceFilesToRoomMusic(
   roomId: string,
-  picked: DocumentPicker.DocumentPickerAsset,
-  callbacks?: {
-    onUploaded?: () => void;
-    onUploadError?: (message: string) => void;
-  },
-  options?: InstantBroadcastOptions,
-): Promise<void> {
-  const saveToLibrary = options?.saveToLibrary ?? false;
-  const ephemeralRelay = options?.ephemeralRelay ?? true;
-
+  files: DocumentPicker.DocumentPickerAsset[],
+  currentMusic: RoomMusic | null,
+): Promise<AddDeviceFilesResult> {
   const user = auth.currentUser;
   if (!user) throw new Error('يجب تسجيل الدخول');
-  if (!picked.uri) throw new Error('ملف غير صالح');
-  if (typeof picked.size === 'number') assertRoomMusicFileSize(picked.size);
 
-  // نسخة دائمة داخل التطبيق؛ وإن فشل النسخ نستخدم ملف الكاش من المنتقي مباشرة
-  // (copyToCacheDirectory: true يجعله محلياً أصلاً) بدل إفشال العملية وتعليق المستخدم.
-  const localUri = (await saveLocalMusicCopy(picked.uri, picked.name)) ?? picked.uri;
+  const result: AddDeviceFilesResult = {
+    added: 0,
+    total: files.length,
+    failed: [],
+    playedNow: false,
+  };
+  const tracks: { url: string; title: string; fileName?: string }[] = [];
 
-  const title = picked.name?.replace(/\.[^.]+$/, '')?.trim() || 'مقطع صوتي';
-  const trackId = `${user.uid}_${Date.now()}`;
-  const deviceTrack = await addDeviceMusicTrack({
-    id: trackId,
-    title,
-    fileName: picked.name,
-    localUri,
-  });
-  const localPlayUrl = `local://${deviceTrack.id}`;
-
-  const pendingUrl = `pending://${user.uid}_${Date.now()}`;
-  await rememberLocalCopy(pendingUrl, localUri);
-  await rememberLocalCopy(localPlayUrl, localUri);
-
-  if (saveToLibrary) {
-    await addTrackToRoomLibrary(roomId, {
-      id: deviceTrack.id,
-      title,
-      url: localPlayUrl,
-      fileName: picked.name,
-      addedAt: deviceTrack.addedAt,
-      addedByUid: user.uid,
-    });
-  }
-
-  await addMusicToRoom(roomId, pendingUrl, title, picked.name, undefined, {
-    liveRelay: ephemeralRelay,
-  });
-  const { useRoomMusicUiStore } = await import('@/stores/roomMusicUiStore');
-  useRoomMusicUiStore.getState().openDjPanel();
-
-  void (async () => {
+  for (const picked of files) {
+    const name = picked.name || 'ملف صوتي';
     try {
-      const uploaded = await uploadAudioFileToRoomStorage(
-        roomId,
-        picked,
-        undefined,
+      if (!picked.uri) throw new Error('ملف غير صالح');
+      if (typeof picked.size === 'number') assertRoomMusicFileSize(picked.size);
+
+      // نسخة دائمة داخل التطبيق؛ وإن فشل النسخ نستخدم ملف الكاش من المنتقي
+      // مباشرة (copyToCacheDirectory: true يجعله محلياً أصلاً)
+      const localUri = (await saveLocalMusicCopy(picked.uri, picked.name)) ?? picked.uri;
+      const title = picked.name?.replace(/\.[^.]+$/, '')?.trim() || 'مقطع صوتي';
+      const deviceTrack = await addDeviceMusicTrack({
+        title,
+        fileName: picked.name,
         localUri,
-      );
+      });
+      const localPlayUrl = `local://${deviceTrack.id}`;
+      await rememberLocalCopy(localPlayUrl, localUri);
 
-      const musicRef = ref(realtimeDb, `rooms/${roomId}/music`);
-      const snap = await get(musicRef);
-      if (snap.exists() && (snap.val() as { url?: string }).url === pendingUrl) {
-        await update(musicRef, {
-          url: uploaded.url,
-          ...(ephemeralRelay ? { liveRelay: true, storagePath: uploaded.storagePath } : {}),
-        });
-        await rememberLocalCopy(uploaded.url, localUri);
-        await updateDeviceMusicTrackRemoteUrl(deviceTrack.id, uploaded.url);
+      // مكتبة الجلسة («الخاص») — يظهر فوراً في شاشة الموسيقى مع زر التثبيت
+      await addTrackToRoomLibrary(roomId, {
+        id: deviceTrack.id,
+        title,
+        url: localPlayUrl,
+        fileName: picked.name,
+        addedAt: deviceTrack.addedAt,
+        addedByUid: user.uid,
+      });
 
-        if (saveToLibrary) {
-          await addTrackToRoomLibrary(roomId, {
-            id: deviceTrack.id,
-            title: uploaded.title,
-            url: uploaded.url,
-            fileName: uploaded.fileName,
-            addedAt: deviceTrack.addedAt,
-            addedByUid: user.uid,
-          });
-        }
-      }
-
-      callbacks?.onUploaded?.();
+      tracks.push({ url: localPlayUrl, title, fileName: picked.name });
+      result.added += 1;
     } catch (e) {
-      // لا نُسرّب رسالة Firebase الخام (storage/unauthorized على room_music/...) —
-      // هذا التنبيه يصدر من رفعٍ بالخلفية فيظهر في أي لحظة (حتى أثناء إرسال هدية)
-      // فكان المستخدم يظنه خطأً في الهدية. رسالة عربية واضحة تخص الموسيقى فقط.
-      let message = 'تعذّر مزامنة الموسيقى مع أعضاء الغرفة — المقطع يعمل على جهازك فقط';
-      if (e instanceof RoomMusicFileTooLargeError) {
-        message = `الملف أكبر من الحد المسموح (${formatRoomMusicMaxSizeLabel()}) — يعمل على جهازك فقط`;
-      } else if (
-        e instanceof Error &&
-        e.message &&
-        !/room_music|storage\/|unauthorized|permission|firebase/i.test(e.message)
-      ) {
-        message = e.message;
-      }
-      callbacks?.onUploadError?.(message);
+      result.failed.push({
+        name,
+        reason:
+          e instanceof RoomMusicFileTooLargeError
+            ? `أكبر من ${formatRoomMusicMaxSizeLabel()}`
+            : 'تعذّر فتح الملف',
+      });
     }
-  })();
-}
-
-/** يُستدعى بعد setShowTools(false) وانتظار الإغلاق */
-export async function pickAndBroadcastRoomMusic(
-  roomId: string,
-  onProgress?: (percent: number) => void,
-): Promise<void> {
-  const picked = await pickRoomMusicFile();
-  await startInstantLocalBroadcast(roomId, picked);
-  onProgress?.(100);
-}
-
-/** إضافة لقائمة الانتظار + حفظ في مكتبة الجهاز والغرفة */
-export async function relayLocalMusicToQueue(
-  roomId: string,
-  picked: DocumentPicker.DocumentPickerAsset,
-): Promise<void> {
-  if (!picked.uri) return;
-  if (typeof picked.size === 'number') assertRoomMusicFileSize(picked.size);
-
-  const user = auth.currentUser;
-  if (!user) throw new Error('يجب تسجيل الدخول');
-
-  const localUri = await saveLocalMusicCopy(picked.uri, picked.name);
-  const title = picked.name?.replace(/\.[^.]+$/, '')?.trim() || 'مقطع صوتي';
-
-  let deviceTrackId: string | undefined;
-  if (localUri) {
-    const deviceTrack = await addDeviceMusicTrack({
-      title,
-      fileName: picked.name,
-      localUri,
-    });
-    deviceTrackId = deviceTrack.id;
-    await rememberLocalCopy(`local://${deviceTrack.id}`, localUri);
   }
 
-  const uploaded = await uploadAudioFileToRoomStorage(
-    roomId,
-    picked,
-    undefined,
-    localUri ?? undefined,
-  );
-  if (localUri) await rememberLocalCopy(uploaded.url, localUri);
-  if (deviceTrackId) await updateDeviceMusicTrackRemoteUrl(deviceTrackId, uploaded.url);
-
-  const { appendToRoomMusicQueue } = await import('@/services/roomMusicQueue');
-  await appendToRoomMusicQueue(roomId, {
-    url: uploaded.url,
-    title: uploaded.title,
-    fileName: uploaded.fileName,
-  });
+  if (tracks.length) {
+    await playAllTracksInRoom(roomId, tracks, currentMusic);
+    result.playedNow = !currentMusic;
+  }
+  return result;
 }

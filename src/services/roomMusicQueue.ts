@@ -1,5 +1,11 @@
 /**
  * قائمة تشغيل موسيقى الروم — RTDB
+ *
+ * كل تعديل على القائمة يمر عبر runTransaction — إضافتان متزامنتان من جهازين
+ * لا تفقد إحداهما (كانت قراءة-تعديل-كتابة فتضيع الكتابة الأسبق).
+ *
+ * لا رفع إجباري: مسار local://trackId يدخل القائمة كما هو — جهاز صاحبه
+ * يخلطه مباشرة عبر Agora؛ ولغير صاحبه يُعلَّم «غير متاح» ويُتخطى.
  */
 import {
   ref,
@@ -8,6 +14,7 @@ import {
   update,
   onValue,
   off,
+  runTransaction,
 } from 'firebase/database';
 import { realtimeDb, auth } from './firebase/index';
 import { addMusicToRoom, assertCanBroadcastRoomMusic, type RoomMusic } from './roomMusic';
@@ -27,21 +34,34 @@ function queueRef(roomId: string) {
   return ref(realtimeDb, `rooms/${roomId}/musicQueue`);
 }
 
+function normalizeQueueItems(raw: unknown): RoomMusicQueueItem[] {
+  const val = (raw ?? {}) as { items?: unknown };
+  const items = Array.isArray(val.items)
+    ? (val.items as RoomMusicQueueItem[])
+    : (Object.values(val.items ?? {}) as RoomMusicQueueItem[]);
+  return items
+    .filter((i) => i && typeof i.url === 'string' && !!i.id)
+    .sort((a, b) => (a.addedAt ?? 0) - (b.addedAt ?? 0));
+}
+
+/**
+ * هل هذا المقطع غير متاح للـDJ الفعّال؟ — ملف محلي على جهاز مستخدم آخر
+ * (لا يمكن خلطه إلا من جهاز صاحبه). يُستخدم للعرض وللتخطي عند advance.
+ */
+export function isQueueItemUnavailableFor(
+  item: Pick<RoomMusicQueueItem, 'url' | 'addedBy'>,
+  djUid: string | null | undefined,
+): boolean {
+  return item.url.startsWith('local://') && (!djUid || item.addedBy !== djUid);
+}
+
 export function subscribeToRoomMusicQueue(
   roomId: string,
   callback: (items: RoomMusicQueueItem[]) => void,
 ): () => void {
   const qRef = queueRef(roomId);
   const handler = onValue(qRef, (snap) => {
-    const val = snap.val();
-    if (!val) {
-      callback([]);
-      return;
-    }
-    const items = Array.isArray(val.items)
-      ? (val.items as RoomMusicQueueItem[])
-      : Object.values(val.items ?? {}) as RoomMusicQueueItem[];
-    callback(items.sort((a, b) => a.addedAt - b.addedAt));
+    callback(normalizeQueueItems(snap.val()));
   });
   return () => off(qRef, 'value', handler);
 }
@@ -49,9 +69,7 @@ export function subscribeToRoomMusicQueue(
 export async function getRoomMusicQueue(roomId: string): Promise<RoomMusicQueueItem[]> {
   const snap = await get(queueRef(roomId));
   if (!snap.exists()) return [];
-  const val = snap.val() as { items?: RoomMusicQueueItem[] };
-  const items = Array.isArray(val.items) ? val.items : [];
-  return items.sort((a, b) => a.addedAt - b.addedAt);
+  return normalizeQueueItems(snap.val());
 }
 
 export async function setRoomMusicQueue(
@@ -61,81 +79,92 @@ export async function setRoomMusicQueue(
   await set(queueRef(roomId), { items, updatedAt: Date.now() });
 }
 
-/**
- * رفع خلفي لمسار جهاز أُضيف للقائمة — كان الرفع يبدأ عند دور المقطع فينتظر
- * الروم كاملاً اكتمال الرفع (~٢٠ ثانية) قبل سماع الأغنية. الآن يُرفع فور
- * الإضافة، ويُحدَّث عنصر القائمة بالرابط السحابي ليتمكّن المستمعون من
- * تنزيله مسبقاً أثناء تشغيل المقطع الحالي.
- */
-const queuedUploadInFlight = new Set<string>();
-function ensureQueuedTrackUploaded(roomId: string, url: string): void {
-  if (!url?.startsWith('local://') || queuedUploadInFlight.has(url)) return;
-  queuedUploadInFlight.add(url);
-  void (async () => {
-    try {
-      const { resolveTrackUrlForBroadcast } = await import('./roomMusicLibrary');
-      const broadcastUrl = await resolveTrackUrlForBroadcast(roomId, url);
-      if (!broadcastUrl || broadcastUrl === url) return;
-      const items = await getRoomMusicQueue(roomId);
-      let changed = false;
-      for (const it of items) {
-        if (it.url === url) {
-          it.url = broadcastUrl;
-          changed = true;
-        }
-      }
-      if (changed) await setRoomMusicQueue(roomId, items);
-    } catch {
-      // يبقى المسار محلياً — يُرفع عند دوره كما في السلوك السابق
-    } finally {
-      queuedUploadInFlight.delete(url);
-    }
-  })();
+function buildQueueItem(
+  uid: string,
+  track: Pick<UserMusicTrack, 'url' | 'title' | 'fileName'>,
+  salt = 0,
+): RoomMusicQueueItem {
+  const item: RoomMusicQueueItem = {
+    id: `${uid}_${Date.now()}_${salt}_${Math.floor(Math.random() * 1e6)}`,
+    url: track.url,
+    title: track.title,
+    addedBy: uid,
+    addedByName: auth.currentUser?.displayName ?? 'مستخدم',
+    addedAt: Date.now() + salt,
+  };
+  // RTDB يرفض undefined — الحقل الاختياري يُدرج فقط عند وجوده
+  if (track.fileName) item.fileName = track.fileName;
+  return item;
 }
 
+/** إضافة ذرّية عبر transaction — التكرار بنفس الرابط يُتجاهل بصمت */
 export async function appendToRoomMusicQueue(
   roomId: string,
   track: Pick<UserMusicTrack, 'url' | 'title' | 'fileName'>,
 ): Promise<void> {
   const uid = await assertCanBroadcastRoomMusic(roomId);
-  const items = await getRoomMusicQueue(roomId);
-  if (items.some((i) => i.url === track.url)) return;
-  items.push({
-    id: `${uid}_${Date.now()}`,
-    url: track.url,
-    title: track.title,
-    fileName: track.fileName,
-    addedBy: uid,
-    addedByName: auth.currentUser?.displayName ?? 'مستخدم',
-    addedAt: Date.now(),
+  await runTransaction(queueRef(roomId), (raw) => {
+    const items = normalizeQueueItems(raw);
+    if (items.some((i) => i.url === track.url)) return raw as unknown;
+    items.push(buildQueueItem(uid, track));
+    return { items, updatedAt: Date.now() };
   });
-  await setRoomMusicQueue(roomId, items);
-  // مسار جهاز محلي — ارفعه الآن بالخلفية بدل الانتظار حتى دوره
-  ensureQueuedTrackUploaded(roomId, track.url);
 }
 
+/** إضافة دفعة واحدة ذرّياً — لسحب متعدد الملفات */
+export async function appendManyToRoomMusicQueue(
+  roomId: string,
+  tracks: Pick<UserMusicTrack, 'url' | 'title' | 'fileName'>[],
+): Promise<void> {
+  if (!tracks.length) return;
+  const uid = await assertCanBroadcastRoomMusic(roomId);
+  await runTransaction(queueRef(roomId), (raw) => {
+    const items = normalizeQueueItems(raw);
+    let salt = 0;
+    for (const track of tracks) {
+      if (items.some((i) => i.url === track.url)) continue;
+      items.push(buildQueueItem(uid, track, salt));
+      salt += 1;
+    }
+    return { items, updatedAt: Date.now() };
+  });
+}
+
+/** حذف ذرّي عبر transaction — حذفان متزامنان لا يعيدان عنصراً محذوفاً */
 export async function removeFromRoomMusicQueue(
   roomId: string,
   itemId: string,
 ): Promise<void> {
-  const items = await getRoomMusicQueue(roomId);
-  await setRoomMusicQueue(
-    roomId,
-    items.filter((i) => i.id !== itemId),
-  );
+  await runTransaction(queueRef(roomId), (raw) => {
+    const items = normalizeQueueItems(raw).filter((i) => i.id !== itemId);
+    return { items, updatedAt: Date.now() };
+  });
 }
 
-/** تشغيل مقطع في الروم — يُسمع للجميع عبر RTDB */
+/** تشغيل مقطع في الروم — يكتب عقدة العرض؛ جهاز الـDJ يبدأ الخلط عبر مراقبه */
 export async function playTrackInRoom(
   roomId: string,
   track: Pick<UserMusicTrack, 'url' | 'title' | 'fileName'>,
 ): Promise<void> {
-  const { resolveTrackUrlForBroadcast } = await import('@/services/roomMusicLibrary');
-  const broadcastUrl = await resolveTrackUrlForBroadcast(roomId, track.url);
-  await addMusicToRoom(roomId, broadcastUrl, track.title, track.fileName);
+  await addMusicToRoom(roomId, track.url, track.title, track.fileName);
 }
 
-/** إضافة للقائمة أو تشغيل مباشرة إن لم يكن هناك DJ */
+/**
+ * «تشغيل الآن» الصريح — يقطع المقطع الحالي عمداً ويشغّل هذا المقطع،
+ * ويُزيل نسخته من قائمة الانتظار إن كانت فيها.
+ */
+export async function playTrackNowInRoom(
+  roomId: string,
+  track: Pick<UserMusicTrack, 'url' | 'title' | 'fileName'>,
+): Promise<void> {
+  await playTrackInRoom(roomId, track);
+  await runTransaction(queueRef(roomId), (raw) => {
+    const items = normalizeQueueItems(raw).filter((i) => i.url !== track.url);
+    return { items, updatedAt: Date.now() };
+  }).catch(() => {});
+}
+
+/** إضافة للقائمة أو تشغيل مباشرة إن لم يكن هناك DJ — الإضافة لا تقطع أبداً */
 export async function playOrQueueTrack(
   roomId: string,
   track: Pick<UserMusicTrack, 'url' | 'title' | 'fileName'>,
@@ -151,11 +180,15 @@ export async function playOrQueueTrack(
   }
 
   // يوجد مقطع شغّال (حتى لو لي) → أضِف للقائمة بدل الاستبدال —
-  // الاستبدال الفوري كان يمنع وجود أكثر من أغنية في قائمة التشغيل
+  // القطع المتعمد له زر «تشغيل الآن» الصريح (playTrackNowInRoom)
   await appendToRoomMusicQueue(roomId, track);
   return 'queued';
 }
 
+/**
+ * تشغيل مجموعة: لا استبدال للطابور بعد اليوم — إن لم يكن هناك موسيقى
+ * تُشغَّل الأولى وتُلحق البقية، وإلا تُلحق كلها (append-only).
+ */
 export async function playAllTracksInRoom(
   roomId: string,
   tracks: Pick<UserMusicTrack, 'url' | 'title' | 'fileName'>[],
@@ -168,36 +201,42 @@ export async function playAllTracksInRoom(
   const [first, ...rest] = tracks;
   if (!first) return;
 
-  if (!currentMusic || currentMusic.addedBy === user.uid) {
+  if (!currentMusic) {
     await playTrackInRoom(roomId, first);
-    const queueItems: RoomMusicQueueItem[] = rest.map((t, idx) => ({
-      id: `${user.uid}_${Date.now()}_${idx}`,
-      url: t.url,
-      title: t.title,
-      fileName: t.fileName,
-      addedBy: user.uid,
-      addedByName: user.displayName ?? 'مستخدم',
-      addedAt: Date.now() + idx,
-    }));
-    await setRoomMusicQueue(roomId, queueItems);
-    // رفع خلفي للمسارات المحلية — حتى لا ينتظر الروم الرفع عند دور كل مقطع
-    for (const t of rest) ensureQueuedTrackUploaded(roomId, t.url);
+    if (rest.length) await appendManyToRoomMusicQueue(roomId, rest);
     return;
   }
 
-  for (const t of tracks) {
-    await appendToRoomMusicQueue(roomId, t);
-  }
+  await appendManyToRoomMusicQueue(roomId, tracks);
 }
 
-/** عند انتهاء المقطع — تشغيل التالي تلقائياً */
+/**
+ * عند انتهاء المقطع (أو «متابعة الطابور» بعد نزول الـDJ) — يسحب ذرّياً أول
+ * مقطع يستطيع *المستدعي* تشغيله ويشغّله؛ المقاطع المحلية لأجهزة الآخرين
+ * تبقى في القائمة معلَّمة «غير متاحة» (قد يعود صاحبها فيتابعها).
+ */
 export async function advanceRoomMusicQueue(roomId: string): Promise<boolean> {
-  const items = await getRoomMusicQueue(roomId);
-  if (!items.length) return false;
-  const [next, ...rest] = items;
-  if (!next) return false;
-  await playTrackInRoom(roomId, next);
-  await setRoomMusicQueue(roomId, rest);
+  const uid = auth.currentUser?.uid;
+  if (!uid) return false;
+
+  let popped: RoomMusicQueueItem | null = null;
+  const result = await runTransaction(queueRef(roomId), (raw) => {
+    popped = null;
+    const items = normalizeQueueItems(raw);
+    const idx = items.findIndex((i) => !isQueueItemUnavailableFor(i, uid));
+    if (idx < 0) return raw as unknown; // لا شيء قابل للتشغيل — بلا تغيير
+    popped = items[idx]!;
+    items.splice(idx, 1);
+    return { items, updatedAt: Date.now() };
+  }).catch(() => null);
+
+  if (!result || !popped) return false;
+  const next = popped as RoomMusicQueueItem;
+  await playTrackInRoom(roomId, {
+    url: next.url,
+    title: next.title,
+    fileName: next.fileName,
+  });
   return true;
 }
 

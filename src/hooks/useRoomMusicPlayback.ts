@@ -1,25 +1,29 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+/**
+ * hook تشغيل موسيقى الروم — واجهة رفيعة فوق مدير خلط Agora
+ *
+ * جهاز الـDJ فقط يبثّ (startAudioMixing عبر roomMusicPlaybackManager) —
+ * المستمعون صفر كود تشغيل: يسمعون الموسيقى من ستريم الـDJ تلقائياً، وهذا
+ * الـhook يمدّهم بواجهة العرض فقط (موضع/مدة من RTDB + calculateMusicTime
+ * للتنعيم) وبخافض «صوت الـDJ» المحلي (adjustUserPlaybackSignalVolume).
+ */
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   type RoomMusic,
-  updateMusicPlayback,
   removeMusicFromRoom,
   calculateMusicTime,
   isRoomMusicDj,
   canStopRoomMusic,
-  setMusicVolume,
 } from '@/services/roomMusic';
-import { advanceRoomMusicQueue, subscribeToRoomMusicQueue } from '@/services/roomMusicQueue';
 import {
   roomMusicPlaybackManager,
   stopRoomMusicPlayback,
+  type RoomMusicNotice,
 } from '@/services/roomMusicPlaybackManager';
-import { useRoomSessionStore } from '@/stores/roomSessionStore';
 import { useRoomMusicUiStore } from '@/stores/roomMusicUiStore';
-import { configureSoundEffectsAudio } from '@/utils/playRoomSound';
+import { useAlert } from '@/components/ui';
 
 export { stopRoomMusicPlayback };
-
-type AVModule = typeof import('expo-av');
 
 export function useRoomMusicPlayback(
   roomId: string | null,
@@ -28,365 +32,150 @@ export function useRoomMusicPlayback(
   enabled: boolean,
   canManageMusic = false,
 ) {
+  const { t } = useTranslation();
+  const { showToast } = useAlert();
   const isController = isRoomMusicDj(music, userUid);
   const canStopMusic = canStopRoomMusic(music, userUid, canManageMusic);
-  const soundRef = useRef<import('expo-av').Audio.Sound | null>(null);
-  const avRef = useRef<AVModule | null>(null);
-  const syncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastSyncWriteRef = useRef(0);
-  const loadGenRef = useRef(0);
-  // آخر نسخة من بيانات الموسيقى — تُقرأ داخل الدوال بدل الاعتماد على هوية الكائن،
-  // وإلا أعاد كل تحديث مزامنة (كل ~4ث) تحميل الملف من الصفر → تقطيع
-  const latestMusicRef = useRef(music);
-  latestMusicRef.current = music;
-  const lastDriftSeekRef = useRef(0);
-  const lastLoadedSessionRef = useRef<number | null>(null);
-  const volumeWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // مرجع ثابت لأحدث نسخة من loadTrack + عدّاد إعادة محاولة عند بقاء pending://
-  const loadTrackRef = useRef<() => Promise<void>>();
-  const pendingRetryRef = useRef(0);
-  const pendingRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localListenerVolume = useRoomMusicUiStore((s) => s.localListenerVolume);
+  const setLocalListenerVolume = useRoomMusicUiStore((s) => s.setLocalListenerVolume);
+  const djPlayoutVolume = useRoomMusicUiStore((s) => s.djPlayoutVolume);
 
-  const broadcastVolume = music?.volume ?? 1;
-  const effectiveVolume = isController
-    ? broadcastVolume
-    : broadcastVolume * localListenerVolume;
-  // نقرأ الصوت من ref داخل loadTrack بدل التبعية المباشرة — وإلا كان كل تغيير
-  // مستوى صوت يُعيد إنشاء loadTrack ويُعيد تحميل الملف والقفز للموضع (الأغنية ترجع).
-  const effectiveVolumeRef = useRef(effectiveVolume);
-  effectiveVolumeRef.current = effectiveVolume;
+  const [mixSnap, setMixSnap] = useState(() => roomMusicPlaybackManager.getSnapshot());
+  const [listenerPosition, setListenerPosition] = useState(
+    music ? calculateMusicTime(music) : 0,
+  );
 
-  const applySoundVolume = useCallback(async (vol: number) => {
-    try {
-      await soundRef.current?.setVolumeAsync(Math.max(0, Math.min(1, vol)));
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const [localPlaying, setLocalPlaying] = useState(music?.isPlaying ?? false);
-  const [position, setPosition] = useState(music?.currentTime ?? 0);
-  const [duration, setDuration] = useState(music?.duration ?? 0);
-  const [ready, setReady] = useState(false);
-
-  const clearSound = useCallback(async () => {
-    if (syncTimerRef.current) {
-      clearInterval(syncTimerRef.current);
-      syncTimerRef.current = null;
-    }
-    const sound = soundRef.current;
-    soundRef.current = null;
-    roomMusicPlaybackManager.detach(sound);
-    try {
-      await sound?.stopAsync();
-    } catch {
-      // ignore
-    }
-    try {
-      await sound?.unloadAsync();
-    } catch {
-      // ignore
-    }
-    setReady(false);
-    setLocalPlaying(false);
-  }, []);
-
-  const unload = useCallback(async () => {
-    loadGenRef.current += 1;
-    lastLoadedSessionRef.current = null;
-    await clearSound();
-  }, [clearSound]);
-
-  const loadTrack = useCallback(async () => {
-    const music = latestMusicRef.current;
-    if (!enabled || !music?.url) return;
-    const myGen = ++loadGenRef.current;
-
-    // حلّ المسار المحلي مع مهلة — إن تعذّر (getInfoAsync معلّق) نبثّ الرابط السحابي
-    // بدل البقاء في التحميل إلى ما لا نهاية.
-    const playableUri = await Promise.race([
-      import('@/services/roomMusicLocal')
-        .then((m) => m.resolveLocalPlayableUri(music.url))
-        .catch(() => music.url),
-      new Promise<string>((resolve) => setTimeout(() => resolve(music.url), 4000)),
-    ]);
-    // النسخة المحلية لم تُكتب بعد (سباق كتابة) — أعد المحاولة بضع مرّات بدل التعليق في Loading
-    if (playableUri.startsWith('pending://')) {
-      if (pendingRetryRef.current < 12) {
-        pendingRetryRef.current += 1;
-        if (pendingRetryTimerRef.current) clearTimeout(pendingRetryTimerRef.current);
-        pendingRetryTimerRef.current = setTimeout(() => {
-          void loadTrackRef.current?.();
-        }, 400);
-      }
-      return;
-    }
-    pendingRetryRef.current = 0;
-
-    if (
-      lastLoadedSessionRef.current === music.addedAt &&
-      soundRef.current
-    ) {
-      try {
-        const st = await soundRef.current.getStatusAsync();
-        if (st.isLoaded && myGen === loadGenRef.current) {
-          setReady(true);
-          setLocalPlaying(music.isPlaying);
-          return;
-        }
-      } catch {
-        // fall through — إعادة تحميل كاملة
-      }
-    }
-
-    const existing = roomMusicPlaybackManager.getActiveSound();
-    if (existing) {
-      try {
-        const st = await existing.getStatusAsync();
-        if (st.isLoaded && myGen === loadGenRef.current) {
-          soundRef.current = existing;
-          roomMusicPlaybackManager.attach(existing);
-          if (music.isPlaying && !st.isPlaying) {
-            await existing.playAsync();
-          }
-          setLocalPlaying(music.isPlaying);
-          setReady(true);
-          const startAt = calculateMusicTime(music);
-          setPosition(startAt);
-          return;
-        }
-      } catch {
-        // fall through to full load
-      }
-    }
-
-    await clearSound();
-    if (myGen !== loadGenRef.current) return;
-    try {
-      const AV = avRef.current ?? (await import('expo-av'));
-      avRef.current = AV;
-      // إعادة تأكيد وضع الصوت دائماً قبل بدء المقطع (force) — مكوّن آخر
-      // (فيديو دخولية/مسجّل صوت) قد يكون بدّل الوضع بعد التهيئة الأولى؛
-      // بدء التشغيل بوضعٍ بلا allowsRecordingIOS كان يقلب فئة AVAudioSession
-      // فيقتل مايك جلسة الصوت — «تُسمع كم كلمة ثم يطير الـDJ عن المايك»
-      await configureSoundEffectsAudio(true);
-      const { sound } = await AV.Audio.Sound.createAsync(
-        { uri: playableUri },
-        {
-          shouldPlay: false,
-          progressUpdateIntervalMillis: 400,
-          volume: effectiveVolumeRef.current,
-          isMuted: false,
-        },
-      );
-      if (myGen !== loadGenRef.current) {
-        await sound.unloadAsync().catch(() => {});
-        return;
-      }
-      soundRef.current = sound;
-      roomMusicPlaybackManager.attach(sound);
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (!status.isLoaded || !roomId) return;
-        if (status.durationMillis) {
-          setDuration(status.durationMillis / 1000);
-        }
-        if (isController && status.positionMillis != null) {
-          setPosition(status.positionMillis / 1000);
-        }
-        if (status.didJustFinish && isController && roomId) {
-          advanceRoomMusicQueue(roomId)
-            .then((advanced) => {
-              if (!advanced) void removeMusicFromRoom(roomId);
-            })
-            .catch(() => {
-              updateMusicPlayback(roomId, { isPlaying: false, currentTime: 0 }).catch(() => {});
-            });
-        }
-      });
-
-      const startAt = calculateMusicTime(music);
-      if (startAt > 0) {
-        await sound.setPositionAsync(startAt * 1000);
-      }
-      setPosition(startAt);
-      if (music.isPlaying) {
-        await sound.playAsync();
-      }
-      setLocalPlaying(music.isPlaying);
-      setReady(true);
-      lastLoadedSessionRef.current = music.addedAt;
-    } catch (e) {
-      console.warn('useRoomMusicPlayback load:', e);
-    }
-    // ملاحظة: لا نعتمد على كائن music هنا (نقرأه من latestMusicRef)
-    // ولا على effectiveVolume (نقرأه من effectiveVolumeRef) — حتى تبقى الدالة ثابتة
-    // عبر كتابات المزامنة وتغيّر الصوت، فلا يُعاد تحميل الملف ولا يقفز الموضع.
-  }, [clearSound, isController, roomId, enabled]);
-  loadTrackRef.current = loadTrack;
+  // ==================== جهاز الـDJ: بدء/مصالحة البث ====================
 
   useEffect(() => {
-    void applySoundVolume(effectiveVolume);
-  }, [effectiveVolume, applySoundVolume, ready]);
+    if (!enabled || !roomId || !music || !isController) return;
+    // idempotent — المدير يتجاهل نفس المقطع ويصالح حالة التشغيل/الصوت فقط.
+    // ملاحظة: لا إيقاف عند التنظيف — المدير يراقب عقدة RTDB بنفسه ويتوقف
+    // عند حذفها، فيستمر البث أثناء تصغير الروم وإعادة تركيب الشاشات.
+    roomMusicPlaybackManager.syncDjBroadcast(roomId, music);
+  }, [
+    enabled,
+    roomId,
+    isController,
+    music,
+    music?.url,
+    music?.addedAt,
+    music?.isPlaying,
+    music?.volume,
+  ]);
 
+  // «سماعي أنا» — playout الـDJ المحلي من قيمة المتجر
   useEffect(() => {
-    // مقطع جديد — صفّر عدّاد إعادة محاولة pending:// وألغِ أي مؤقّت سابق
-    pendingRetryRef.current = 0;
-    if (pendingRetryTimerRef.current) {
-      clearTimeout(pendingRetryTimerRef.current);
-      pendingRetryTimerRef.current = null;
-    }
-    if (!enabled || !music) {
-      void unload();
-      return;
-    }
-    void loadTrack();
-    return () => {
-      const session = useRoomSessionStore.getState();
-      if (
-        session.audioPinned &&
-        session.isMinimized &&
-        session.roomId &&
-        session.roomId === roomId
-      ) {
-        return;
-      }
-      void unload();
-    };
-  }, [music?.url, music?.addedAt, enabled, roomId, loadTrack, unload]);
+    if (!enabled || !isController) return;
+    roomMusicPlaybackManager.setPlayoutVolume(djPlayoutVolume);
+  }, [enabled, isController, djPlayoutVolume]);
 
-  // تنزيل مسبق لمقاطع قائمة الانتظار أثناء تشغيل المقطع الحالي — كان المستمعون
-  // ينتظرون تنزيل المقطع من الشبكة عند دوره (تأخير ملحوظ قبل سماعه)؛ الآن
-  // النسخة المحلية جاهزة فيبدأ فوراً. أول مقطعين فقط لتوفير البيانات.
+  // لقطة المدير (موضع/مدة/تشغيل) — لجهاز الـDJ
   useEffect(() => {
-    if (!enabled || !roomId) return;
-    const unsub = subscribeToRoomMusicQueue(roomId, (items) => {
-      for (const it of items.slice(0, 2)) {
-        if (!it?.url) continue;
-        void import('@/services/roomMusicLocal')
-          .then((m) => m.prefetchRemoteMusicCopy(it.url))
-          .catch(() => {});
-      }
+    if (!enabled || !isController) return;
+    setMixSnap(roomMusicPlaybackManager.getSnapshot());
+    return roomMusicPlaybackManager.subscribe(() => {
+      setMixSnap(roomMusicPlaybackManager.getSnapshot());
     });
-    return unsub;
-  }, [roomId, enabled]);
+  }, [enabled, isController]);
 
+  // إشعارات المدير (تخطّي صيغة غير مدعومة / إيقاف إداري) — toast مترجم
+  useEffect(() => {
+    if (!enabled || !isController) return;
+    return roomMusicPlaybackManager.subscribeNotices((notice: RoomMusicNotice) => {
+      showToast(
+        notice === 'admin-stopped'
+          ? t('room.musicAdminStopped')
+          : notice === 'playback-interrupted'
+            ? // انقطاع تدفق/تكرار سريع (702/703) — ليست مشكلة صيغة
+              t('room.musicPlaybackInterrupted')
+            : t('room.musicUnsupportedSkipped'),
+      );
+    });
+  }, [enabled, isController, showToast, t]);
+
+  // ==================== المستمع: عرض فقط + خافض «صوت الـDJ» ====================
+
+  // موضع التقدم للعرض — من RTDB منعَّماً بساعة السيرفر (لا صوت محلياً إطلاقاً)
   useEffect(() => {
     if (!enabled || !music || isController) return;
-    const tick = () => {
-      const m = latestMusicRef.current;
-      if (!m) return;
-      const t = calculateMusicTime(m);
-      setPosition(t);
-      setLocalPlaying(m.isPlaying);
-      soundRef.current
-        ?.getStatusAsync()
-        .then(async (st) => {
-          if (!st.isLoaded || !soundRef.current) return;
-          if (m.isPlaying && !st.isPlaying) {
-            await soundRef.current.playAsync();
-            return;
-          }
-          if (!m.isPlaying && st.isPlaying) {
-            await soundRef.current.pauseAsync();
-            return;
-          }
-          // أثناء التحميل المؤقت لا نقفز — القفز لمنطقة غير محمّلة يزيد التقطيع
-          if (st.isBuffering) return;
-          const drift = Math.abs(st.positionMillis / 1000 - t);
-          const now = Date.now();
-          // قفزة تصحيح فقط عند انحراف كبير، وبفاصل ≥ 10ث بين القفزات —
-          // العتبة القديمة (1.5ث) مع انحراف الساعات كانت تسبّب قفزات متواصلة
-          if (drift > 4 && now - lastDriftSeekRef.current > 10_000) {
-            lastDriftSeekRef.current = now;
-            await soundRef.current.setPositionAsync(t * 1000);
-          }
-        })
-        .catch(() => {});
-    };
+    const tick = () => setListenerPosition(calculateMusicTime(music));
     tick();
-    const id = setInterval(tick, 2000);
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [music?.url, music?.addedAt, isController, enabled]);
+  }, [enabled, isController, music, music?.lastUpdatedAt, music?.isPlaying]);
 
+  // الخافض المحلي «صوت الـDJ» — يخفض كلامه وموسيقاه معاً (ستريم واحد)؛
+  // roomId يمكّن المدير من مراقبة العقدة واستعادة الصوت عند نهاية الجلسة
   useEffect(() => {
-    if (!enabled || !isController || !ready || !roomId) return;
-    syncTimerRef.current = setInterval(async () => {
-      const st = await soundRef.current?.getStatusAsync();
-      if (!st?.isLoaded) return;
-      const now = Date.now();
-      if (now - lastSyncWriteRef.current < 3500) return;
-      lastSyncWriteRef.current = now;
-      const pos = st.positionMillis / 1000;
-      const playing = st.isPlaying;
-      setPosition(pos);
-      setLocalPlaying(playing);
-      try {
-        await updateMusicPlayback(roomId, {
-          currentTime: pos,
-          isPlaying: playing,
-          duration: st.durationMillis ? st.durationMillis / 1000 : undefined,
-        });
-      } catch {
-        // ignore
-      }
-    }, 4000);
-    return () => {
-      if (syncTimerRef.current) clearInterval(syncTimerRef.current);
-    };
-  }, [isController, ready, roomId, enabled]);
+    if (!enabled || !roomId || !music || isController) return;
+    roomMusicPlaybackManager.setListenerDjVolume(
+      roomId,
+      music.addedBy,
+      localListenerVolume,
+    );
+  }, [enabled, roomId, isController, music, music?.addedBy, localListenerVolume]);
 
-  const pauseLocal = useCallback(async () => {
-    try {
-      await soundRef.current?.pauseAsync();
-      setLocalPlaying(false);
-    } catch {
-      // ignore
-    }
-  }, []);
+  // ==================== واجهة موحّدة ====================
+
+  const localPlaying = isController ? mixSnap.playing : (music?.isPlaying ?? false);
+  const position = isController ? mixSnap.positionSec : listenerPosition;
+  const duration = isController
+    ? mixSnap.durationSec || (music?.duration ?? 0)
+    : (music?.duration ?? 0);
+  const ready = isController ? mixSnap.active : !!music;
 
   const togglePlay = useCallback(async () => {
-    if (!isController || !soundRef.current || !roomId) return;
-    const st = await soundRef.current.getStatusAsync();
-    if (!st.isLoaded) return;
-    const next = !st.isPlaying;
-    if (next) await soundRef.current.playAsync();
-    else await soundRef.current.pauseAsync();
-    const pos = st.positionMillis / 1000;
-    setLocalPlaying(next);
-    await updateMusicPlayback(roomId, { isPlaying: next, currentTime: pos });
+    if (!isController || !roomId) return;
+    await roomMusicPlaybackManager.togglePlay(roomId);
   }, [isController, roomId]);
 
+  const seekTo = useCallback(
+    async (seconds: number) => {
+      if (!isController || !roomId) return;
+      await roomMusicPlaybackManager.seekTo(roomId, seconds);
+    },
+    [isController, roomId],
+  );
+
+  /**
+   * «إيقاف الاستماع» للمستمع — لا يمكن إيقاف ستريم مشترك محلياً؛
+   * الصادق المتاح: تصفير خافض «صوت الـDJ» (يكتم كلامه وموسيقاه معاً).
+   */
+  const pauseLocal = useCallback(async () => {
+    if (isController) {
+      if (roomId) await roomMusicPlaybackManager.togglePlay(roomId);
+      return;
+    }
+    setLocalListenerVolume(0);
+    if (music?.addedBy && roomId) {
+      roomMusicPlaybackManager.setListenerDjVolume(roomId, music.addedBy, 0);
+    }
+  }, [isController, roomId, music?.addedBy, setLocalListenerVolume]);
+
+  const broadcastVolume = music?.volume ?? 1;
+  const effectiveVolume = isController ? broadcastVolume : localListenerVolume;
+
+  /** «صوت الجمهور» (النشر) للـDJ — محرك فوراً + RTDB بـdebounce داخل المدير */
   const setBroadcastVolume = useCallback(
     (volume: number) => {
-      const clamped = Math.max(0, Math.min(1, volume));
-      void applySoundVolume(clamped);
       if (!isController || !roomId) return;
-      if (volumeWriteTimerRef.current) clearTimeout(volumeWriteTimerRef.current);
-      volumeWriteTimerRef.current = setTimeout(() => {
-        void setMusicVolume(roomId, clamped).catch(() => {});
-      }, 280);
+      roomMusicPlaybackManager.setPublishVolume(roomId, volume);
     },
-    [applySoundVolume, isController, roomId],
+    [isController, roomId],
   );
 
   const stopBroadcast = useCallback(async () => {
     if (!roomId) return;
     if (canStopMusic) {
+      // حذف العقدة يوقف خلط جهاز الـDJ عبر مراقب المدير
       await removeMusicFromRoom(roomId).catch(() => {});
       return;
     }
-    await stopRoomMusicPlayback().catch(() => {});
+    // مستمع بلا صلاحية إيقاف — كتم «صوت الـDJ» محلياً وإخفاء الواجهة
+    await pauseLocal();
     useRoomMusicUiStore.getState().dismissLocally();
-  }, [canStopMusic, roomId]);
-
-  useEffect(
-    () => () => {
-      if (volumeWriteTimerRef.current) clearTimeout(volumeWriteTimerRef.current);
-      if (pendingRetryTimerRef.current) clearTimeout(pendingRetryTimerRef.current);
-    },
-    [],
-  );
+  }, [canStopMusic, roomId, pauseLocal]);
 
   return {
     isController,
@@ -396,8 +185,8 @@ export function useRoomMusicPlayback(
     duration,
     ready,
     togglePlay,
+    seekTo,
     pauseLocal,
-    soundRef,
     broadcastVolume,
     effectiveVolume,
     setBroadcastVolume,

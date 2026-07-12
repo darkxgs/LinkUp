@@ -1,10 +1,10 @@
 /**
- * نسخ محلية لموسيقى الروم — تشغيل فوري من القرص بدون شبكة
+ * نسخ محلية لموسيقى الروم — خلط فوري من القرص بدون شبكة
  *
  * عند إضافة ملف من الجهاز تُحفظ نسخة دائمة داخل مجلد التطبيق،
- * ويُربط رابط التخزين السحابي بالمسار المحلي في AsyncStorage.
- * عند التشغيل: إن وُجدت النسخة المحلية تُشغَّل مباشرة (صفر تحميل، صفر تقطيع)،
- * وإلا يُبثّ الرابط السحابي كما قبل (أجهزة المستمعين الآخرين).
+ * ويُربط رابط التخزين السحابي (إن ثُبِّت في صندوق الروم) بالمسار المحلي.
+ * جهاز الـDJ يخلط النسخة المحلية إن وُجدت (startAudioMixing من القرص)،
+ * وإلا يخلط الرابط السحابي مباشرة — المستمعون لا يحمّلون شيئاً إطلاقاً.
  */
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -80,55 +80,9 @@ export async function rememberLocalCopy(remoteUrl: string, localUri: string): Pr
   await writeMap(map);
 }
 
-/** امتداد الملف من رابط سحابي (لو تعذّر: m4a) — AVPlayer على iOS يعتمد على الامتداد */
-function extFromRemoteUrl(remoteUrl: string): string {
-  try {
-    const path = decodeURIComponent(remoteUrl.split('?')[0] ?? '');
-    const ext = path.split('.').pop()?.toLowerCase() ?? '';
-    return /^[a-z0-9]{1,5}$/.test(ext) ? ext : 'm4a';
-  } catch {
-    return 'm4a';
-  }
-}
-
-const prefetchInFlight = new Set<string>();
-
-/**
- * تنزيل مسبق لمقطع سحابي إلى القرص — يُستدعى لمقاطع قائمة الانتظار أثناء تشغيل
- * المقطع الحالي، فيبدأ المقطع التالي فوراً عند دوره بدل انتظار التحميل من الشبكة.
- */
-export async function prefetchRemoteMusicCopy(remoteUrl: string): Promise<void> {
-  if (!remoteUrl || !/^https?:\/\//.test(remoteUrl)) return;
-  if (!FileSystem.documentDirectory) return;
-  if (prefetchInFlight.has(remoteUrl)) return;
-  prefetchInFlight.add(remoteUrl);
-  try {
-    const map = await readMap();
-    const existing = map[remoteUrl];
-    if (existing) {
-      const info = await FileSystem.getInfoAsync(existing);
-      if (info.exists && !info.isDirectory) return; // نسخة جاهزة مسبقاً
-    }
-    await ensureLocalDir();
-    const dest = `${LOCAL_DIR}prefetch_${Date.now()}_${Math.floor(
-      Math.random() * 1e6,
-    )}.${extFromRemoteUrl(remoteUrl)}`;
-    const res = await FileSystem.downloadAsync(remoteUrl, dest);
-    if (res.status === 200) {
-      await rememberLocalCopy(remoteUrl, res.uri);
-    } else {
-      await FileSystem.deleteAsync(res.uri, { idempotent: true }).catch(() => {});
-    }
-  } catch {
-    // تحسين اختياري — عند الفشل يُبثّ الرابط السحابي مباشرة كما قبل
-  } finally {
-    prefetchInFlight.delete(remoteUrl);
-  }
-}
-
 /**
  * يُرجع المسار المحلي إن كانت النسخة موجودة على الجهاز، وإلا الرابط السحابي.
- * يُستخدم عند تشغيل موسيقى الروم — صاحب الملف يشغّل من القرص فوراً.
+ * يستخدمه مدير خلط Agora على جهاز الـDJ — الخلط من القرص أوثق من التدفق.
  */
 export async function resolveLocalPlayableUri(remoteUrl: string): Promise<string> {
   if (!remoteUrl) return remoteUrl;
