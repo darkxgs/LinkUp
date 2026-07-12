@@ -64,8 +64,7 @@ const LinkUpTabBar: React.FC<BottomTabBarProps> = ({ state, navigation }) => {
   const { t } = useAppLanguage();
   const totalUnread = useUnreadStore((s) => s.totalUnread);
   const user = useAuthStore((s) => s.user);
-  // معاينة مؤقتة في وضع التطوير فقط: إخفاء الصورة لإظهار أيقونة الجنس.
-  const avatarUri = __DEV__ ? undefined : user?.profile?.avatar;
+  const avatarUri = user?.profile?.avatar;
   const profileIcon =
     readUserGender(user) === 'female'
       ? require('../../assets/images/tab_profile_female.png')
