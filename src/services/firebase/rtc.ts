@@ -80,6 +80,30 @@ export const getLiveKitToken = async (
     LiveKitTokenResult
   >('generateLiveKitToken', { roomName, canPublish, ...(peerUid ? { peerUid } : {}) });
 
+// ==================== AGORA ====================
+export interface AgoraTokenResult {
+  token: string;
+  appId: string;
+  identity: string;
+  roomName: string;
+  freeCall?: boolean;
+}
+
+/**
+ * جلب توكن Agora للانضمام لقناة (غرفة/مكالمة) — appId يصل من السيرفر
+ * @param canPublish هل يمكنه التحدث؟ (المضيف/المتحدثون true، المستمعون false)
+ * @param peerUid معرّف الطرف الآخر — لفحص امتياز المكالمة المجانية للوكالة
+ */
+export const getAgoraToken = async (
+  roomName: string,
+  canPublish = true,
+  peerUid?: string,
+): Promise<AgoraTokenResult> =>
+  callFunction<
+    { roomName: string; canPublish: boolean; peerUid?: string },
+    AgoraTokenResult
+  >('generateAgoraToken', { roomName, canPublish, ...(peerUid ? { peerUid } : {}) });
+
 // ==================== MATCHING ====================
 export interface MatchResult {
   matched: boolean;

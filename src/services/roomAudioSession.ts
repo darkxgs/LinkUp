@@ -15,6 +15,8 @@ import {
 } from '@/services/livekitAudioRouting';
 import { stopRoomForegroundService } from '@/services/roomForegroundService';
 import { connectLiveKitWithRelayFallback } from '@/services/livekitConnect';
+import { agoraRoomSession, prefetchAgoraRoomAudio } from '@/services/rtc/agoraRoomSession';
+import { resolveRtcProvider, type RtcProvider } from '@/services/rtc/rtcProvider';
 import { setRoomVoiceSessionActive, configureSoundEffectsAudio, setRoomSfxMuted } from '@/utils/playRoomSound';
 
 export type RoomConnectionState = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -128,8 +130,8 @@ async function resolveLiveKitToken(
   return getLiveKitToken(roomName, canPublish, peerUid);
 }
 
-/** تحميل مسبق للوحدات والتوكن — يُستدعى عند فتح شاشة الروم */
-export function prefetchRoomAudio(
+/** التحميل المسبق لمسار LiveKit — الموزّع أسفل الملف يوجّه إليه أو لنظير Agora */
+function prefetchLiveKitRoomAudio(
   roomName: string,
   canPublish = false,
   peerUid?: string,
@@ -986,4 +988,169 @@ class RoomAudioSessionManager {
   }
 }
 
-export const roomAudioSession = new RoomAudioSessionManager();
+/** مدير LiveKit الأصلي — يبقى المسار الحي الافتراضي كما هو */
+const livekitRoomAudioSession = new RoomAudioSessionManager();
+
+type RoomAudioManager = RoomAudioSessionManager | typeof agoraRoomSession;
+
+/**
+ * موزّع المزوّد (LiveKit/Agora) — طبقة توجيه رفيعة خلف علم سيرفري.
+ *
+ * القاعدة: activeProvider يتحدد عند أول connect/prefetch (قراءة
+ * config/settings عبر resolveRtcProvider) ويثبت طوال جلسة التطبيق —
+ * فلا تتقاذف الجلسةَ الصوتية مديران مختلفان في المنتصف.
+ * وجلسة واحدة نشطة فقط: لو طُلب connect والمدير الآخر ما يزال متصلاً
+ * (بقايا حالة) يُفصل أولاً.
+ *
+ * الشاشات والـHooks والـHosts لا تتغير: نفس الأسماء العامة
+ * (roomAudioSession/prefetchRoomAudio) ونفس شكل RoomAudioSnapshot.
+ */
+class RoomAudioSessionRouter {
+  /** المزوّد المثبّت — null قبل أول connect/prefetch (يوجَّه لـ LiveKit مؤقتاً) */
+  private activeProvider: RtcProvider | null = null;
+  private listeners = new Set<Listener>();
+  /** حسم جارٍ — يمنع سباق تثبيتين متوازيين */
+  private pinPromise: Promise<RtcProvider> | null = null;
+
+  constructor() {
+    // إعادة بثّ إشعارات المدير النشط فقط — المشتركون لا يعرفون المزوّد،
+    // واشتراكهم يبقى صالحاً حتى لو تبدّل المدير بين جلستين
+    livekitRoomAudioSession.subscribe(() => {
+      if (this.current() === livekitRoomAudioSession) this.notify();
+    });
+    agoraRoomSession.subscribe(() => {
+      if (this.current() === agoraRoomSession) this.notify();
+    });
+  }
+
+  private notify(): void {
+    this.listeners.forEach((l) => l());
+  }
+
+  private current(): RoomAudioManager {
+    return this.activeProvider === 'agora' ? agoraRoomSession : livekitRoomAudioSession;
+  }
+
+  private other(): RoomAudioManager {
+    return this.activeProvider === 'agora' ? livekitRoomAudioSession : agoraRoomSession;
+  }
+
+  /**
+   * حسم المزوّد وتثبيته — مرة واحدة؛ أي فشل = LiveKit (الافتراضي الآمن).
+   *
+   * سلوك مقصود: التثبيت هنا يشمل قراراً جاء من مسار فشل resolveRtcProvider
+   * (كاش الإقلاع/الافتراضي) — فمبدأ «عدم تثبيت الفشل لإعادة المحاولة» في
+   * rtcProvider يفيد قراءاتِه اللاحقة (قد تصيب السيرفر وتصحّح الكاش)، أما
+   * التوجيه هنا فيثبت طوال جلسة التطبيق عمداً كي لا يتبدّل المزوّد على
+   * الجلسة الصوتية في المنتصف — التصحيح يسري من الإقلاع التالي.
+   */
+  private async pinProvider(): Promise<RtcProvider> {
+    if (this.activeProvider) return this.activeProvider;
+    if (this.pinPromise) return this.pinPromise;
+    this.pinPromise = (async () => {
+      let provider: RtcProvider = 'livekit';
+      try {
+        const { auth } = await import('@/services/firebase');
+        provider = await resolveRtcProvider(auth.currentUser?.uid);
+      } catch {
+        provider = 'livekit';
+      }
+      if (!this.activeProvider) this.activeProvider = provider;
+      return this.activeProvider;
+    })();
+    try {
+      return await this.pinPromise;
+    } finally {
+      this.pinPromise = null;
+    }
+  }
+
+  subscribe(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  getSnapshot(): RoomAudioSnapshot {
+    return this.current().getSnapshot();
+  }
+
+  isConnectedTo(roomName: string): boolean {
+    return this.current().isConnectedTo(roomName);
+  }
+
+  isSeatAdminMuted(): boolean {
+    return this.current().isSeatAdminMuted();
+  }
+
+  async connect(roomName: string, canPublish: boolean, peerUid?: string): Promise<void> {
+    await this.pinProvider();
+    // جلسة واحدة نشطة فقط — المدير الآخر يُفصل قبل أي اتصال جديد
+    const other = this.other();
+    const otherState = other.getSnapshot().connectionState;
+    if (otherState === 'connected' || otherState === 'connecting') {
+      await other.disconnect().catch(() => {});
+    }
+    await this.current().connect(roomName, canPublish, peerUid);
+  }
+
+  /** تحميل مسبق — يثبّت المزوّد أيضاً (أول نقطة دخول لشاشة الروم عادة) */
+  prefetch(roomName: string, canPublish = false, peerUid?: string): void {
+    void this.pinProvider()
+      .then((provider) => {
+        if (provider === 'agora') prefetchAgoraRoomAudio(roomName, canPublish, peerUid);
+        else prefetchLiveKitRoomAudio(roomName, canPublish, peerUid);
+      })
+      .catch(() => {});
+  }
+
+  async disconnect(): Promise<void> {
+    // سباق نافذة التثبيت (نفس معالجة CallSessionRouter): انتظر حسم المزوّد
+    // كي يصل الفصل للمدير الذي يملك الجلسة فعلاً لا للمدير الخامل
+    if (!this.activeProvider && this.pinPromise) {
+      await this.pinPromise.catch(() => {});
+    }
+    return this.current().disconnect();
+  }
+
+  setMuted(muted: boolean): Promise<void> {
+    return this.current().setMuted(muted);
+  }
+
+  toggleMute(): Promise<void> {
+    return this.current().toggleMute();
+  }
+
+  requestToSpeak(): Promise<void> {
+    return this.current().requestToSpeak();
+  }
+
+  setRemoteAudioMuted(muted: boolean): void {
+    // تصل من الشاشة قبل أول connect (قبل تثبيت المزوّد) — تُطبَّق على
+    // الاثنين حتى لا يضيع التفضيل عند التوجيه لاحقاً (كلاهما آمن التكرار)
+    livekitRoomAudioSession.setRemoteAudioMuted(muted);
+    agoraRoomSession.setRemoteAudioMuted(muted);
+  }
+
+  resyncRemoteAudio(): void {
+    this.current().resyncRemoteAudio();
+  }
+
+  suspendForCall(): void {
+    this.current().suspendForCall();
+  }
+
+  resumeAfterCall(): void {
+    this.current().resumeAfterCall();
+  }
+}
+
+export const roomAudioSession = new RoomAudioSessionRouter();
+
+/** تحميل مسبق للوحدات والتوكن — يُستدعى عند فتح شاشة الروم (يوجَّه حسب المزوّد) */
+export function prefetchRoomAudio(
+  roomName: string,
+  canPublish = false,
+  peerUid?: string,
+): void {
+  roomAudioSession.prefetch(roomName, canPublish, peerUid);
+}

@@ -1,5 +1,10 @@
 /**
- * جلسة مكالمة LiveKit 1-to-1 — تبقى متصلة عند تصغير الشاشة
+ * جلسة مكالمة 1-to-1 — تبقى متصلة عند تصغير الشاشة
+ *
+ * الملف الآن موزّع مزوّدين (نفس نمط roomAudioSession):
+ * - CallSessionManager: مدير LiveKit الأصلي — المسار الحي الافتراضي كما هو.
+ * - agoraCallSession (rtc/agoraCallSession): المدير الموازي عبر Agora.
+ * - CallSessionRouter (آخر الملف): يوجّه بينهما خلف علم rtcProvider السيرفري.
  *
  * (الغرف الصوتية many-to-many تبقى على roomAudioSession.ts منفصل.)
  */
@@ -23,6 +28,8 @@ import {
   stopAudioRouteWatcher,
 } from '@/services/livekitAudioRouting';
 import { auth } from '@/services/firebase';
+import { resolveRtcProvider, type RtcProvider } from '@/services/rtc/rtcProvider';
+import { agoraCallSession, type AgoraCallVideoRef } from '@/services/rtc/agoraCallSession';
 
 export type CallState = 'idle' | 'connecting' | 'connected' | 'ended' | 'error';
 
@@ -31,6 +38,13 @@ type LkRoom = import('livekit-client').Room;
 type VideoTrack = import('livekit-client').VideoTrack;
 type RemoteParticipant = import('livekit-client').RemoteParticipant;
 
+/**
+ * حقلا الفيديو في الـsnapshot يقبلان مساري المزوّدين:
+ * كائن VideoTrack من LiveKit أو مرجع AgoraCallVideoRef — الشاشات تفحصهما
+ * بالصحة المنطقية وتمررهما لـ CallVideoView الذي يميّز بينهما بنفسه.
+ */
+export type CallVideoTrackLike = VideoTrack | AgoraCallVideoRef;
+
 export interface CallSessionSnapshot {
   callState: CallState;
   isMuted: boolean;
@@ -38,8 +52,11 @@ export interface CallSessionSnapshot {
   isVideoEnabled: boolean;
   isSpeakerOn: boolean;
   remoteJoined: boolean;
-  localVideoTrack: VideoTrack | undefined;
-  remoteVideoTrack: VideoTrack | undefined;
+  localVideoTrack: CallVideoTrackLike | undefined;
+  remoteVideoTrack: CallVideoTrackLike | undefined;
+  /** حقلا Agora الصريحان — على مسار LiveKit: localVideoOn يعكس الكاميرا وremoteVideoUid يبقى null */
+  localVideoOn: boolean;
+  remoteVideoUid: number | null;
   error: string | null;
   channelName: string;
   isVideo: boolean;
@@ -167,6 +184,8 @@ class CallSessionManager {
   private joined = false;
   private billingTimer: ReturnType<typeof setInterval> | null = null;
   private billingActive = false;
+  /** آخر خصم دقيقة ناجح — يغذي حارس إعادة الخصم عند إعادة تشغيل الفوترة */
+  private lastMinuteChargeAt = 0;
   private durationTimer: ReturnType<typeof setInterval> | null = null;
   private duration = 0;
   private listeners = new Set<Listener>();
@@ -214,6 +233,8 @@ class CallSessionManager {
       remoteJoined: this.remoteJoined,
       localVideoTrack: this.localVideoTrack,
       remoteVideoTrack: this.remoteVideoTrack,
+      localVideoOn: this.isVideoEnabled,
+      remoteVideoUid: null,
       error: this.error,
       channelName: this.channelName,
       isVideo: this.isVideo,
@@ -344,6 +365,7 @@ class CallSessionManager {
       if (this.isReconnecting) return;
       try {
         const res = await chargeCallMinute(this.billingSessionId!);
+        this.lastMinuteChargeAt = Date.now();
         if (res.billed === false) {
           this.stopBilling();
           return;
@@ -362,7 +384,12 @@ class CallSessionManager {
       }
     };
 
-    void runCharge();
+    // الدقيقة 0 مقدماً — إلا إذا أعيد تشغيل الفوترة داخل الدقيقة المخصومة
+    // نفسها (مغادرة/عودة الطرف الآخر بعد إصلاح الخصم اليتيم — السيرفر يخصم
+    // مع كل نداء بلا تدقيق زمني) فلا تُخصم الدقيقة مرتين
+    if (this.lastMinuteChargeAt === 0 || Date.now() - this.lastMinuteChargeAt >= 55_000) {
+      void runCharge();
+    }
     this.billingTimer = setInterval(runCharge, 60000);
   }
 
@@ -453,6 +480,7 @@ class CallSessionManager {
     this.localVideoTrack = undefined;
     this.remoteVideoTrack = undefined;
     this.cameraFacing = 'user';
+    this.lastMinuteChargeAt = 0;
 
     const runConnect = async (): Promise<void> => {
     try {
@@ -613,6 +641,11 @@ class CallSessionManager {
           this.remoteJoined = false;
           this.remoteVideoTrack = undefined;
           this.isRemoteMuted = false;
+          // باغ الخصم اليتيم: مغادرة الطرف الآخر كانت تُبقي مؤقّت الفوترة
+          // حياً فيستمر خصم الدقائق والمتصل وحده في القناة — إيقاف فوري
+          // (عودته تعيد التشغيل عبر onRemotePresent، وحارس إعادة الخصم
+          // يمنع خصم الدقيقة نفسها مرتين)
+          this.stopBilling();
           this.emit();
         })
         .on(RoomEvent.TrackMuted, refresh)
@@ -764,6 +797,7 @@ class CallSessionManager {
     this.duration = 0;
     this.channelName = '';
     this.micMutedPreference = null;
+    this.lastMinuteChargeAt = 0;
     this.emit();
 
     // استعادة صوت الروم المثبّت بعد انتهاء المكالمة
@@ -909,4 +943,151 @@ class CallSessionManager {
   }
 }
 
-export const callSession = new CallSessionManager();
+/** مدير LiveKit الأصلي — يبقى المسار الحي الافتراضي كما هو */
+const livekitCallSession = new CallSessionManager();
+
+type CallManager = CallSessionManager | typeof agoraCallSession;
+
+/**
+ * موزّع المزوّد (LiveKit/Agora) — نفس نمط RoomAudioSessionRouter.
+ *
+ * القاعدة: activeProvider يتحدد عند أول connect لمكالمة (بدءاً أو رداً —
+ * كلاهما يمر من connect) عبر resolveRtcProvider ويثبت طوال جلسة التطبيق،
+ * فلا يتقاذف المكالمةَ مديران مختلفان في المنتصف. وجلسة واحدة نشطة فقط:
+ * لو طُلب connect والمدير الآخر ما يزال منضماً (بقايا حالة) يُفصل أولاً.
+ *
+ * useCall وشاشات المكالمة والفقاعة العائمة لا تتغير: نفس الأسماء العامة
+ * ونفس شكل CallSessionSnapshot.
+ */
+class CallSessionRouter {
+  /** المزوّد المثبّت — null قبل أول connect (يوجَّه لـ LiveKit مؤقتاً) */
+  private activeProvider: RtcProvider | null = null;
+  private listeners = new Set<Listener>();
+  /** حسم جارٍ — يمنع سباق تثبيتين متوازيين */
+  private pinPromise: Promise<RtcProvider> | null = null;
+
+  constructor() {
+    // إعادة بثّ إشعارات المدير النشط فقط — المشتركون لا يعرفون المزوّد،
+    // واشتراكهم يبقى صالحاً حتى لو تبدّل المدير بين جلستين
+    livekitCallSession.subscribe(() => {
+      if (this.current() === livekitCallSession) this.notify();
+    });
+    agoraCallSession.subscribe(() => {
+      if (this.current() === agoraCallSession) this.notify();
+    });
+  }
+
+  private notify(): void {
+    this.listeners.forEach((l) => l());
+  }
+
+  private current(): CallManager {
+    return this.activeProvider === 'agora' ? agoraCallSession : livekitCallSession;
+  }
+
+  private other(): CallManager {
+    return this.activeProvider === 'agora' ? livekitCallSession : agoraCallSession;
+  }
+
+  /**
+   * حسم المزوّد وتثبيته — مرة واحدة؛ أي فشل = LiveKit (الافتراضي الآمن).
+   * التثبيت يبقى طوال جلسة التطبيق عمداً (نفس مسوّغات موزّع الغرف):
+   * تصحيح العلم من السيرفر يسري من الإقلاع التالي.
+   */
+  private async pinProvider(): Promise<RtcProvider> {
+    if (this.activeProvider) return this.activeProvider;
+    if (this.pinPromise) return this.pinPromise;
+    this.pinPromise = (async () => {
+      let provider: RtcProvider = 'livekit';
+      try {
+        provider = await resolveRtcProvider(auth.currentUser?.uid);
+      } catch {
+        provider = 'livekit';
+      }
+      if (!this.activeProvider) this.activeProvider = provider;
+      return this.activeProvider;
+    })();
+    try {
+      return await this.pinPromise;
+    } finally {
+      this.pinPromise = null;
+    }
+  }
+
+  setInsufficientBalanceHandler(fn: (() => void) | null): void {
+    // يصل من useCall قبل تثبيت المزوّد — يُطبَّق على الاثنين
+    // (واحد فقط نشط فلا ازدواج تنفيذ)
+    livekitCallSession.setInsufficientBalanceHandler(fn);
+    agoraCallSession.setInsufficientBalanceHandler(fn);
+  }
+
+  subscribe(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  getSnapshot(): CallSessionSnapshot {
+    return this.current().getSnapshot();
+  }
+
+  forceError(message: string): void {
+    this.current().forceError(message);
+  }
+
+  isConnectedTo(channelName: string): boolean {
+    return this.current().isConnectedTo(channelName);
+  }
+
+  async connect(opts: {
+    channelName: string;
+    isVideo: boolean;
+    peerUid?: string;
+    billingSessionId?: string;
+    callSource?: 'chat' | 'match';
+  }): Promise<void> {
+    await this.pinProvider();
+    // جلسة واحدة نشطة فقط — المدير الآخر يُفصل قبل أي اتصال جديد
+    const other = this.other();
+    const otherState = other.getSnapshot().callState;
+    if (otherState === 'connected' || otherState === 'connecting') {
+      await other.leave(false).catch(() => {});
+    }
+    return this.current().connect(opts);
+  }
+
+  async leave(reportEnd = true): Promise<void> {
+    // سباق نافذة التثبيت: لو قرار المزوّد قيد الحسم (connect جارٍ على شبكة
+    // بطيئة)، انتظره كي يصل الإنهاء للمدير الذي سيملك الجلسة فعلاً —
+    // التوجيه الفوري كان يذهب لمدير LiveKit الخامل ويترك جلسة Agora تكتمل
+    if (!this.activeProvider && this.pinPromise) {
+      await this.pinPromise.catch(() => {});
+    }
+    return this.current().leave(reportEnd);
+  }
+
+  setMuted(muted: boolean): Promise<boolean> {
+    return this.current().setMuted(muted);
+  }
+
+  toggleMute(): Promise<boolean> {
+    return this.current().toggleMute();
+  }
+
+  toggleVideo(): Promise<void> {
+    return this.current().toggleVideo();
+  }
+
+  switchCamera(): Promise<void> {
+    return this.current().switchCamera();
+  }
+
+  setSpeakerOn(speakerOn: boolean): Promise<boolean> {
+    return this.current().setSpeakerOn(speakerOn);
+  }
+
+  toggleSpeaker(): Promise<boolean> {
+    return this.current().toggleSpeaker();
+  }
+}
+
+export const callSession = new CallSessionRouter();

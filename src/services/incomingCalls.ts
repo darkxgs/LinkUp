@@ -23,6 +23,7 @@ import {
   orderBy,
   limit,
   serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
 import { firestore, auth } from './firebase/index';
 import { subscribeWhenAuthenticated } from './firebase/authReady';
@@ -106,8 +107,151 @@ export const ringUser = async (
     }
   })();
 
+  // (إصلاح الرفض الفوري) مراقبة وثيقة الرنين + دورة حياة المكالمة الصادرة
+  watchOutgoingCall(targetUid, callId, channelName);
+
   return callId;
 };
+
+/**
+ * مراقبة المكالمة الصادرة عند المتصل — تربط وثيقة الرنين بدورة حياة الجلسة:
+ *
+ * 1) رفض المستقبِل (status='rejected' عبر rejectCall) يظهر للمتصل فوراً:
+ *    قطع الجلسة + رسالة «تم رفض المكالمة» بدل الانتظار حتى نهاية نافذة
+ *    الرنين، ثم حذف الوثيقة (تفعيل cancelOutgoingCall الميتة سابقاً).
+ * 2) إنهاء المتصل قبل الرد يحذف وثيقة الرنين فيتوقف رنين المستقبِل فوراً.
+ * 3) رد المستقبِل يحذف الوثيقة بنفسه (answerCall) — تُفكّ المراقبة بلا تدخل.
+ *
+ * يسري على المزوّدين معاً (LiveKit/Agora) لأنه يخاطب موزّع callSession.
+ * ملاحظة قواعد: قراءة المتصل لوثيقة الرنين تتطلب نشر قاعدة القراءة الجديدة —
+ * قبل النشر يفشل المستمع بصمت وتبقى بقية الدورة (الإلغاء/التنظيف) عاملة.
+ */
+function watchOutgoingCall(
+  targetUid: string,
+  callId: string,
+  channelName: string,
+): void {
+  const callRef = doc(firestore, 'incomingCalls', targetUid, 'calls', callId);
+  let settled = false;
+  let unsubDoc: (() => void) | null = null;
+  let unsubSession: (() => void) | null = null;
+  let windowTimer: ReturnType<typeof setTimeout> | null = null;
+  /** رفضٌ وصل قبل أن تبدأ جلسة المتصل (رد أسرع من فتح الشاشة) — يُطبَّق عند بدئها */
+  let rejectedPending = false;
+
+  const detach = () => {
+    if (settled) return;
+    settled = true;
+    unsubDoc?.();
+    unsubDoc = null;
+    unsubSession?.();
+    unsubSession = null;
+    if (windowTimer) {
+      clearTimeout(windowTimer);
+      windowTimer = null;
+    }
+  };
+
+  const cleanupDoc = () => {
+    void cancelOutgoingCall(targetUid, callId).catch(() => {});
+  };
+
+  const applyRejection = async () => {
+    try {
+      const { callSession } = await import('@/services/callSession');
+      const snap = callSession.getSnapshot();
+      if (snap.remoteJoined) {
+        // رُدّ عليها فعلاً — رفض متأخر من جهاز آخر للمستقبِل مثلاً: تجاهل
+        detach();
+        return;
+      }
+      const active =
+        snap.channelName === channelName &&
+        (snap.callState === 'connecting' || snap.callState === 'connected');
+      if (active) {
+        detach();
+        await callSession.leave(); // قطع + تسجيل «فائتة» في سجل الشات
+        callSession.forceError('تم رفض المكالمة');
+        cleanupDoc();
+        return;
+      }
+      // الجلسة لم تبدأ بعد — نحذف الوثيقة الآن ونطبّق الرفض فور بدئها
+      rejectedPending = true;
+      cleanupDoc();
+    } catch {
+      detach();
+    }
+  };
+
+  // مستمع جلسة المكالمة: إلغاء المتصل قبل الرد + تطبيق رفضٍ سبق بدء الجلسة
+  void import('@/services/callSession')
+    .then(({ callSession }) => {
+      if (settled) return;
+      let sessionSeen = false;
+      const evaluate = () => {
+        if (settled) return;
+        const snap = callSession.getSnapshot();
+        if (snap.channelName !== channelName) {
+          // جلستنا قامت ثم تبدّلت القناة (مكالمة أخرى) — انتهت المراقبة
+          if (sessionSeen) {
+            detach();
+            cleanupDoc();
+          }
+          return;
+        }
+        sessionSeen = true;
+        if (
+          rejectedPending &&
+          !snap.remoteJoined &&
+          (snap.callState === 'connecting' || snap.callState === 'connected')
+        ) {
+          rejectedPending = false;
+          void applyRejection();
+          return;
+        }
+        if (snap.remoteJoined) {
+          // رد المستقبِل — الوثيقة حذفها answerCall بنفسه
+          detach();
+          return;
+        }
+        if (snap.callState === 'ended' || snap.callState === 'error') {
+          // المتصل أنهى/فشل قبل الرد — أوقف رنين المستقبِل فوراً
+          detach();
+          cleanupDoc();
+        }
+      };
+      unsubSession = callSession.subscribe(evaluate);
+      evaluate();
+    })
+    .catch(() => {});
+
+  unsubDoc = onSnapshot(
+    callRef,
+    (snap) => {
+      if (settled) return;
+      if (!snap.exists()) {
+        // حُذفت: رد المستقبِل (answerCall) أو إلغاء منا — لا رفض هنا؛
+        // تبقى مراقبة الجلسة قائمة حتى تُحسم بردٍ أو إنهاء
+        unsubDoc?.();
+        unsubDoc = null;
+        return;
+      }
+      const status = (snap.data() as { status?: string } | undefined)?.status;
+      if (status === 'rejected') void applyRejection();
+    },
+    () => {
+      // قواعد قديمة لا تسمح بقراءة المتصل — الميزة خاملة حتى نشر القواعد
+      unsubDoc = null;
+    },
+  );
+
+  // أمان: انقضاء نافذة الرنين يفكّ المراقبة وينظّف الوثيقة اليتيمة
+  windowTimer = setTimeout(() => {
+    if (settled) return;
+    detach();
+    cleanupDoc();
+  }, INCOMING_CALL_RING_WINDOW_MS + 5_000);
+}
 
 function attachIncomingCallsListener(
   uid: string,
@@ -184,12 +328,23 @@ export const answerCall = async (callId: string): Promise<void> => {
 
 /**
  * رفض مكالمة
+ *
+ * تحديث الحالة بدل الحذف: الحذف لا يميّز الرفض عن الرد (كلاهما كان يحذف
+ * الوثيقة) — أما status='rejected' فيصل للمتصل فوراً عبر مستمع وثيقة
+ * الرنين (watchOutgoingCall) فيرى الرفض لحظياً، والمتصل هو من يحذف الوثيقة
+ * بعدها (cancelOutgoingCall). مودالات المستقبِل تتجاهلها لأنها ترشّح
+ * status === 'ringing' فقط.
  */
 export const rejectCall = async (callId: string): Promise<void> => {
   const me = auth.currentUser;
   if (!me) return;
   const ref = doc(firestore, 'incomingCalls', me.uid, 'calls', callId);
-  await deleteDoc(ref);
+  try {
+    await updateDoc(ref, { status: 'rejected' });
+  } catch {
+    // قواعد قديمة لا تسمح بتحديث المستقبِل — نعود للحذف (السلوك السابق)
+    await deleteDoc(ref).catch(() => {});
+  }
 };
 
 /**
