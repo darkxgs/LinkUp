@@ -770,6 +770,8 @@ export interface AdminKycRequest {
   idBack: string;
   selfie: string;
   verificationFrameUrl?: string;
+  /** كل لقطات التحقق بالكاميرا (حتى 3) — يكتبها السيرفر عند تعدد الإطارات */
+  verificationFrameUrls?: string[];
   videoUrl?: string;
   aiGender?: string;
   aiConfidence?: number;

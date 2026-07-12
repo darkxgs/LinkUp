@@ -263,7 +263,11 @@ export default function KycRequestsPage() {
               </thead>
               <tbody>
                 {filtered.map((req) => {
-                  const verificationImage = req.selfie || req.verificationFrameUrl || '';
+                  // كل لقطات التحقق (حتى 3) — لا صورة واحدة فقط: الأدمن يراجع الإطارات كلها
+                  const frameUrls = (Array.isArray(req.verificationFrameUrls) && req.verificationFrameUrls.length > 0
+                    ? req.verificationFrameUrls
+                    : [req.selfie || req.verificationFrameUrl || '']
+                  ).filter(Boolean);
                   return (
                   <tr key={req.id}>
                     {/* User profile details */}
@@ -323,21 +327,25 @@ export default function KycRequestsPage() {
                     {/* Photo previews */}
                     <td>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {verificationImage ? (
-                          <div style={{ textAlign: 'center' }}>
-                            <div
-                              style={{ position: 'relative', width: 56, height: 56, borderRadius: 6, overflow: 'hidden', border: '1px solid #ddd', cursor: 'pointer' }}
-                              onClick={() => setPreviewImage(verificationImage)}
-                            >
-                              <img src={verificationImage} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="verification" />
-                              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center' }}>
-                                <Eye size={10} color="white" />
+                        {frameUrls.length > 0 ? (
+                          frameUrls.map((frameUrl, frameIdx) => (
+                            <div key={frameIdx} style={{ textAlign: 'center' }}>
+                              <div
+                                style={{ position: 'relative', width: 56, height: 56, borderRadius: 6, overflow: 'hidden', border: '1px solid #ddd', cursor: 'pointer' }}
+                                onClick={() => setPreviewImage(frameUrl)}
+                              >
+                                <img src={frameUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt={`verification-${frameIdx + 1}`} />
+                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center' }}>
+                                  <Eye size={10} color="white" />
+                                </div>
                               </div>
+                              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                                {req.method === 'face' || req.method === 'ai'
+                                  ? (frameUrls.length > 1 ? `لقطة ${frameIdx + 1}` : 'صورة التحقق AI')
+                                  : 'صورة شخصية'}
+                              </span>
                             </div>
-                            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                              {req.method === 'face' || req.method === 'ai' ? 'صورة التحقق AI' : 'صورة شخصية'}
-                            </span>
-                          </div>
+                          ))
                         ) : (
                           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
                         )}
