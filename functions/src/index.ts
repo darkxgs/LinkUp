@@ -7263,6 +7263,11 @@ export const updateAgencyChatAvatar = onCall(async (request) => {
   if (!url || url.length > 2048 || !/^https:\/\//i.test(url)) {
     throw new HttpsError('invalid-argument', 'رابط الصورة غير صالح');
   }
+  // تشديد: الصورة من تخزين المشروع فقط — لا روابط خارجية (مسار الرفع الرسمي
+  // في العميل يرفع إلى Storage أولاً، فأي مضيف آخر مؤشر تلاعب)
+  if (!/^https:\/\/firebasestorage\.googleapis\.com\//i.test(url)) {
+    throw new HttpsError('invalid-argument', 'رابط الصورة يجب أن يكون من تخزين التطبيق');
+  }
 
   await assertAgencyManager(uid, aid);
 
