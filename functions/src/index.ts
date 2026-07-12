@@ -7201,6 +7201,86 @@ export const updateAgencyChatName = onCall(async (request) => {
   return { ok: true, name: trimmed, created: false };
 });
 
+/** تغيير صورة عشيرة الوكالة (دردشة الأعضاء) — مدير الوكالة فقط */
+export const updateAgencyChatAvatar = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+
+  const { agencyId, avatarUrl } = request.data as { agencyId?: string; avatarUrl?: string };
+  const aid = String(agencyId ?? '').trim();
+  const url = String(avatarUrl ?? '').trim();
+  if (!aid) throw new HttpsError('invalid-argument', 'agencyId مطلوب');
+  if (!url || url.length > 2048 || !/^https:\/\//i.test(url)) {
+    throw new HttpsError('invalid-argument', 'رابط الصورة غير صالح');
+  }
+
+  await assertAgencyManager(uid, aid);
+
+  const agencySnap = await db.collection('agencies').doc(aid).get();
+  if (!agencySnap.exists) throw new HttpsError('not-found', 'الوكالة غير موجودة');
+  const agency = agencySnap.data()!;
+
+  const chatRef = db.collection('agencyChats').doc(aid);
+  const chatSnap = await chatRef.get();
+  const now = Date.now();
+
+  if (!chatSnap.exists) {
+    const membersSnap = await db.collection('agencyMembers').where('agencyId', '==', aid).limit(500).get();
+    const memberUids = new Set<string>();
+    const memberNames: Record<string, string> = {};
+    const memberAvatars: Record<string, string> = {};
+    const ownerUid = String(agency.ownerUid ?? '');
+    if (ownerUid) {
+      memberUids.add(ownerUid);
+      memberNames[ownerUid] = String(agency.ownerName ?? 'الوكيل');
+      memberAvatars[ownerUid] = String(agency.ownerAvatar ?? '');
+    }
+    membersSnap.docs.forEach((d) => {
+      const m = d.data();
+      const muid = String(m.uid ?? '');
+      if (!muid) return;
+      memberUids.add(muid);
+      memberNames[muid] = String(m.uidName ?? 'عضو');
+      memberAvatars[muid] = String(m.uidAvatar ?? '');
+    });
+    await chatRef.set({
+      agencyId: aid,
+      name: String(agency.name ?? 'وكالة'),
+      avatar: url,
+      ownerUid,
+      members: Array.from(memberUids),
+      memberNames,
+      memberAvatars,
+      lastMessage: '',
+      lastMessageAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { ok: true, avatar: url, created: true };
+  }
+
+  const oldAvatar = String(chatSnap.data()?.avatar ?? '');
+  await chatRef.update({ avatar: url, updatedAt: now });
+
+  if (oldAvatar !== url) {
+    await db.collection('agencyChatMessages').add({
+      chatId: aid,
+      fromUid: 'system',
+      fromName: 'النظام',
+      fromAvatar: '',
+      text: 'تم تغيير صورة العشيرة',
+      type: 'text',
+      createdAt: now,
+    }).catch(() => {});
+    await chatRef.update({
+      lastMessage: 'تم تغيير صورة العشيرة',
+      lastMessageAt: now,
+    }).catch(() => {});
+  }
+
+  return { ok: true, avatar: url, created: false };
+});
+
 /** حذف دردشة الوكالة بالكامل (الرسائل + المستند) — مدير الوكالة فقط */
 export const deleteAgencyChatCompletely = onCall(async (request) => {
   const uid = request.auth?.uid;
