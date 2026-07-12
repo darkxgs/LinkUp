@@ -101,25 +101,19 @@ export const updateAgencyChatAvatar = async (
   agencyId: string,
   avatarUrl: string,
 ): Promise<{ ok: boolean; avatar: string }> => {
-  const fn = httpsCallable<{ agencyId: string; avatarUrl: string }, { ok: boolean; avatar: string }>(
-    functions,
-    'updateAgencyChatAvatar',
-  );
+  // httpsCallable الخام غير موثوق على شبكات RN (أخطاء internal) —
+  // النمط المعتمد: HTTP + Bearer أولاً مع fallback للـ SDK (كبقية الخدمات)
+  const { ensureCallableAuth, translateCallableError } = await import('./authReady');
+  const { callCallableWithAuth } = await import('./callableHttp');
   try {
-    const res = await fn({ agencyId, avatarUrl });
-    return res.data;
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e ?? '');
-    const code = (e as { code?: string } | null)?.code ?? '';
-    const isNotFound =
-      code === 'functions/not-found' ||
-      code === 'not-found' ||
-      msg.includes('not-found');
-    if (!isNotFound) throw e;
-
-    await openAgencyChat(agencyId);
-    const retry = await fn({ agencyId, avatarUrl });
-    return retry.data;
+    const user = await ensureCallableAuth();
+    const token = await user.getIdToken();
+    return await callCallableWithAuth<
+      { agencyId: string; avatarUrl: string },
+      { ok: boolean; avatar: string }
+    >('updateAgencyChatAvatar', { agencyId, avatarUrl }, token);
+  } catch (e) {
+    throw new Error(translateCallableError(e));
   }
 };
 
