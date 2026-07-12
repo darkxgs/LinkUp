@@ -292,13 +292,23 @@ service cloud.firestore {
 
     // المكالمات الواردة — يقرأ المستهدف ويحذف، وأي مسجّل يكتب
     match /incomingCalls/{targetUid}/calls/{callId} {
-      allow read, delete: if request.auth != null && request.auth.uid == targetUid;
+      // القراءة: المستهدف، أو المتصل نفسه — مستمع وثيقة الرنين عند المتصل
+      // (watchOutgoingCall) هو ما يُظهر رفض المستقبِل فوراً
+      allow read: if request.auth != null
+        && (request.auth.uid == targetUid || resource.data.from == request.auth.uid);
       allow create: if request.auth != null && request.resource.data.from == request.auth.uid;
-      // المتصل يحدّث وثيقته (إثراء الاسم/الصورة بعد الرنين الفوري) دون تغيير هوية المتصل
       allow update: if request.auth != null
-        && resource.data.from == request.auth.uid
-        && request.resource.data.from == resource.data.from;
-      allow delete: if request.auth != null && resource.data.from == request.auth.uid;
+        && (
+          // المتصل يحدّث وثيقته (إثراء الاسم/الصورة بعد الرنين الفوري) دون تغيير هوية المتصل
+          (resource.data.from == request.auth.uid
+            && request.resource.data.from == resource.data.from)
+          // المستقبِل يرفض بتحديث status فقط — يصل للمتصل لحظياً عبر onSnapshot
+          || (request.auth.uid == targetUid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+            && request.resource.data.status == 'rejected')
+        );
+      allow delete: if request.auth != null
+        && (request.auth.uid == targetUid || resource.data.from == request.auth.uid);
     }
 
     // الإعدادات القابلة للتحكم — يقرأ الجميع، يكتب من يملك صلاحية الصفحة المالكة فقط
