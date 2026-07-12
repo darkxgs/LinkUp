@@ -15,6 +15,7 @@ import {
   Modal,
   TextInput,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 
 const CITY_SKYLINE_URL = 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?q=80&w=1000&auto=format&fit=crop';
 import { useRouter } from 'expo-router';
@@ -22,7 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { copyToClipboard } from '@/utils/copyToClipboard';
-import { TrendingUp, Users, Gift, PhoneCall, MessageSquare, MoreHorizontal, UserPlus, BarChart3, Building2, LogOut, Crown, Gem, Copy, KeyRound, Headphones, Wallet, MessageCircle, HelpCircle, ChevronDown, RotateCcw, PieChart, Sparkles, Eye } from 'lucide-react-native';
+import { TrendingUp, Users, Gift, PhoneCall, MessageSquare, MoreHorizontal, UserPlus, BarChart3, Building2, LogOut, Crown, Gem, Copy, KeyRound, Headphones, Wallet, MessageCircle, HelpCircle, ChevronDown, RotateCcw, PieChart, Sparkles, Eye, Camera } from 'lucide-react-native';
 import { ArrowUpRight, ChevronLeft } from '@/components/ui/RtlIcons';
 
 import { Text, useAlert, RealCountryFlag } from '@/components/ui';
@@ -63,6 +64,7 @@ import { useAgencyLevelsConfig } from '@/hooks/useAgencyLevelsConfig';
 import {
   subscribeToAgencyChat,
   updateAgencyChatName,
+  uploadAndSetAgencyChatAvatar,
   openAgencyChat,
 } from '@/services/firebase/agencyChat';
 import { isAgencyAgent } from '@/services/firebase/hostTasks';
@@ -822,7 +824,9 @@ function ManagementTab({
   const countryCode = useMemo(() => resolveCountryCodeFromValue(agency.country), [agency.country]);
   const [clanModalOpen, setClanModalOpen] = useState(false);
   const [clanName, setClanName] = useState(agency.name);
+  const [clanAvatar, setClanAvatar] = useState('');
   const [clanSaving, setClanSaving] = useState(false);
+  const [clanAvatarBusy, setClanAvatarBusy] = useState(false);
   const [showAgencySettings, setShowAgencySettings] = useState(false);
   const [settingsRoomId, setSettingsRoomId] = useState<string | null>(null);
   const [openingSettings, setOpeningSettings] = useState(false);
@@ -846,6 +850,7 @@ function ManagementTab({
     if (!agency?.id) return;
     return subscribeToAgencyChat(agency.id, (chat) => {
       setClanName(chat?.name?.trim() || agency.name);
+      setClanAvatar(chat?.avatar?.trim() || '');
     });
   }, [agency.id, agency.name]);
 
@@ -864,6 +869,32 @@ function ManagementTab({
       Alert.alert('خطأ', e?.message ?? 'تعذّر حفظ الاسم');
     } finally {
       setClanSaving(false);
+    }
+  };
+
+  const handleChangeClanAvatar = async () => {
+    if (clanAvatarBusy) return;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('تنبيه', 'يلزم إذن الوصول للصور لتغيير صورة العشيرة');
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.85,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (res.canceled || !res.assets?.[0]?.uri) return;
+    setClanAvatarBusy(true);
+    try {
+      const r = await uploadAndSetAgencyChatAvatar(agency.id, res.assets[0].uri);
+      setClanAvatar(r.avatar);
+      Alert.alert('تم', 'تم تحديث صورة العشيرة لجميع الأعضاء');
+    } catch (e: any) {
+      Alert.alert('خطأ', e?.message ?? 'تعذّر تحديث صورة العشيرة');
+    } finally {
+      setClanAvatarBusy(false);
     }
   };
 
@@ -1012,8 +1043,30 @@ function ManagementTab({
           <View style={styles.clanModalSheet}>
             <Text weight="bold" style={styles.clanModalTitle}>عشيرة الوكالة</Text>
             <Text style={styles.clanModalHint}>
-              الاسم يظهر لكل الأعضاء في تبويب الدردشة ويتحدّث فوراً للجميع.
+              الاسم والصورة يظهران لكل الأعضاء في تبويب الدردشة ويتحدّثان فوراً للجميع.
             </Text>
+            <Text style={styles.clanModalLabel}>صورة العشيرة</Text>
+            <Pressable
+              onPress={() => void handleChangeClanAvatar()}
+              disabled={clanAvatarBusy}
+              style={styles.clanAvatarRow}
+            >
+              <View style={styles.clanAvatarWrap}>
+                {clanAvatar
+                  ? <Image source={{ uri: clanAvatar }} style={styles.clanAvatarImg} contentFit="cover" />
+                  : (
+                    <View style={[styles.clanAvatarImg, styles.clanAvatarEmpty]}>
+                      <Text style={styles.clanAvatarLetter}>{(clanName || agency.name || 'ع').charAt(0)}</Text>
+                    </View>
+                  )}
+                <View style={styles.clanAvatarBadge}>
+                  {clanAvatarBusy
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Camera size={14} color="#fff" strokeWidth={2.2} />}
+                </View>
+              </View>
+              <Text style={styles.clanAvatarHint}>اضغط لتغيير صورة المجموعة</Text>
+            </Pressable>
             <Text style={styles.clanModalLabel}>اسم العشيرة</Text>
             <TextInput
               style={styles.clanModalInput}
@@ -1785,6 +1838,51 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 16,
+  },
+  clanAvatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  clanAvatarWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  clanAvatarImg: { width: '100%', height: '100%', borderRadius: 36, overflow: 'hidden' },
+  clanAvatarEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(252,165,165,0.25)',
+  },
+  clanAvatarLetter: {
+    color: '#fff',
+    fontSize: 22,
+    fontFamily: lu.fonts.displayHeavy,
+  },
+  clanAvatarBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: lu.colors.purple,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#1a0f12',
+  },
+  clanAvatarHint: {
+    flex: 1,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.55)',
+    textAlign: 'right',
+    lineHeight: 18,
   },
   clanModalLabel: {
     fontSize: 12,

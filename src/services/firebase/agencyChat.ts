@@ -96,6 +96,33 @@ export const updateAgencyChatName = async (
   }
 };
 
+/** تغيير صورة عشيرة الوكالة — يظهر للجميع في قائمة الدردشة */
+export const updateAgencyChatAvatar = async (
+  agencyId: string,
+  avatarUrl: string,
+): Promise<{ ok: boolean; avatar: string }> => {
+  const fn = httpsCallable<{ agencyId: string; avatarUrl: string }, { ok: boolean; avatar: string }>(
+    functions,
+    'updateAgencyChatAvatar',
+  );
+  try {
+    const res = await fn({ agencyId, avatarUrl });
+    return res.data;
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e ?? '');
+    const code = (e as { code?: string } | null)?.code ?? '';
+    const isNotFound =
+      code === 'functions/not-found' ||
+      code === 'not-found' ||
+      msg.includes('not-found');
+    if (!isNotFound) throw e;
+
+    await openAgencyChat(agencyId);
+    const retry = await fn({ agencyId, avatarUrl });
+    return retry.data;
+  }
+};
+
 /** يصحّح agencyId القديم في ملف المستخدم دون حذف دردشة الوكالة */
 export const syncMyAgencyChats = async (): Promise<void> => {
   const fn = httpsCallable<Record<string, never>, { ok: boolean }>(functions, 'syncMyAgencyChats');
@@ -292,4 +319,15 @@ export const sendAgencyImage = async (agencyId: string, localUri: string): Promi
 export const sendAgencyVoice = async (agencyId: string, localUri: string, durationSeconds: number): Promise<void> => {
   const voiceUrl = await uploadToStorage(agencyId, localUri, 'agency_chat_voices', 'm4a', 'audio/m4a');
   await pushMessage(agencyId, { type: 'voice', voiceUrl, voiceDuration: Math.round(durationSeconds) }, '🎤 رسالة صوتية');
+};
+
+/** رفع صورة العشيرة ثم حفظ الرابط عبر Cloud Function */
+export const uploadAndSetAgencyChatAvatar = async (
+  agencyId: string,
+  localUri: string,
+): Promise<{ ok: boolean; avatar: string }> => {
+  const { compressImageForUpload, COMPRESS_PRESETS } = await import('@/utils/imageCompress');
+  const uploadUri = await compressImageForUpload(localUri, COMPRESS_PRESETS.avatar);
+  const avatarUrl = await uploadToStorage(agencyId, uploadUri, 'agency_chat_images', 'jpg', 'image/jpeg');
+  return updateAgencyChatAvatar(agencyId, avatarUrl);
 };
