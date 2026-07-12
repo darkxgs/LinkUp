@@ -204,6 +204,9 @@ export default function ChatListScreen() {
 
   const { isInRoom, getMemberRoom } = useAgencyRoomTracking(conversationPeerUids);
   const [showQuickClear, setShowQuickClear] = useState(false);
+  // وضع التحديد المتعدد — حذف عدة محادثات دفعة واحدة (b20)
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [peerProfiles, setPeerProfiles] = useState<Map<string, UserDoc | null>>(new Map());
 
   const conversationPeerUidsKey = useMemo(
@@ -378,6 +381,60 @@ export default function ChatListScreen() {
     });
   }, [showAlert, t]);
 
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedConvIds(new Set());
+  }, []);
+
+  const handleToggleSelectConv = useCallback((conv: Conversation) => {
+    setSelectedConvIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(conv.id)) next.delete(conv.id);
+      else next.add(conv.id);
+      return next;
+    });
+  }, []);
+
+  /** حذف كل المحادثات المحددة — تحديث متفائل ثم حذف متوازٍ (نفس نمط الحذف الفردي) */
+  const handleDeleteSelected = useCallback(() => {
+    const ids = [...selectedConvIds];
+    if (ids.length === 0) return;
+    showAlert({
+      type: 'warning',
+      title: t('chat.deleteSelectedTitle'),
+      message: t('chat.deleteSelectedConfirm', { count: ids.length }),
+      buttons: [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: async () => {
+            const idSet = new Set(ids);
+            setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
+            exitSelectMode();
+            const results = await Promise.allSettled(
+              ids.map((id) => hideConversationForUser(id)),
+            );
+            const failed = results.filter((r) => r.status === 'rejected').length;
+            if (failed > 0) {
+              showAlert({
+                type: 'error',
+                title: t('common.error'),
+                message: t('chat.deleteSelectedPartialFail', { count: failed }),
+              });
+            } else {
+              showAlert({
+                type: 'success',
+                title: t('common.done'),
+                message: t('chat.deleteChatSuccess'),
+              });
+            }
+          },
+        },
+      ],
+    });
+  }, [selectedConvIds, showAlert, t, exitSelectMode]);
+
   const handleReportConversation = useCallback((conv: Conversation) => {
     const otherUid = conv.participants.find((p) => p !== currentUser?.uid) ?? '';
     if (!otherUid) return;
@@ -407,6 +464,14 @@ export default function ChatListScreen() {
           onPress: () => handleReportConversation(conv),
         },
         {
+          // دخول وضع التحديد المتعدد مع تحديد هذه المحادثة (b20)
+          text: t('chat.multiSelect'),
+          onPress: () => {
+            setSelectMode(true);
+            setSelectedConvIds(new Set([conv.id]));
+          },
+        },
+        {
           text: t('chat.deleteChat'),
           style: 'destructive',
           onPress: () => handleDeleteConversation(conv),
@@ -433,23 +498,33 @@ export default function ChatListScreen() {
   const renderConversation = useCallback(
     ({ item }: { item: Conversation }) => {
       const otherUid = item.participants.find((p) => p !== currentUser?.uid) ?? '';
+      const selected = selectedConvIds.has(item.id);
       return (
       <View style={styles.whiteSheetContinued}>
-        <ConversationRow
-          conv={item}
-          currentUid={currentUser?.uid}
-          isSmall={isSmall}
-          t={t}
-          lang={lang}
-          showAgencyMusic={isInRoom(otherUid)}
-          onAvatarPress={handleAvatarTrackPress}
-          onTogglePin={handleConversationMenu}
-          onPress={handleOpenConversation}
-        />
+        <View>
+          <ConversationRow
+            conv={item}
+            currentUid={currentUser?.uid}
+            isSmall={isSmall}
+            t={t}
+            lang={lang}
+            showAgencyMusic={isInRoom(otherUid)}
+            onAvatarPress={selectMode ? undefined : handleAvatarTrackPress}
+            onTogglePin={selectMode ? handleToggleSelectConv : handleConversationMenu}
+            onPress={selectMode ? handleToggleSelectConv : handleOpenConversation}
+          />
+          {selectMode ? (
+            <View pointerEvents="none" style={styles.selectBadgeWrap}>
+              <View style={[styles.selectBadge, selected && styles.selectBadgeOn]}>
+                {selected ? <Text style={styles.selectBadgeCheck}>✓</Text> : null}
+              </View>
+            </View>
+          ) : null}
+        </View>
       </View>
       );
     },
-    [currentUser?.uid, isSmall, t, lang, isInRoom, handleAvatarTrackPress, handleConversationMenu, handleOpenConversation],
+    [currentUser?.uid, isSmall, t, lang, isInRoom, handleAvatarTrackPress, handleConversationMenu, handleOpenConversation, selectMode, selectedConvIds, handleToggleSelectConv],
   );
 
   const filterCounts = useMemo(() => {
@@ -674,6 +749,10 @@ export default function ChatListScreen() {
                     title: t('chat.title'),
                     buttons: [
                       {
+                        text: t('chat.multiSelect'),
+                        onPress: () => setSelectMode(true),
+                      },
+                      {
                         text: t('chat.quickClearTitle'),
                         onPress: () => setShowQuickClear(true),
                       },
@@ -843,6 +922,30 @@ export default function ChatListScreen() {
           />
         }
       />
+
+      {/* شريط إجراءات التحديد المتعدد (b20) */}
+      {selectMode ? (
+        <View style={[styles.selectBar, { paddingBottom: insets.bottom + 12 }]}>
+          <Pressable onPress={exitSelectMode} style={styles.selectBarBtn} hitSlop={6}>
+            <Text style={styles.selectBarCancel}>{t('common.cancel')}</Text>
+          </Pressable>
+          <Text style={styles.selectBarCount}>
+            {t('chat.selectedCount', { count: selectedConvIds.size })}
+          </Text>
+          <Pressable
+            onPress={handleDeleteSelected}
+            disabled={selectedConvIds.size === 0}
+            style={[
+              styles.selectBarBtn,
+              styles.selectBarDelete,
+              selectedConvIds.size === 0 && { opacity: 0.4 },
+            ]}
+            hitSlop={6}
+          >
+            <Text style={styles.selectBarDeleteText}>{t('chat.deleteSelectedAction')}</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <QuickClearChatsModal
         visible={showQuickClear}
@@ -1755,6 +1858,71 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 11,
     backgroundColor: 'transparent',
+  },
+  // وضع التحديد المتعدد (b20)
+  selectBadgeWrap: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    end: 14,
+    justifyContent: 'center',
+  },
+  selectBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: lu.colors.muted,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectBadgeOn: {
+    borderColor: lu.colors.pink,
+    backgroundColor: lu.colors.pink,
+  },
+  selectBadgeCheck: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 15,
+  },
+  selectBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: lu.colors.line,
+  },
+  selectBarBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  selectBarCancel: {
+    color: lu.colors.ink2,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  selectBarCount: {
+    color: lu.colors.ink,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  selectBarDelete: {
+    backgroundColor: '#EF4444',
+  },
+  selectBarDeleteText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   threadBody: {
     flex: 1,

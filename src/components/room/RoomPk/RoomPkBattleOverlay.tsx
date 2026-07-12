@@ -55,7 +55,8 @@ export function RoomPkBattleOverlay({ pk, onTimerEnd }: Props) {
     <View style={styles.wrap}>
       <View style={styles.scoreBar}>
         <LinearGradient
-          colors={['#ED4444', '#EA2626']}
+          // أزرق حقيقي لجانب الفريق الأزرق — كان أحمر فبدا الشريط كله لوناً واحداً (b16)
+          colors={['#60A5FA', '#2563EB']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={[styles.blueSide, { width: `${bluePct}%` }]}
@@ -97,7 +98,7 @@ export function RoomPkBattleOverlay({ pk, onTimerEnd }: Props) {
               {g.avatar ? (
                 <Image source={{ uri: g.avatar }} style={styles.gifterImg} contentFit="cover" cachePolicy="memory-disk" recyclingKey={g.avatar} />
               ) : (
-                <View style={[styles.gifterImg, { backgroundColor: '#ED4444' }]} />
+                <View style={[styles.gifterImg, { backgroundColor: '#3B82F6' }]} />
               )}
               <Crown
                 size={10}

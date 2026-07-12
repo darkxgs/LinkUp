@@ -7,6 +7,10 @@ import {
   buildBalanceIncrementPatch,
   statsFromFirestoreDoc,
 } from '@/utils/userBalance';
+import {
+  readRewardsProgress,
+  type RewardsDailyStats,
+} from './rewardsCenter';
 
 export const WEALTH_TODAY_BONUS = 10;
 
@@ -118,6 +122,105 @@ export const claimWealthExpBubble = async (
   });
 
   return result;
+};
+
+// ─── المهام اليومية لمستوى الثروة ────────────────────────────────
+// حساب التقدّم والمكافأة هنا (مصدر واحد) — العرض (العنوان/الأيقونة)
+// في شاشة app/wealth-level.tsx
+
+export const WEALTH_DAILY_TASK_DEFS = [
+  { id: 'stay-room', max: 3, xp: 5 },
+  { id: 'mic-time', max: 3, xp: 5 },
+  { id: 'send-gifts', max: 3, xp: 5 },
+  { id: 'game-bet', max: 3, xp: 5 },
+] as const;
+
+export type WealthDailyTaskId = (typeof WEALTH_DAILY_TASK_DEFS)[number]['id'];
+
+export interface WealthDailyTasksState {
+  dateKey: string;
+  claimedIds: string[];
+}
+
+/** تقدّم المهمة من إحصاءات اليوم (rewardsProgress.daily.stats) */
+export function wealthDailyTaskCurrent(
+  taskId: WealthDailyTaskId,
+  stats: RewardsDailyStats,
+): number {
+  switch (taskId) {
+    case 'stay-room':
+      return Math.floor(Number(stats.roomMinutes ?? 0) / 5);
+    case 'mic-time':
+      return Math.floor(Number(stats.micMinutes ?? 0) / 10);
+    case 'send-gifts':
+      return Number(stats.giftsSent ?? 0);
+    case 'game-bet':
+      return Number(stats.gameBets ?? 0);
+    default:
+      return 0;
+  }
+}
+
+export function readWealthDailyTaskClaims(
+  data: Record<string, unknown> | null | undefined,
+): WealthDailyTasksState {
+  const today = todayDateKey();
+  const raw = data?.wealthDailyTasks as WealthDailyTasksState | undefined;
+  if (!raw || raw.dateKey !== today) {
+    return { dateKey: today, claimedIds: [] };
+  }
+  return {
+    dateKey: today,
+    claimedIds: Array.isArray(raw.claimedIds) ? raw.claimedIds.map(String) : [],
+  };
+}
+
+/**
+ * استلام XP مهمة يومية مكتملة — قبل هذا الإصلاح لم يكن أي مسار يمنح
+ * XP المهام إطلاقاً (الصفوف عرض فقط) فبدا وكأن «الهدية تصل في اليوم التالي».
+ */
+export const claimWealthDailyTask = async (
+  taskId: WealthDailyTaskId,
+): Promise<{ gained: number; level: number; xp: number }> => {
+  const me = auth.currentUser;
+  if (!me) throw new Error('يجب تسجيل الدخول');
+
+  const def = WEALTH_DAILY_TASK_DEFS.find((t) => t.id === taskId);
+  if (!def) throw new Error('مهمة غير صالحة');
+
+  const userRef = doc(firestore, 'users', me.uid);
+  const today = todayDateKey();
+
+  return runTransaction(firestore, async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists()) throw new Error('المستخدم غير موجود');
+
+    const data = snap.data() as Record<string, unknown>;
+    const stats = statsFromFirestoreDoc(data);
+    const claims = readWealthDailyTaskClaims(data);
+
+    if (claims.claimedIds.includes(taskId)) {
+      throw new Error('تم استلام مكافأة هذه المهمة اليوم');
+    }
+
+    // إحصاءات اليوم فقط (dateKey محلي موحّد مع بقية منظومة المكافآت)
+    const progress = readRewardsProgress(data);
+    const current = wealthDailyTaskCurrent(taskId, progress.daily.stats);
+    if (current < def.max) throw new Error('لم تُكمل المهمة بعد');
+
+    const next = applyXpGain(stats.level, stats.xp, def.xp);
+
+    tx.update(userRef, {
+      ...buildWealthXpFirestoreUpdate(next.level, next.xp),
+      wealthDailyTasks: {
+        dateKey: today,
+        claimedIds: [...claims.claimedIds, taskId],
+      },
+      updatedAt: Date.now(),
+    });
+
+    return { gained: def.xp, ...next };
+  });
 };
 
 /** كوينز مطلوبة لإكمال الترقية للمستوى التالي (1 كوين = 1 XP) */

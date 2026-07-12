@@ -180,6 +180,7 @@ import { RoomPasswordGateModal } from '@/components/room/RoomPasswordGateModal';
 import {
   isRoomPasswordVerified,
   markRoomPasswordVerified,
+  roomRequiresPassword,
   verifyRoomPassword,
 } from '@/services/roomEntryGate';
 import { enterAgencyRoomAndNavigate } from '@/utils/navigateToRoom';
@@ -358,6 +359,7 @@ import {
   canUserManageRoomBlocks,
   canAgencyManageTarget,
   setRoomAgencyMemberRole,
+  roleLabel,
   type RoomAgencyMemberRole,
 } from '@/services/firebase/roomMemberRoles';
 
@@ -416,6 +418,8 @@ export default function RoomScreen() {
     if (!roomId || leavingRoomRef.current) return;
     leavingRoomRef.current = true;
     keepRoomAliveRef.current = false;
+    // خروج صريح: لا يجوز لأي cleanup لاحق إعادة تثبيت الجلسة بسبب المقعد
+    onMicKeepAliveRef.current = false;
     await completeRoomLeave(roomId, user?.uid);
   }, [roomId, user?.uid]);
 
@@ -423,6 +427,9 @@ export default function RoomScreen() {
     if (!roomId || leavingRoomRef.current) return;
     leavingRoomRef.current = true;
     keepRoomAliveRef.current = false;
+    // خروج صريح: صفّر علم «على المايك» فوراً — كان cleanup الـunmount يجده true
+    // (تحديث RTDB للمقعد لم يصل بعد) فيعيد minimize/pin ويرجع المستخدم للروم
+    onMicKeepAliveRef.current = false;
     // اقفل السماع فوراً قبل أي تنقّل حتى لا يتسرّب صوت الروم خارج الشاشة.
     useRoomSessionStore.getState().setListenMuted(true);
     roomAudioSession.setRemoteAudioMuted(true);
@@ -1281,7 +1288,9 @@ export default function RoomScreen() {
     return () => {
       if (!isRoomSessionPinned(roomId)) {
         audienceJoinedRef.current = null;
-        if (onMicKeepAliveRef.current) {
+        // خروج صريح (زر خروج/طرد): لا إعادة تثبيت للجلسة حتى لو كان على مقعد —
+        // كان هذا الفرع يعيد minimize/pin بعد completeRoomLeave فيرجع المستخدم للروم
+        if (onMicKeepAliveRef.current && !leavingRoomRef.current) {
           keepRoomAliveRef.current = true;
           const snap = useRoomSessionStore.getState();
           // minimize (لا pinMembership): إغلاق الشاشة وأنت على المايك يجب أن
@@ -1982,7 +1991,8 @@ export default function RoomScreen() {
   // بوابة الدخول: كلمة مرور للمقفلة (تُطلب من الخارج)، ومتابِعو المضيف فقط لوضع الأصدقاء
   useEffect(() => {
     if (!room || !roomId || !myUid || gateResolvedRef.current) return;
-    if (isHost || isRoomPasswordVerified(roomId)) {
+    // التحقق بمقارنة الرمز الحالي — تغيير الرمز بعد تحقق قديم يعيد التحدي (b18)
+    if (isHost || isRoomPasswordVerified(roomId, room.password ?? '')) {
       gateResolvedRef.current = true;
       setGateOpen(true);
       return;
@@ -2005,11 +2015,23 @@ export default function RoomScreen() {
     }
   }, [room?.hostUid, room?.mode, room?.isPrivate, room?.password, isHost, myUid, roomId, leaveRoomAndNavigate]);
 
+  // إعادة التحدي إذا غيّر المضيف الرمز بعد فتح البوابة — التحقق القديم لا يصمد (b18)
+  useEffect(() => {
+    if (!room || !roomId || !myUid || !gateResolvedRef.current) return;
+    if (!roomRequiresPassword(room, myUid)) return;
+    if (isRoomPasswordVerified(roomId, room.password ?? '')) return;
+    // أسقط أعلام الإبقاء أولاً حتى لا يعيد cleanup الانضمام تثبيت الجلسة (minimize/pin)
+    onMicKeepAliveRef.current = false;
+    keepRoomAliveRef.current = false;
+    setGateOpen(false);
+    setAskPassword(true);
+  }, [room?.password, room?.mode, room?.isPrivate, room?.hostUid, myUid, roomId, room]);
+
   const submitPassword = useCallback(
     (password: string) => {
       if (!room || !roomId) return;
       if (verifyRoomPassword(room, password)) {
-        markRoomPasswordVerified(roomId);
+        markRoomPasswordVerified(roomId, room.password ?? '');
         setAskPassword(false);
         setPwError('');
         setGateOpen(true);
@@ -2433,13 +2455,18 @@ export default function RoomScreen() {
   const handleChatUserPress = useCallback(
     (msg: RoomMessage) => {
       if (!msg.uid || msg.uid === myUid) return;
+      // استنتاج حالة الجلوس من المقاعد الحالية — الفتح من الشات كان بلا onSeat
+      // فيظهر «دعوة للمايك» لجالس على المايك أو يغيب عمن ليس عليه
+      const seat = allSeats.find((s) => s?.uid === msg.uid);
       openRoomUserSheet({
         uid: msg.uid,
         displayName: msg.name,
         avatar: msg.avatar,
+        onSeat: !!seat,
+        seatIndex: seat?.seatIndex,
       });
     },
-    [myUid, openRoomUserSheet],
+    [myUid, openRoomUserSheet, allSeats],
   );
 
   const handleJoinRoomGame = useCallback(
@@ -2684,7 +2711,8 @@ export default function RoomScreen() {
   );
 
   useEffect(() => {
-    onMicKeepAliveRef.current = !!mySeat;
+    // أثناء الخروج الصريح لا نعيد رفع العلم — تحديث مقعد متأخر كان يعيد التثبيت
+    onMicKeepAliveRef.current = !!mySeat && !leavingRoomRef.current;
     useRoomSessionStore.getState().setMicSeatIndex(mySeat?.seatIndex ?? null);
   }, [mySeat]);
 
@@ -3908,7 +3936,9 @@ export default function RoomScreen() {
         setShowMoreRooms(false);
         await enterAgencyRoomAndNavigate(router, agencyId, { replace: true });
         if (oldRoomId) {
-          void completeRoomLeave(oldRoomId, user?.uid);
+          // skipAudioDisconnect: جلسة LiveKit مفردة — قطعها هنا كان يفصل صوت
+          // روم الوكالة الجديد الذي انتقلنا إليه للتو (قارن المسار 1208-1223)
+          void completeRoomLeave(oldRoomId, user?.uid, { skipAudioDisconnect: true });
         } else {
           useRoomSessionStore.getState().clear();
           void roomAudioSession.disconnect();
@@ -5473,7 +5503,6 @@ export default function RoomScreen() {
         }}
         members={enrichedAudienceMembers}
         vipMembers={vipAudienceMembers}
-        onlineCount={presenceCount}
         canManageMic={supervisorPerms.manageMic || supervisorPerms.inviteMic || canInviteToMicTool}
         frameByUid={userFrameByUid}
         micBusyUid={micBusyUid}
@@ -5771,6 +5800,7 @@ export default function RoomScreen() {
         vipSystem={vipSystem}
         isSelf={seatUser?.uid === myUid}
         canAdmin={supervisorPerms.kickBan || supervisorPerms.manageMic}
+        roomRole={seatUser?.uid ? roomMemberRoles[seatUser.uid] : undefined}
         onSeat={seatUser?.onSeat}
         onClose={() => setSeatUser(null)}
         onMention={(token) => {
@@ -5851,7 +5881,9 @@ export default function RoomScreen() {
           roomId &&
           seatUser?.uid &&
           seatUser.uid !== myUid &&
-          (isHost || supervisorPerms.kickBan || supervisorPerms.manageMic) &&
+          // نفس بوابة الخدمة (assertCanManageRoomRoles): kickBan/manageMic كانا
+          // يُظهران الزر لمشرف بلا صلاحية إدارة الأدوار فيفشل التنفيذ برسالة خطأ
+          (isHost || supervisorPerms.manageRoles) &&
           canManageAgencyTarget(seatUser.uid, 'assignRole')
             ? (uid, name) => {
                 const currentRole = roomMemberRoles[uid];
@@ -5868,7 +5900,8 @@ export default function RoomScreen() {
                 } else {
                   // المشرف الأصفر يُنزَّل إلى عضو أولاً قبل إلغاء العضوية (قاعدة الخدمة)
                   if (currentRole !== 'yellow_supervisor') {
-                    options.push({ text: t('roomInfo.cancelMembership'), role: 'cancelled' });
+                    // «إلغاء عضوية الغرفة» (دور memberRoles) — تمييزاً عن «إزالة من الوكالة»
+                    options.push({ text: t('room.cancelRoomMembership', 'إلغاء عضوية الغرفة'), role: 'cancelled' });
                   }
                   if (isSupervisorRole) {
                     // مشرف حالياً — إزالة الإشراف بدل إعادة تعيينه
@@ -5883,10 +5916,16 @@ export default function RoomScreen() {
                     }
                   }
                 }
+                // سطر الحالة الحالية — منح تلقائي (صعود المايك) كان يجعل «إلغاء
+                // العضوية» تظهر مكان «إعطاء عضوية» بلا تفسير للفاعل
+                const isAr = !!i18n.language?.startsWith('ar');
+                const currentRoleText = hasMembership
+                  ? roleLabel(currentRole, isAr)
+                  : t('room.roleGuestNoMembership', 'زائر — بلا عضوية');
                 showAlert({
                   type: 'info',
                   title: name || t('room.memberRole', 'عضوية / إشراف'),
-                  message: t('room.memberRoleHint', 'اختر الدور الذي تريد منحه لهذا العضو'),
+                  message: `${t('room.memberRoleHint', 'اختر الدور الذي تريد منحه لهذا العضو')}\n${t('room.currentRoleState', 'الحالة الحالية')}: ${currentRoleText}`,
                   buttons: [
                     ...options.map((o) => ({
                       text: o.text,
@@ -6977,7 +7016,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   pkTeamPanelBlue: {
-    backgroundColor: 'rgba(234, 38, 38, 0.22)',
+    // أزرق حقيقي — كان أحمر بعد إعادة التسكين فتطابقت اللوحتان بصرياً (b16)
+    backgroundColor: 'rgba(59, 130, 246, 0.22)',
   },
   pkTeamPanelRed: {
     backgroundColor: 'rgba(220,38,38,0.22)',

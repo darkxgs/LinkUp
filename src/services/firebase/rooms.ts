@@ -312,6 +312,11 @@ async function restoreMicSeatAfterDisconnect(
     || user.photoURL
     || String(roomData.hostAvatar ?? 'https://i.pravatar.cc/200?img=12');
 
+  // مضيف الغرفة يستعيد مقعده — حدّث لقطة الغرفة باسمه/صورته الطازجين (b10)
+  if (String(roomData.hostUid ?? '') === user.uid) {
+    void refreshRoomHostSnapshot(roomId, roomData, displayName, avatar);
+  }
+
   const seatPayload = buildSeatPublicData(
     (userData ?? {}) as Record<string, unknown>,
     user.uid,
@@ -355,6 +360,14 @@ export async function suspendRoomOnDisconnectForBackground(roomId: string): Prom
   const seatIdx = await findMySeatInRoom(roomId);
   if (seatIdx === null) return;
   await cancelSeatOnDisconnect(roomId, seatIdx);
+  // أبقِ roomSeatHold درعاً أثناء التعليق — onDisconnect كان يحذفه عند أي
+  // انقطاع بالخلفية فيمسح الكنّاس المقعد رغم أن الغياب مقصود ومؤقت.
+  // يُعاد ربطه في bindSeatOnDisconnect عند العودة (rebind/recover).
+  try {
+    await onDisconnect(ref(realtimeDb, `roomSeatHold/${roomId}/${user.uid}`)).cancel();
+  } catch {
+    // ignore
+  }
   if (
     seatDisconnectBound?.roomId === roomId &&
     seatDisconnectBound.seatIdx === seatIdx
@@ -410,6 +423,25 @@ export async function releaseRoomMembership(roomId: string): Promise<void> {
 /**
  * يضع المضيف على مقعد 0 فقط إذا لم يكن على أي مقعد — لا يُجبره على العودة للوسط
  */
+/**
+ * تحديث لقطة hostName/hostAvatar على مستوى الغرفة عند الاختلاف — كانت تُكتب
+ * عند الإنشاء فقط فتبقى بطاقات الغرف تعرض اسماً/صورة قديمين بعد تغيير الملف.
+ * كتابة خفيفة فقط عند تغيّر فعلي، من بيانات مستخدم مجلوبة أصلاً (صفر قراءات إضافية).
+ */
+async function refreshRoomHostSnapshot(
+  roomId: string,
+  roomData: Record<string, unknown>,
+  freshName?: string,
+  freshAvatar?: string,
+): Promise<void> {
+  const patch: Record<string, unknown> = {};
+  if (freshName && freshName !== String(roomData.hostName ?? '')) patch.hostName = freshName;
+  if (freshAvatar && freshAvatar !== String(roomData.hostAvatar ?? '')) patch.hostAvatar = freshAvatar;
+  if (Object.keys(patch).length === 0) return;
+  patch.updatedAt = Date.now();
+  await update(ref(realtimeDb, `rooms/${roomId}`), patch).catch(() => {});
+}
+
 export async function ensureHostOnSeat(roomId: string): Promise<void> {
   const user = auth.currentUser;
   if (!user) return;
@@ -439,6 +471,9 @@ export async function ensureHostOnSeat(roomId: string): Promise<void> {
     (userData ?? {}) as Record<string, unknown>,
     user.uid,
   ) || user.photoURL || String(room.hostAvatar ?? 'https://i.pravatar.cc/200?img=12');
+
+  // مزامنة لقطة الغرفة مع اسم/صورة المضيف الطازجين (b10)
+  void refreshRoomHostSnapshot(roomId, room, displayName, avatar);
 
   const seatPayload = buildSeatPublicData(
     (userData ?? {}) as Record<string, unknown>,
@@ -936,17 +971,6 @@ export const quickCreateRoom = async (): Promise<string> => {
   if (!user) throw new Error('يجب تسجيل الدخول');
 
   const existing = await findMyPrivateHostRoom();
-  if (existing?.id) {
-    await update(ref(realtimeDb, `rooms/${existing.id}`), {
-      isActive: true,
-      isArchived: false,
-      isPrivate: true,
-      updatedAt: Date.now(),
-    });
-    await saveHostPrivateRoomId(existing.id);
-    return existing.id;
-  }
-
   const { getUser } = await import('./users');
   const userData = await getUser(user.uid);
   const hostName = resolveDisplayName(
@@ -956,6 +980,23 @@ export const quickCreateRoom = async (): Promise<string> => {
     },
     'مضيف',
   );
+
+  if (existing?.id) {
+    const patch: Record<string, unknown> = {
+      isActive: true,
+      isArchived: false,
+      isPrivate: true,
+      updatedAt: Date.now(),
+    };
+    // تحديث لقطة اسم/صورة المضيف عند إعادة التفعيل — كانت تُكتب عند الإنشاء
+    // فقط فتعرض بطاقة الغرفة اسماً قديماً بعد تغيير المضيف لملفه
+    const freshAvatar = userData?.avatar ?? user.photoURL ?? '';
+    if (hostName !== 'مضيف' && hostName !== existing.hostName) patch.hostName = hostName;
+    if (freshAvatar && freshAvatar !== existing.hostAvatar) patch.hostAvatar = freshAvatar;
+    await update(ref(realtimeDb, `rooms/${existing.id}`), patch);
+    await saveHostPrivateRoomId(existing.id);
+    return existing.id;
+  }
 
   const country = userData?.country ?? 'PS';
 
@@ -1062,6 +1103,9 @@ export async function savePrivateHostRoom(data: {
       isPrivate: true,
       isActive: true,
       isArchived: false,
+      // تحديث لقطة اسم/صورة المضيف من البيانات الطازجة — كانت لقطة إنشاء لا تُحدَّث
+      hostName,
+      hostAvatar,
       updatedAt: Date.now(),
     };
     if (data.seatsCount !== existing.seatsCount) {
@@ -2158,6 +2202,10 @@ export async function pruneStaleRoomSeats(roomId: string): Promise<number> {
         continue;
       }
     }
+    // علامة انقطاع حديثة ضمن المهلة — للمقعد دورة حياته الخاصة (180ث) فعلاً:
+    // بدون هذا الـcontinue كان يسقط لقاعدة عضوية الجمهور بالأسفل فيُمسح بعد
+    // ~ثانيتين من أي تقطع شبكة عابر (onDisconnect حذف audience+hold لحظياً)
+    if (disconnectedAt > 0 && now - disconnectedAt <= SEAT_DISCONNECT_GRACE_MS) continue;
     if (audienceUids.has(uid)) continue;
     if (heldUids.has(uid)) continue;
     if (protectedUids.has(uid)) continue;

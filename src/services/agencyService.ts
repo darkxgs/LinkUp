@@ -604,16 +604,19 @@ export const isUidAgencyMember = async (agencyId: string, uid: string): Promise<
  * إنهاء عضوية في الوكالة (يفعلها الوكيل أو الأدمن)
  */
 export const removeAgencyMember = async (memberId: string): Promise<void> => {
-  const user = auth.currentUser;
-  if (!user) throw new Error('يجب تسجيل الدخول');
-
-  const { httpsCallable } = await import('firebase/functions');
-  const { functions } = await import('@/services/firebase');
-  const fn = httpsCallable<{ memberDocId: string }, { ok: boolean }>(
-    functions,
-    'removeAgencyMember',
-  );
-  await fn({ memberDocId: memberId });
+  // #10: httpsCallable وحده غير موثوق على React Native (Gen2) —
+  // كان يفشل بـ«internal» عشوائياً. HTTP+Bearer مع fallback للSDK كبقية الملف.
+  try {
+    const user = await ensureCallableAuth();
+    const token = await user.getIdToken();
+    await callCallableWithAuth<{ memberDocId: string }, { ok: boolean }>(
+      'removeAgencyMember',
+      { memberDocId: memberId },
+      token,
+    );
+  } catch (e) {
+    throw new Error(translateCallableError(e));
+  }
 };
 
 // ========================================================

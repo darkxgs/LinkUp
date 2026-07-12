@@ -96,6 +96,11 @@ export interface User {
     dateKey: string;
     claimedIds: string[];
   };
+  /** مهام الثروة اليومية المستلَمة اليوم — نفس نمط wealthExpBubbles */
+  wealthDailyTasks?: {
+    dateKey: string;
+    claimedIds: string[];
+  };
   mysterySuitExpiresAt?: number | null;
   mysterySuitActive?: boolean;
   rewardsProgress?: import('@/services/firebase/rewardsCenter').RewardsProgress;
@@ -256,6 +261,7 @@ function startUserDocListener(
       banReason: data.banReason != null ? String(data.banReason) : undefined,
       withdrawalBlocked: data.withdrawalBlocked === true,
       wealthExpBubbles: data.wealthExpBubbles as User['wealthExpBubbles'],
+      wealthDailyTasks: data.wealthDailyTasks as User['wealthDailyTasks'],
       mysterySuitExpiresAt: data.mysterySuitExpiresAt != null ? Number(data.mysterySuitExpiresAt) : null,
       mysterySuitActive: data.mysterySuitActive === true,
       rewardsProgress: data.rewardsProgress as User['rewardsProgress'],
@@ -829,6 +835,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           withdrawalBlocked: data.withdrawalBlocked === true,
           banReason: data.banReason ? String(data.banReason) : undefined,
           wealthExpBubbles: data.wealthExpBubbles as User['wealthExpBubbles'],
+          wealthDailyTasks: data.wealthDailyTasks as User['wealthDailyTasks'],
           mysterySuitExpiresAt: data.mysterySuitExpiresAt != null ? Number(data.mysterySuitExpiresAt) : null,
           mysterySuitActive: data.mysterySuitActive === true,
           rewardsProgress: data.rewardsProgress as User['rewardsProgress'],

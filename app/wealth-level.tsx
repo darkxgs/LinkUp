@@ -51,65 +51,57 @@ import { WALLET_ASSETS } from '@/components/wallet/walletDesign';
 import { PrivilegeVectorIcon, VectorEmblem } from '@/components/icons/PrivilegeVectorIcon';
 import {
   claimWealthExpBubble,
+  claimWealthDailyTask,
+  wealthDailyTaskCurrent,
+  WEALTH_DAILY_TASK_DEFS,
   upgradeWealthLevelWithCoins,
   coinsNeededForLevelUp,
   xpRequiredForLevel,
   WEALTH_TODAY_BONUS,
   todayDateKey,
   type WealthExpBubbleId,
+  type WealthDailyTaskId,
 } from '@/services/firebase/wealthLevel';
+import { readRewardsProgress } from '@/services/firebase/rewardsCenter';
 import { resolveUserWealthLevel } from '@/utils/userBalance';
 
-type DailyStatsKey = 'totalRoomMinutes' | 'totalGiftsSent' | 'totalRoomsCreated';
-
 interface DailyTaskDef {
-  id: string;
+  id: WealthDailyTaskId;
   titleKey: string;
   max: number;
   xp: number;
-  statsKey: DailyStatsKey | null;
-  divisor?: number;
   renderIcon: (size: number) => React.ReactNode;
 }
 
 const TASKS_PREVIEW_COUNT = 2;
 
-const DAILY_TASK_DEFS: DailyTaskDef[] = [
-  {
-    id: 'stay-room',
+// حساب التقدّم/المكافأة في الخدمة (WEALTH_DAILY_TASK_DEFS) — هنا العرض فقط
+const TASK_UI_META: Record<
+  WealthDailyTaskId,
+  { titleKey: string; renderIcon: (size: number) => React.ReactNode }
+> = {
+  'stay-room': {
     titleKey: 'wealthLevel.text94553',
-    max: 3,
-    xp: 5,
-    statsKey: 'totalRoomMinutes',
-    divisor: 5,
     renderIcon: (size) => <WlHomeIcon size={size} />,
   },
-  {
-    id: 'mic-time',
+  'mic-time': {
     titleKey: 'wealthLevel.text78346',
-    max: 3,
-    xp: 5,
-    statsKey: 'totalRoomMinutes',
-    divisor: 10,
     renderIcon: (size) => <WlMicIcon size={size} />,
   },
-  {
-    id: 'send-gifts',
+  'send-gifts': {
     titleKey: 'wealthLevel.text36228',
-    max: 3,
-    xp: 5,
-    statsKey: 'totalGiftsSent',
     renderIcon: (size) => <WlGiftIcon size={size} />,
   },
-  {
-    id: 'game-bet',
+  'game-bet': {
     titleKey: 'wealthLevel.gameBet',
-    max: 3,
-    xp: 5,
-    statsKey: null,
     renderIcon: (size) => <WlGameIcon size={size} />,
   },
-];
+};
+
+const DAILY_TASK_DEFS: DailyTaskDef[] = WEALTH_DAILY_TASK_DEFS.map((def) => ({
+  ...def,
+  ...TASK_UI_META[def.id],
+}));
 
 export default function WealthLevelScreen() {
   const { t } = useTranslation();
@@ -118,6 +110,7 @@ export default function WealthLevelScreen() {
   const { user, refreshUser } = useAuth();
   const { width: W } = useWindowDimensions();
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [claimingTaskId, setClaimingTaskId] = useState<string | null>(null);
   const [hiddenBubbleIds, setHiddenBubbleIds] = useState<string[]>([]);
   const [upgrading, setUpgrading] = useState(false);
   const [showAllTasks, setShowAllTasks] = useState(false);
@@ -179,31 +172,22 @@ export default function WealthLevelScreen() {
   }, [user?.createdAt]);
 
   const tasksWithProgress = useMemo(() => {
-    if (!user) return DAILY_TASK_DEFS.map((task) => ({ ...task, current: 0 }));
+    if (!user) return DAILY_TASK_DEFS.map((task) => ({ ...task, current: 0, claimed: false }));
     // كل المهام تُقرأ من إحصاءات «اليوم» (rewardsProgress.daily.stats) —
     // القراءة القديمة من stats.totalRoomMinutes/totalGiftsSent كانت حقولاً
     // لا يكتبها أي كود إطلاقاً فبقيت المهام الثلاث مجمدة على 0 للأبد.
-    const daily = (user.rewardsProgress?.daily?.stats ?? {}) as Record<string, number>;
-    return DAILY_TASK_DEFS.map((task) => {
-      let raw = 0;
-      switch (task.id) {
-        case 'game-bet':
-          raw = Number(daily.gameBets ?? 0);
-          break;
-        case 'stay-room':
-          raw = Math.floor(Number(daily.roomMinutes ?? 0) / (task.divisor ?? 5));
-          break;
-        case 'mic-time':
-          raw = Math.floor(Number(daily.micMinutes ?? 0) / (task.divisor ?? 10));
-          break;
-        case 'send-gifts':
-          raw = Number(daily.giftsSent ?? 0);
-          break;
-        default:
-          raw = 0;
-      }
-      return { ...task, current: Math.min(raw, task.max) };
-    });
+    // readRewardsProgress تتحقق من dateKey فلا تُعرض إحصاءات يوم سابق.
+    const daily = readRewardsProgress({ rewardsProgress: user.rewardsProgress }).daily.stats;
+    const storedClaims = user.wealthDailyTasks;
+    const claimedIds =
+      storedClaims?.dateKey === todayDateKey() && Array.isArray(storedClaims.claimedIds)
+        ? storedClaims.claimedIds
+        : [];
+    return DAILY_TASK_DEFS.map((task) => ({
+      ...task,
+      current: Math.min(wealthDailyTaskCurrent(task.id, daily), task.max),
+      claimed: claimedIds.includes(task.id),
+    }));
   }, [user]);
 
   const visibleTasks = useMemo(
@@ -244,6 +228,23 @@ export default function WealthLevelScreen() {
       );
     } finally {
       setClaimingId(null);
+    }
+  }, [refreshUser, t, triggerXpFlash]);
+
+  // استلام XP مهمة يومية مكتملة — الإصلاح: كانت الصفوف عرضاً فقط بلا منح
+  const handleTaskClaim = useCallback(async (taskId: WealthDailyTaskId) => {
+    setClaimingTaskId(taskId);
+    try {
+      const res = await claimWealthDailyTask(taskId);
+      triggerXpFlash(res.gained);
+      await refreshUser();
+    } catch (e: unknown) {
+      Alert.alert(
+        t('common.error'),
+        e instanceof Error ? e.message : t('common.errorOccurred'),
+      );
+    } finally {
+      setClaimingTaskId(null);
     }
   }, [refreshUser, t, triggerXpFlash]);
 
@@ -543,9 +544,32 @@ export default function WealthLevelScreen() {
                       ({task.current}/{task.max})
                     </Text>
                   </View>
-                  <Text weight="bold" style={styles.taskExp}>
-                    {t('wealthLevel.expReward', { count: task.xp })}
-                  </Text>
+                  {task.claimed ? (
+                    <View style={styles.taskClaimedPill}>
+                      <Text weight="bold" style={styles.taskClaimedText}>
+                        {t('wealthLevel.taskClaimed')}
+                      </Text>
+                    </View>
+                  ) : task.current >= task.max ? (
+                    <Pressable
+                      onPress={() => void handleTaskClaim(task.id)}
+                      disabled={claimingTaskId !== null}
+                      style={[
+                        styles.taskClaimBtn,
+                        claimingTaskId !== null && styles.taskClaimBtnDisabled,
+                      ]}
+                    >
+                      <Text weight="bold" style={styles.taskClaimText}>
+                        {claimingTaskId === task.id
+                          ? '...'
+                          : t('wealthLevel.claimExp', { count: task.xp })}
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <Text weight="bold" style={styles.taskExp}>
+                      {t('wealthLevel.expReward', { count: task.xp })}
+                    </Text>
+                  )}
                 </View>
               </View>
             ))}
@@ -917,6 +941,31 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     color: WL_DESIGN.expPurple,
+    includeFontPadding: false,
+  },
+  taskClaimBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 99,
+    backgroundColor: '#B8860B',
+  },
+  taskClaimBtnDisabled: { opacity: 0.6 },
+  taskClaimText: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#FFFFFF',
+    includeFontPadding: false,
+  },
+  taskClaimedPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 99,
+    backgroundColor: '#F1F1F1',
+  },
+  taskClaimedText: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: '#999999',
     includeFontPadding: false,
   },
   taskDivider: {

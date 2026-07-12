@@ -14,6 +14,9 @@ import {
   uploadAlbumImage,
 } from '@/services/firebase/storage';
 import { requestMediaLibraryAccess, requestCameraAccess } from '@/services/permissions';
+// حارس منتقي الوسائط — يمنع إفراغ المقعد أثناء ذهاب التطبيق للخلفية لفتح
+// المعرض/الكاميرا داخل الروم (no-op خارج الغرف فالتغليف آمن دائماً)
+import { withRoomMediaPickerGuard } from '@/utils/roomMediaPickerGuard';
 
 interface UseImageUploadResult {
   pickAndUpload: (options?: PickOptions) => Promise<string | null>;
@@ -51,12 +54,14 @@ export const useImageUpload = (): UseImageUploadResult => {
         return null;
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: options.allowsEditing ?? false,
-        aspect: options.aspect ?? [1, 1],
-        quality: options.quality ?? 0.7,
-      });
+      const result = await withRoomMediaPickerGuard(() =>
+        ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: options.allowsEditing ?? false,
+          aspect: options.aspect ?? [1, 1],
+          quality: options.quality ?? 0.7,
+        }),
+      );
 
       if (result.canceled || !result.assets || result.assets.length === 0) {
         return null;
@@ -83,11 +88,13 @@ export const useImageUpload = (): UseImageUploadResult => {
         return null;
       }
 
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: options.allowsEditing ?? true,
-        aspect: options.aspect ?? [1, 1],
-        quality: options.quality ?? 0.7,
-      });
+      const result = await withRoomMediaPickerGuard(() =>
+        ImagePicker.launchCameraAsync({
+          allowsEditing: options.allowsEditing ?? true,
+          aspect: options.aspect ?? [1, 1],
+          quality: options.quality ?? 0.7,
+        }),
+      );
 
       if (result.canceled || !result.assets || result.assets.length === 0) {
         return null;

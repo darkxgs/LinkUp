@@ -47,6 +47,7 @@ import {
   canClaimFreeCheckIn,
   canClaimPremiumCheckInToday,
   isPremiumCheckInActive,
+  todayDateKey,
   type TaskProgressView,
   type CheckInDayConfig,
 } from '@/services/firebase/rewardsCenter';
@@ -391,7 +392,10 @@ export default function RewardsCenterScreen() {
     onClaimToday?: () => void,
     isPremium = false,
   ) => {
-    const today = new Date().toISOString().slice(0, 10);
+    // مفتاح اليوم المحلي نفسه الذي تكتب به claimFreeCheckIn/claimPremiumCheckIn
+    // في lastFreeClaimDate — مفتاح UTC السابق كان يقفل/يفتح الخلايا خطأً
+    // لثلاث ساعات يومياً في المناطق شرق غرينتش (مثل القاهرة UTC+3)
+    const today = todayDateKey();
     const claimedToday = lastClaim === today;
 
     return (

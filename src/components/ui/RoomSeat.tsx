@@ -129,6 +129,11 @@ export const RoomSeat = memo(
     }[size];
     const s = sizes[size];
 
+    // لون فريق PK — أزرق حقيقي للفريق الأزرق (كان أحمر بعد إعادة التسكين
+    // للثيم الأحمر فصار الفريقان بلا أي تمييز بصري)
+    const pkTeamColor =
+      pkTeam === 'blue' ? '#3B82F6' : pkTeam === 'red' ? '#FF2E3E' : undefined;
+
     if (empty) {
       // نفس المربّع الموحّد للمقاعد المشغولة + صندوق «+» بنفس قياس الأفاتار المؤطَّر/العادي
       const emptyBoxSize = s.avatar + 4;
@@ -142,7 +147,14 @@ export const RoomSeat = memo(
                   width: emptyBoxSize,
                   height: emptyBoxSize,
                   borderRadius: corner(emptyBoxSize),
-                  borderColor: isLocked ? 'rgba(239,68,68,0.55)' : 'rgba(232, 23, 23, 0.25)',
+                  // المقعد الفارغ يعرض لون فريق PK أيضاً — كان يتجاهله كلياً
+                  borderColor: isLocked
+                    ? 'rgba(239,68,68,0.55)'
+                    : pkTeam === 'blue'
+                      ? 'rgba(59,130,246,0.6)'
+                      : pkTeam === 'red'
+                        ? 'rgba(255,46,62,0.6)'
+                        : 'rgba(232, 23, 23, 0.25)',
                 },
               ]}
             >
@@ -150,7 +162,11 @@ export const RoomSeat = memo(
                 colors={
                   isLocked
                     ? ['rgba(239,68,68,0.18)', 'rgba(127,29,29,0.12)']
-                    : ['rgba(225, 20, 20,0.15)', 'rgba(232, 23, 23, 0.05)']
+                    : pkTeam === 'blue'
+                      ? ['rgba(59,130,246,0.18)', 'rgba(30,64,175,0.08)']
+                      : pkTeam === 'red'
+                        ? ['rgba(255,46,62,0.16)', 'rgba(127,29,29,0.08)']
+                        : ['rgba(225, 20, 20,0.15)', 'rgba(232, 23, 23, 0.05)']
                 }
                 style={[StyleSheet.absoluteFill, { borderRadius: corner(emptyBoxSize) }]}
               />
@@ -192,17 +208,14 @@ export const RoomSeat = memo(
     const wrapWidth = seatBox;
     const auraSize = seatBox;
 
-    const baseColor = pkTeam === 'blue'
-      ? '#E81717'
-      : pkTeam === 'red'
-        ? '#FF2E3E'
-        : isPlayingMusic
-          ? '#FF3340'
-          : isHost
-            ? '#FFD700'
-            : isVIP
-              ? '#E11414'
-              : 'rgba(255,255,255,0.2)';
+    const baseColor = pkTeamColor
+      ?? (isPlayingMusic
+        ? '#FF3340'
+        : isHost
+          ? '#FFD700'
+          : isVIP
+            ? '#E11414'
+            : 'rgba(255,255,255,0.2)');
 
     const activeColor = '#E81717'; // Electric blue for active speaker
 
@@ -283,6 +296,27 @@ export const RoomSeat = memo(
 
         {hasFrame ? (
           <View style={{ width: seatBox, height: seatBox, position: 'relative', alignItems: 'center', justifyContent: 'center' }}>
+            {pkTeamColor ? (
+              // حلقة توهج بلون الفريق — المقعد المؤطّر كان بلا أي تمييز فريق
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  top: (seatBox - (framedAvatarSize + 6)) / 2,
+                  left: (seatBox - (framedAvatarSize + 6)) / 2,
+                  width: framedAvatarSize + 6,
+                  height: framedAvatarSize + 6,
+                  borderRadius: (framedAvatarSize + 6) / 2,
+                  borderWidth: 2,
+                  borderColor: pkTeamColor,
+                  shadowColor: pkTeamColor,
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 0.8,
+                  shadowRadius: 6,
+                  elevation: 6,
+                }}
+              />
+            ) : null}
             <FramedAvatar
               avatarUri={avatar}
               frameUri={frameUri}

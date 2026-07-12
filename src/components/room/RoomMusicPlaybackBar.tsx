@@ -51,7 +51,10 @@ function VolumeDragSlider({ value, onChange }: VolumeDragSliderProps) {
       const h = trackH.current;
       if (h <= 0) return;
       const ratio = 1 - (pageY - trackTop.current) / h;
-      const next = Math.max(0, Math.min(1, ratio));
+      let next = Math.max(0, Math.min(1, ratio));
+      // قنص للصفر: أيقونة الكتم (VolumeX) تظهر تحت 5% — إفلات الإصبع عند حافة
+      // المسار كان يترك 1–4% صوتاً مسموعاً بينما الواجهة تدّعي «مكتوم»
+      if (next < 0.05) next = 0;
       onChange(Math.round(next * 100) / 100);
     },
     [onChange],
@@ -180,7 +183,9 @@ export function RoomMusicPlaybackBar({ roomId, playback }: Props) {
 
   const handleVolumeChange = useCallback(
     (next: number) => {
-      const clamped = Math.max(0, Math.min(1, next));
+      let clamped = Math.max(0, Math.min(1, next));
+      // احتياط: أي قيمة تحت عتبة أيقونة الكتم = كتم حقيقي (صفر)
+      if (clamped < 0.05) clamped = 0;
       if (playback.isController) {
         playback.setBroadcastVolume(clamped);
         return;

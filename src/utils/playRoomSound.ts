@@ -25,6 +25,47 @@ function enqueueSfxOp<T>(op: () => Promise<T>): Promise<T> {
   );
   return run;
 }
+
+/**
+ * جيل الإيقاف: stopRoomSound يرفعه فوراً (قبل دخول الطابور) — أي تشغيل
+ * أُدرج بالطابور قبل الرفع يُسقط نفسه عند وصول دوره. بدونه كانت التشغيلات
+ * المتراكمة خلف عملية expo-av معلّقة تنفجر دفعة واحدة بعد مغادرة الروم.
+ */
+let sfxEpoch = 0;
+
+/**
+ * مهلة لاستدعاءات expo-av داخل الطابور — stopAsync/createAsync قد يعلّقان
+ * أثناء استحواذ LiveKit على تركيز الصوت (أندرويد) فيتجمد الطابور كله.
+ * عند تجاوز المهلة نرفض ونكمل؛ onLateResolve تنظّف الناتج المتأخر إن وصل.
+ */
+const SFX_OP_TIMEOUT_MS = 4000;
+function withSfxTimeout<T>(p: Promise<T>, onLateResolve?: (v: T) => void): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('sfx-op-timeout'));
+    }, SFX_OP_TIMEOUT_MS);
+    p.then(
+      (v) => {
+        if (settled) {
+          onLateResolve?.(v);
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
 /** تهيئة الصوت أثناء جلسة LiveKit — MixWithOthers حتى تُسمع المؤثرات مع المايك */
 let voiceSfxAudioConfigured = false;
 /** true أثناء جلسة LiveKit */
@@ -34,6 +75,24 @@ let roomVoiceSessionActive = false;
 const preloadedSounds = new Map<string, Sound>();
 /** مؤثرات الغرفة المحلية (require) */
 const preloadedAssetSounds = new Map<string, Sound>();
+
+/**
+ * كتم المؤثرات المحلية (مؤثرات الغرفة + أصوات الهدايا) — يتبع كتم الروم الكلي.
+ * كان كتم الروم يكتم أعضاء LiveKit والموسيقى فقط بينما المؤثرات تستمر بالصوت الكامل.
+ */
+let roomSfxMuted = false;
+
+export function setRoomSfxMuted(muted: boolean): void {
+  roomSfxMuted = muted;
+  if (muted && activeSound && roomVoiceSessionActive) {
+    // اكتم الصوت الجاري فوراً — لا ننتظر انتهاءه
+    activeSound.setVolumeAsync(0).catch(() => {});
+  }
+}
+
+export function isRoomSfxMuted(): boolean {
+  return roomSfxMuted;
+}
 
 export function setRoomVoiceSessionActive(active: boolean): void {
   roomVoiceSessionActive = active;
@@ -164,8 +223,8 @@ async function pauseActiveGiftSound(): Promise<void> {
   activeGiftSoundUrl = null;
   activeAssetKey = null;
   try {
-    await prevSound.stopAsync();
-    await prevSound.setPositionAsync(0);
+    await withSfxTimeout(prevSound.stopAsync());
+    await withSfxTimeout(prevSound.setPositionAsync(0));
     if (prevGiftKey) {
       rememberInPreloadCache(prevGiftKey, prevSound);
     } else if (prevAssetKey) {
@@ -193,9 +252,12 @@ async function cacheRemoteSound(url: string): Promise<void> {
   // داخل الطابور: createAsync المتوازي يخلط المصادر على أندرويد
   try {
     const { sound } = await enqueueSfxOp(() =>
-      AV.Audio.Sound.createAsync(
-        { uri: key },
-        { shouldPlay: false, volume: 0.85, isLooping: false },
+      withSfxTimeout(
+        AV.Audio.Sound.createAsync(
+          { uri: key },
+          { shouldPlay: false, volume: 0.85, isLooping: false },
+        ),
+        (late) => late.sound.unloadAsync().catch(() => {}),
       ),
     );
     if (preloadedSounds.has(key)) {
@@ -249,17 +311,29 @@ export async function playGiftSound(url: string, volume = 0.85): Promise<void> {
   const key = url.trim();
   if (!key) return;
 
+  // التقاط الجيل قبل الدخول للطابور — لو استُدعي stopRoomSound قبل وصول
+  // الدور (مغادرة الروم) تُسقط العملية نفسها بدل أن تنفجر الأصوات دفعة واحدة
+  const epoch = sfxEpoch;
   const AV = await getAV();
   await configureSoundEffectsAudio();
-  return enqueueSfxOp(() => playGiftSoundInner(AV, key, volume));
+  return enqueueSfxOp(() => playGiftSoundInner(AV, key, volume, epoch));
 }
 
-async function playGiftSoundInner(AV: AVModule, key: string, volume: number): Promise<void> {
+async function playGiftSoundInner(
+  AV: AVModule,
+  key: string,
+  volume: number,
+  epoch: number,
+): Promise<void> {
+  if (epoch !== sfxEpoch) return; // أوقفت الجلسة بعد الإدراج — لا تشغيل
+  // كتم الروم يشمل أصوات الهدايا المحلية — داخل جلسة روم حية فقط، حتى لا
+  // يكتم علم كتمٍ قديم أصوات هدايا الشات خارج الغرف
+  if (roomSfxMuted && roomVoiceSessionActive) return;
   if (activeGiftSoundUrl === key && activeSound) {
     try {
-      await activeSound.setPositionAsync(0);
-      await activeSound.setVolumeAsync(volume);
-      await activeSound.playAsync();
+      await withSfxTimeout(activeSound.setPositionAsync(0));
+      await withSfxTimeout(activeSound.setVolumeAsync(volume));
+      await withSfxTimeout(activeSound.playAsync());
       return;
     } catch {
       // fall through to full reload
@@ -270,13 +344,14 @@ async function playGiftSoundInner(AV: AVModule, key: string, volume: number): Pr
     await pauseActiveGiftSound();
   }
 
+  if (epoch !== sfxEpoch) return;
   const cached = preloadedSounds.get(key);
   if (cached) {
     preloadedSounds.delete(key);
     try {
-      await cached.setPositionAsync(0);
-      await cached.setVolumeAsync(volume);
-      await cached.playAsync();
+      await withSfxTimeout(cached.setPositionAsync(0));
+      await withSfxTimeout(cached.setVolumeAsync(volume));
+      await withSfxTimeout(cached.playAsync());
       activeSound = cached;
       activeGiftSoundUrl = key;
       attachFinishHandler(cached, key);
@@ -290,10 +365,19 @@ async function playGiftSoundInner(AV: AVModule, key: string, volume: number): Pr
     }
   }
 
-  const { sound } = await AV.Audio.Sound.createAsync(
-    { uri: key },
-    { shouldPlay: true, volume, isLooping: false },
+  if (epoch !== sfxEpoch) return;
+  const { sound } = await withSfxTimeout(
+    AV.Audio.Sound.createAsync(
+      { uri: key },
+      { shouldPlay: true, volume, isLooping: false },
+    ),
+    (late) => late.sound.unloadAsync().catch(() => {}),
   );
+  if (epoch !== sfxEpoch) {
+    // أُوقفت الجلسة أثناء الإنشاء — أوقف وفرّغ بدل تركه يعزف
+    sound.unloadAsync().catch(() => {});
+    return;
+  }
   activeSound = sound;
   activeGiftSoundUrl = key;
   attachFinishHandler(sound, key);
@@ -308,9 +392,12 @@ export async function preloadRoomSoundAsset(cacheKey: string, source: number): P
     // داخل الطابور: التحميل المتوازي كان قد يخلط المصادر على أندرويد
     // (تضغط «تصفيق» فيطلع مؤثر آخر)
     const { sound } = await enqueueSfxOp(() =>
-      AV.Audio.Sound.createAsync(
-        source,
-        { shouldPlay: false, volume: 0.9, isLooping: false },
+      withSfxTimeout(
+        AV.Audio.Sound.createAsync(
+          source,
+          { shouldPlay: false, volume: 0.9, isLooping: false },
+        ),
+        (late) => late.sound.unloadAsync().catch(() => {}),
       ),
     );
     if (preloadedAssetSounds.has(cacheKey)) {
@@ -337,27 +424,34 @@ export async function playRoomSoundSource(
   volume = 0.9,
   cacheKey?: string,
 ): Promise<void> {
+  const epoch = sfxEpoch;
   const AV = await getAV();
   await configureSoundEffectsAudio();
-  return enqueueSfxOp(() => playRoomSoundSourceInner(AV, source, volume, cacheKey));
+  return enqueueSfxOp(() => playRoomSoundSourceInner(AV, source, volume, epoch, cacheKey));
 }
 
 async function playRoomSoundSourceInner(
   AV: AVModule,
   source: number,
   volume: number,
+  epoch: number,
   cacheKey?: string,
 ): Promise<void> {
+  // مؤثرات الغرفة تعزف داخل جلسة صوت حية فقط — بعد المغادرة (تغيّر الجيل
+  // أو انتهاء جلسة LiveKit) تُسقط العملية نفسها بدل الانفجار المتأخر
+  if (epoch !== sfxEpoch || !roomVoiceSessionActive) return;
+  if (roomSfxMuted) return; // كتم الروم يشمل المؤثرات المحلية
   await pauseActiveGiftSound();
+  if (epoch !== sfxEpoch) return;
 
   const key = cacheKey?.trim();
   const cached = key ? preloadedAssetSounds.get(key) : undefined;
   if (cached && key) {
     preloadedAssetSounds.delete(key);
     try {
-      await cached.setPositionAsync(0);
-      await cached.setVolumeAsync(volume);
-      await cached.playAsync();
+      await withSfxTimeout(cached.setPositionAsync(0));
+      await withSfxTimeout(cached.setVolumeAsync(volume));
+      await withSfxTimeout(cached.playAsync());
       activeSound = cached;
       activeGiftSoundUrl = null;
       activeAssetKey = key;
@@ -381,10 +475,18 @@ async function playRoomSoundSourceInner(
     }
   }
 
-  const { sound } = await AV.Audio.Sound.createAsync(
-    source,
-    { shouldPlay: true, volume, isLooping: false },
+  if (epoch !== sfxEpoch) return;
+  const { sound } = await withSfxTimeout(
+    AV.Audio.Sound.createAsync(
+      source,
+      { shouldPlay: true, volume, isLooping: false },
+    ),
+    (late) => late.sound.unloadAsync().catch(() => {}),
   );
+  if (epoch !== sfxEpoch) {
+    sound.unloadAsync().catch(() => {});
+    return;
+  }
   activeSound = sound;
   activeGiftSoundUrl = null;
   activeAssetKey = key ?? null;
@@ -406,12 +508,15 @@ export async function stopGiftSound(): Promise<void> {
 }
 
 export async function stopRoomSound(): Promise<void> {
+  // رفع الجيل فوراً وبشكل متزامن (قبل الطابور) — كل تشغيل أُدرج قبل هذه
+  // اللحظة يُسقط نفسه عند وصول دوره بدل أن ينفجر دفعة واحدة بعد الخروج
+  sfxEpoch++;
   // كل الإيقاف/التفريغ داخل عملية طابور واحدة — لا استدعاء لدوال عامة مطوّبة (deadlock)
   await enqueueSfxOp(async () => {
     await pauseActiveGiftSound();
     for (const [, sound] of preloadedSounds) {
       try {
-        await sound.unloadAsync();
+        await withSfxTimeout(sound.unloadAsync());
       } catch {
         // ignore
       }
@@ -419,7 +524,7 @@ export async function stopRoomSound(): Promise<void> {
     preloadedSounds.clear();
     for (const [, sound] of preloadedAssetSounds) {
       try {
-        await sound.unloadAsync();
+        await withSfxTimeout(sound.unloadAsync());
       } catch {
         // ignore
       }

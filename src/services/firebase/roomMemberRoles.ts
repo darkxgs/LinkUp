@@ -25,6 +25,7 @@ import {
   resolveSupervisorCapForLevel,
 } from '@/services/agencyLevels';
 import { getAgencyEffectivePeriodLevel } from '@/services/agencyService';
+import { friendlyErrorMessage } from '@/utils/friendlyErrorMessage';
 
 /** @deprecated — استخدم resolveSupervisorCapForLevel حسب مستوى الوكالة */
 export const BASE_ROOM_SUPERVISORS_CAP = 5;
@@ -695,14 +696,20 @@ export async function setRoomAgencyMemberRole(
   }
 
   const rolesRef = ref(realtimeDb, `rooms/${roomId}/memberRoles`);
-  await runTransaction(rolesRef, (current) => {
-    const roles = (current as Record<string, string> | null) ?? {};
-    roles[targetUid] = role;
-    return roles;
-  });
+  try {
+    await runTransaction(rolesRef, (current) => {
+      const roles = (current as Record<string, string> | null) ?? {};
+      roles[targetUid] = role;
+      return roles;
+    });
 
-  const all = await getRoomMemberRoles(roomId);
-  await syncCoHostsFromRoles(roomId, all);
+    const all = await getRoomMemberRoles(roomId);
+    await syncCoHostsFromRoles(roomId, all);
+  } catch (e) {
+    // قواعد RTDB قد ترفض مشرفاً موجوداً في coHosts دون memberRoles —
+    // رسالة عربية مفهومة بدل PERMISSION_DENIED الخام (#84)
+    throw new Error(friendlyErrorMessage(e));
+  }
 }
 
 export async function updateRoomPermissions(

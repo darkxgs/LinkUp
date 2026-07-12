@@ -12,6 +12,7 @@ import {
   FlatList,
   Dimensions,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -60,7 +61,6 @@ interface Props {
   onClose: () => void;
   members: ConnectedUserRow[];
   vipMembers: ConnectedUserRow[];
-  onlineCount: number;
   canManageMic: boolean;
   frameByUid: Record<string, string>;
   micBusyUid?: string | null;
@@ -237,7 +237,6 @@ export function ConnectedUsersSheet({
   onClose,
   members,
   vipMembers,
-  onlineCount,
   canManageMic,
   frameByUid,
   micBusyUid,
@@ -251,7 +250,16 @@ export function ConnectedUsersSheet({
   const insets = useSafeAreaInsets();
   const [tab, setTab] = React.useState<'online' | 'vip'>('online');
 
-  const list = tab === 'vip' ? vipMembers : members;
+  // الجالسون على المقاعد يُعرضون في قسم «على المايك» المنفصل أعلى القائمة —
+  // كانت قائمة «اون لاين» تخلطهم مع الجمهور فيظهر من هو على المايك بين المستمعين
+  const onMicMembers = React.useMemo(() => members.filter((m) => m.onSeat), [members]);
+  const audienceOnly = React.useMemo(() => members.filter((m) => !m.onSeat), [members]);
+  const vipAudienceOnly = React.useMemo(
+    () => vipMembers.filter((m) => !m.onSeat),
+    [vipMembers],
+  );
+
+  const list = tab === 'vip' ? vipAudienceOnly : audienceOnly;
 
   // قائمة مرتّبة بالرتبة مُحسوبة مرّة (بدل إنشاء كائن جديد لكل صف في كل رسم)
   const rankedList = React.useMemo(
@@ -284,7 +292,16 @@ export function ConnectedUsersSheet({
               <Text variant="h3" weight="bold" color={ROOM_DESIGN.textPrimary} style={{ textShadowColor: 'rgba(255,255,255,0.3)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 10 }}>
                 {t('room.connectedUsers')}
               </Text>
-              <Pressable style={styles.helpBtn} hitSlop={8}>
+              <Pressable
+                style={styles.helpBtn}
+                hitSlop={8}
+                onPress={() =>
+                  Alert.alert(
+                    t('room.connectedUsersHelpTitle'),
+                    t('room.connectedUsersHelpBody'),
+                  )
+                }
+              >
                 <LinearGradient colors={['rgba(255,255,255,0.15)', 'rgba(255,255,255,0.05)']} style={StyleSheet.absoluteFill} />
                 <HelpCircle size={16} color={ROOM_DESIGN.textPrimary} strokeWidth={2.2} />
               </Pressable>
@@ -301,7 +318,7 @@ export function ConnectedUsersSheet({
                   color={tab === 'online' ? '#FFF' : ROOM_DESIGN.textMuted}
                   style={tab === 'online' ? styles.activeTabText : undefined}
                 >
-                  {t('room.onlineTab')}({onlineCount})
+                  {t('room.onlineTab')}({audienceOnly.length})
                 </Text>
                 {tab === 'online' && (
                   <LinearGradient colors={ROOM_DESIGN.giftGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.tabIndicator} />
@@ -317,7 +334,7 @@ export function ConnectedUsersSheet({
                   color={tab === 'vip' ? '#FFF' : ROOM_DESIGN.textMuted}
                   style={tab === 'vip' ? styles.activeTabText : undefined}
                 >
-                  {t('room.vipTab')}({vipMembers.length})
+                  {t('room.vipTab')}({vipAudienceOnly.length})
                 </Text>
                 {tab === 'vip' && (
                   <LinearGradient colors={ROOM_DESIGN.giftGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.tabIndicator} />
@@ -360,6 +377,37 @@ export function ConnectedUsersSheet({
               maxToRenderPerBatch={12}
               windowSize={7}
               removeClippedSubviews
+              ListHeaderComponent={
+                tab === 'online' && onMicMembers.length > 0 ? (
+                  <View>
+                    <View style={styles.sectionHeader}>
+                      <Mic2 size={12} color="#4ADE80" strokeWidth={2.4} />
+                      <Text variant="caption" weight="bold" color="#4ADE80">
+                        {t('room.onMic')} ({onMicMembers.length})
+                      </Text>
+                    </View>
+                    {onMicMembers.map((m) => (
+                      <UserRow
+                        key={m.uid}
+                        member={m}
+                        canManageMic={canManageMic}
+                        frameUri={frameByUid[m.uid]}
+                        micBusy={micBusyUid === m.uid}
+                        myUid={myUid}
+                        onPress={() => onPressUser(m)}
+                        onAddToMic={() => onAddToMic(m.uid)}
+                        onRemoveFromMic={() => onRemoveFromMic(m.uid)}
+                      />
+                    ))}
+                    <View style={styles.sectionHeader}>
+                      <Users size={12} color={ROOM_DESIGN.textMuted} strokeWidth={2.4} />
+                      <Text variant="caption" weight="bold" color={ROOM_DESIGN.textMuted}>
+                        {t('room.onlineTab')} ({audienceOnly.length})
+                      </Text>
+                    </View>
+                  </View>
+                ) : null
+              }
               ListEmptyComponent={
                 <View style={styles.empty}>
                   <Users size={32} color={ROOM_DESIGN.textMuted} strokeWidth={1.5} />
@@ -503,6 +551,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 40,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingTop: 10,
+    paddingBottom: 4,
   },
   row: {
     flexDirection: 'row',

@@ -15,7 +15,7 @@ import {
 } from '@/services/livekitAudioRouting';
 import { stopRoomForegroundService } from '@/services/roomForegroundService';
 import { connectLiveKitWithRelayFallback } from '@/services/livekitConnect';
-import { setRoomVoiceSessionActive, configureSoundEffectsAudio } from '@/utils/playRoomSound';
+import { setRoomVoiceSessionActive, configureSoundEffectsAudio, setRoomSfxMuted } from '@/utils/playRoomSound';
 
 export type RoomConnectionState = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -946,6 +946,9 @@ class RoomAudioSessionManager {
     void import('@/services/roomMusicPlaybackManager')
       .then((m) => m.roomMusicPlaybackManager.setMutedAll(muted))
       .catch(() => {});
+    // ويشمل المؤثرات الصوتية وأصوات الهدايا المحلية (expo-av) — كانت تستمر
+    // بالصوت الكامل رغم كتم الروم الكلي
+    setRoomSfxMuted(muted);
     this.applyRemoteAudioVolume();
     this.scheduleRemoteVolumeResync();
   }

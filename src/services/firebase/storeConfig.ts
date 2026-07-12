@@ -129,6 +129,18 @@ export function storeItemMediaUrl(
   return url || undefined;
 }
 
+/**
+ * مصغّرة خفيفة لبطاقات الشبكة — الصورة الثابتة أولاً والأنيميشن الثقيل احتياطاً فقط.
+ * (storeItemMediaUrl يفضّل الأنيميشن؛ استخدمه للمعاينات/شاشة الشراء فقط،
+ * أما شبكة المتجر فتحميل كل الأنيميشنات دفعة واحدة يعلّق أول رسم للتبويب.)
+ */
+export function storeItemThumbUrl(
+  item: Pick<StoreItem, 'imageUrl' | 'animationUrl'>,
+): string | undefined {
+  const url = item.imageUrl?.trim() || item.animationUrl?.trim();
+  return url || undefined;
+}
+
 export function storeCategoryLabel(
   cat: StoreCategoryConfig,
   lang: string,

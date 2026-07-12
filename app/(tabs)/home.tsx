@@ -657,7 +657,8 @@ export default function RoomsScreen() {
                   key={item.roomId}
                   dark={isDark}
                   name={roomDisplayTitle(
-                    { name: item.roomName, hostName: item.roomName } as Room,
+                    // لا نفبرك hostName من اسم الروم — كان يكرر الاسم القديم (b10)
+                    { name: item.roomName } as Room,
                     t,
                   )}
                   avatar={item.hostAvatar}

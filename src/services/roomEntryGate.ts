@@ -3,18 +3,24 @@ import { get, ref } from 'firebase/database';
 import { auth, realtimeDb } from '@/services/firebase';
 import { normalizeRoomFromRtdb, type Room } from '@/services/firebase/rooms';
 
-const verifiedRoomIds = new Set<string>();
+// roomId → كلمة المرور التي جرى التحقق مقابلها — تخزين القيمة (لا مجرد العلم)
+// يجعل تغيير المضيف للرمز يُبطل التحقق تلقائياً ويعيد تحدي من تحقق سابقاً (b18)
+const verifiedRoomPasswords = new Map<string, string>();
 
-export function markRoomPasswordVerified(roomId: string): void {
-  if (roomId) verifiedRoomIds.add(roomId);
+export function markRoomPasswordVerified(roomId: string, password?: string): void {
+  if (roomId) verifiedRoomPasswords.set(roomId, String(password ?? ''));
 }
 
-export function isRoomPasswordVerified(roomId: string): boolean {
-  return verifiedRoomIds.has(roomId);
+export function isRoomPasswordVerified(roomId: string, currentPassword?: string): boolean {
+  if (!verifiedRoomPasswords.has(roomId)) return false;
+  if (currentPassword !== undefined) {
+    return verifiedRoomPasswords.get(roomId) === String(currentPassword ?? '');
+  }
+  return true;
 }
 
 export function clearRoomPasswordVerification(roomId: string): void {
-  verifiedRoomIds.delete(roomId);
+  verifiedRoomPasswords.delete(roomId);
 }
 
 export function resolveRoomAccessMode(
@@ -55,5 +61,5 @@ export async function fetchRoomForEntry(roomId: string): Promise<Room | null> {
 export function canEnterRoomWithoutPrompt(room: Room): boolean {
   const myUid = auth.currentUser?.uid;
   if (!roomRequiresPassword(room, myUid)) return true;
-  return isRoomPasswordVerified(room.id);
+  return isRoomPasswordVerified(room.id, room.password ?? '');
 }

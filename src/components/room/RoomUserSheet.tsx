@@ -44,6 +44,11 @@ import { getTitlesConfigOnce, getTitleDef, type TitlesConfig } from '@/services/
 import { useTranslation } from 'react-i18next';
 import { RoomMemberActionMenu } from '@/components/room/RoomMemberActionMenu';
 import {
+  roleLabel,
+  roleColor,
+  type RoomAgencyMemberRole,
+} from '@/services/firebase/roomMemberRoles';
+import {
   hasVipPrivilege,
   resolveVipPrivilegeAsset,
   type VipSystemConfig,
@@ -95,6 +100,8 @@ interface Props {
   onToggleChatMute?: (uid: string) => void;
   /** إدارة دور العضو (عضوية/إشراف) — يظهر الزر عند تمريرها */
   onManageRole?: (uid: string, name?: string) => void;
+  /** دور الغرفة الحالي (memberRoles) — شارة مرئية حتى يظهر أثر منح العضوية فوراً */
+  roomRole?: RoomAgencyMemberRole;
 }
 
 function ageFromBirthYear(y?: number): number | null {
@@ -128,6 +135,7 @@ export function RoomUserSheet({
   onToggleMicMute,
   onToggleChatMute,
   onManageRole,
+  roomRole,
 }: Props) {
   const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -285,6 +293,27 @@ export function RoomUserSheet({
                 {country ? (
                   <View style={styles.metaChip}>
                     <RealCountryFlag countryCode={country} size={14} />
+                  </View>
+                ) : null}
+                {roomRole ? (
+                  <View
+                    style={[
+                      styles.metaChip,
+                      {
+                        backgroundColor: `${roleColor(roomRole)}33`,
+                        borderWidth: 1,
+                        borderColor: roleColor(roomRole),
+                      },
+                    ]}
+                  >
+                    <Text
+                      variant="caption"
+                      weight="bold"
+                      color={roleColor(roomRole)}
+                      style={{ fontSize: 11 }}
+                    >
+                      {roleLabel(roomRole, !!i18n.language?.startsWith('ar'))}
+                    </Text>
                   </View>
                 ) : null}
                 {showVip ? (

@@ -656,13 +656,17 @@ export function RoomEmbeddedChatThread({
         showAlert({ type: 'warning', title: t('chat.permRequired'), message: t('chat.permAccess') });
         return;
       }
-      const result = fromCamera
-        ? await ImagePicker.launchCameraAsync({ quality: 0.7, allowsEditing: true })
-        : await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            quality: 0.7,
-            allowsEditing: false,
-          });
+      // الحارس يمنع إفراغ المقعد أثناء فتح المعرض/الكاميرا (التطبيق يذهب للخلفية)
+      const { withRoomMediaPickerGuard } = await import('@/utils/roomMediaPickerGuard');
+      const result = await withRoomMediaPickerGuard(() =>
+        fromCamera
+          ? ImagePicker.launchCameraAsync({ quality: 0.7, allowsEditing: true })
+          : ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              quality: 0.7,
+              allowsEditing: false,
+            }),
+      );
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
       setMediaOptions({
@@ -684,11 +688,15 @@ export function RoomEmbeddedChatThread({
         showAlert({ type: 'warning', title: t('chat.permRequired'), message: t('chat.permAccess') });
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        quality: 0.7,
-        videoMaxDuration: 120,
-      });
+      // الحارس يمنع إفراغ المقعد أثناء فتح المعرض (التطبيق يذهب للخلفية)
+      const { withRoomMediaPickerGuard } = await import('@/utils/roomMediaPickerGuard');
+      const result = await withRoomMediaPickerGuard(() =>
+        ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+          quality: 0.7,
+          videoMaxDuration: 120,
+        }),
+      );
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
       let thumbnailUri: string | undefined;

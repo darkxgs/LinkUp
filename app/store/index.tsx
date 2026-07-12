@@ -41,7 +41,7 @@ import { ChevronLeft } from '@/components/ui/RtlIcons';
 
 import { Text } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
-import type { User } from '@/stores/authStore';
+import { useAuthStore, type User } from '@/stores/authStore';
 import { purchaseStoreItem, purchaseAndSendStoreItem, getUserInventory, type StoreItem } from '@/services/firebase/shop';
 import { getFollowing } from '@/services/firebase/follow';
 import { getUser } from '@/services/firebase/users';
@@ -61,6 +61,7 @@ import {
   subscribeToStoreItems,
   localizeStoreItem,
   storeItemMediaUrl,
+  storeItemThumbUrl,
   buildAppStoreTabs,
   filterStoreItemsForTab,
   STORE_TAB_FRAME_ID,
@@ -129,6 +130,56 @@ type StoreCategory = 'all' | 'frame' | string;
 
 const H_PAD = 14;
 const GRID_GAP = 12;
+
+// ⚡ بليرهاش بلون وردي فاتح موحّد — placeholder خفيف حتى لا تظهر بطاقات بيضاء أثناء التحميل
+const STORE_THUMB_BLURHASH = '00S5@g';
+
+// ⚡ تحميل مسبق (غير معطِّل ومؤجَّل) لمصغّرات المتجر إلى كاش القرص بعد وصولها من لوحة
+//    التحكم — نفس نمط الهدايا في ConfigContext حتى لا يتوقف أول رسم للتبويب على تنزيلات
+//    الشبكة، ومؤجَّل حتى لا يزاحم صور التبويب المرئي نفسه على I/O/الشبكة.
+const prefetchedStoreThumbUrls = new Set<string>();
+function prefetchStoreThumbs(
+  items: Pick<StoreItem, 'imageUrl' | 'animationUrl'>[],
+): void {
+  const urls: string[] = [];
+  for (const item of items) {
+    const url = storeItemThumbUrl(item);
+    if (!url || !url.startsWith('http') || prefetchedStoreThumbUrls.has(url)) continue;
+    prefetchedStoreThumbUrls.add(url);
+    urls.push(url);
+  }
+  if (!urls.length) return;
+  Image.prefetch(urls, { cachePolicy: 'memory-disk' })
+    .then((ok) => {
+      // فشل أحد التنزيلات (شبكة ضعيفة/مقطوعة) — أزل الدفعة من طقم الإزالة حتى
+      // تُعاد المحاولة عند وصول snapshot تالٍ في نفس الجلسة
+      if (!ok) for (const u of urls) prefetchedStoreThumbUrls.delete(u);
+    })
+    .catch(() => {
+      for (const u of urls) prefetchedStoreThumbUrls.delete(u);
+    });
+}
+
+// ⚡ تحديث الحالة المحلية فقط بعد نجاح ترانزاكشن الشراء — بلا أي كتابة Firestore إضافية.
+//    الترانزاكشن خصمت الرصيد على الخادم ذرّياً (increment داخل runTransaction)، وكتابة
+//    رصيدٍ مطلقٍ محسوبٍ من الحالة المحلية (عبر updateUserData) كانت تسابق onSnapshot
+//    فتمسح خصم شراءٍ متزامنٍ آخر على الشبكات البطيئة (نزاهة رصيد العملات).
+//    مستمع onSnapshot على users/{uid} في authStore يزامن الرصيد الحقيقي تلقائياً.
+//    (نفس نمط patchLocalSocialStats في services/firebase/follow.ts)
+function patchLocalUserAfterPurchase(
+  buildStats: (stats: User['stats']) => Partial<User['stats']>,
+  extra?: Partial<Pick<User, 'equippedFrameId'>>,
+): void {
+  const current = useAuthStore.getState().user;
+  if (!current) return;
+  useAuthStore.setState({
+    user: {
+      ...current,
+      ...extra,
+      stats: { ...current.stats, ...buildStats(current.stats) },
+    },
+  });
+}
 
 const TAB_ICONS: Record<string, React.ComponentType<any>> = {
   entrance: Sparkles,
@@ -215,6 +266,17 @@ export default function StoreScreen() {
       unsubItems();
     };
   }, [refreshOwned]);
+
+  // ⚡ أجّل التحميل المسبق لمصغّرات كل التبويبات بعد استقرار أول رسم حتى لا يزاحم
+  //    تنزيل صور التبويب المرئي على I/O/الشبكة (نفس نمط الهدايا في ConfigContext)
+  useEffect(() => {
+    if (!roomFrames.length && !storeItems.length) return;
+    const t = setTimeout(() => {
+      prefetchStoreThumbs(roomFrames);
+      prefetchStoreThumbs(storeItems);
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [roomFrames, storeItems]);
 
   const lang = i18n.language?.startsWith('ar') ? 'ar' : 'en';
 
@@ -321,17 +383,12 @@ export default function StoreScreen() {
           toName,
           sendItem.name,
         );
-        await updateUserData({
-          stats: { ...user.stats, coins: balance },
-        });
+        // ⚡ الخصم تم على الخادم (Cloud Function) والرصيد المُعاد مشتق منه — تحديث محلي
+        //    فقط بلا كتابة Firestore مطلقة تسابق onSnapshot أو تمسح خصماً متزامناً
+        patchLocalUserAfterPurchase(() => ({ coins: balance }));
       } else {
         const result = await purchaseAndSendStoreItem(sendItem, toUid, toName);
-        await updateUserData({
-          stats: {
-            ...user.stats,
-            [result.currency]: result.balance,
-          },
-        });
+        patchLocalUserAfterPurchase(() => ({ [result.currency]: result.balance }));
       }
       setSendItem(null);
       Alert.alert(t('common.success'), t('store.sendSuccess', { name: sendItem.name, user: toName }));
@@ -436,10 +493,10 @@ export default function StoreScreen() {
         setOwnedFrameIds((prev) =>
           prev.includes(selectedItem.id) ? prev : [...prev, selectedItem.id],
         );
-        await updateUserData({
-          stats: { ...user.stats, coins: coinsAfter },
-          equippedFrameId,
-        });
+        // ⚡ نجاح الشراء يظهر فوراً بعد الترانزاكشن — الخصم والتلبيس ثُبّتا على الخادم
+        //    داخل purchaseFrame، فنكتفي بتحديث الحالة المحلية (coinsAfter مشتق من
+        //    الترانزاكشن) بلا كتابة Firestore مطلقة تسابق onSnapshot
+        patchLocalUserAfterPurchase(() => ({ coins: coinsAfter }), { equippedFrameId });
         Alert.alert(t('store.purchaseSuccess'), t('store.framePurchaseHint', { name: selectedItem.name }), [
           { text: t('common.ok'), onPress: () => setSelectedItem(null) },
         ]);
@@ -447,14 +504,15 @@ export default function StoreScreen() {
         await purchaseStoreItem(selectedItem);
         // انعكاس فوري: الزر يتحول «تم الشراء» بدون انتظار إعادة جلب المخزون
         setOwnedItemIds((prev) => new Set(prev).add(selectedItem.id));
-        await updateUserData({
-          stats: {
-            ...user.stats,
-            [selectedItem.currency]:
-              ((user.stats as unknown as Record<string, number>)[selectedItem.currency] ?? 0) -
-              selectedItem.price,
-          },
-        });
+        // ⚡ خصم محلي فقط لإظهار الرصيد الجديد فوراً — purchaseStoreItem خصم على الخادم
+        //    ذرّياً داخل الترانزاكشن، وأي كتابة Firestore مطلقة هنا كانت تسابق onSnapshot
+        //    فتفسد رصيد شراءٍ متزامنٍ آخر
+        patchLocalUserAfterPurchase((stats) => ({
+          [selectedItem.currency]: Math.max(
+            0,
+            (stats[selectedItem.currency] ?? 0) - selectedItem.price,
+          ),
+        }));
         Alert.alert(
           t('store.purchaseSuccess'),
           t('store.addedToInventory') +
@@ -709,7 +767,7 @@ export default function StoreScreen() {
                     onPress={() => void handleSendToUser(recipient.uid, recipient.name)}
                   >
                     {recipient.avatar ? (
-                      <Image source={{ uri: recipient.avatar }} style={styles.sendAvatar} contentFit="cover" />
+                      <Image source={{ uri: recipient.avatar }} style={styles.sendAvatar} contentFit="cover" cachePolicy="memory-disk" />
                     ) : (
                       <View style={[styles.sendAvatar, styles.sendAvatarPlaceholder]}>
                         <Text weight="bold" style={styles.sendAvatarLetter}>
@@ -763,7 +821,8 @@ const StoreCard = memo(function StoreCard({
 }) {
   const { t } = useTranslation();
   const IconComp = (LucideIcons as any)[item.iconName] ?? Star;
-  const mediaUrl = storeItemMediaUrl(item);
+  // ⚡ مصغّرة البطاقة = الصورة الثابتة الخفيفة (وليس الأنيميشن الثقيل) — الأنيميشن للمعاينة/الشراء فقط
+  const mediaUrl = storeItemThumbUrl(item);
   const isRoomFrame = item.isRoomFrame === true;
   const showFrameActions = owned && isRoomFrame;
 
@@ -773,7 +832,15 @@ const StoreCard = memo(function StoreCard({
         <View style={[styles.cardHero, { backgroundColor: '#FCFAFA' }]}>
           {mediaUrl ? (
             <View style={styles.cardImageWrap}>
-              <Image source={{ uri: mediaUrl }} style={styles.cardFrameImg} contentFit="contain" />
+              <Image
+                source={{ uri: mediaUrl }}
+                style={styles.cardFrameImg}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                placeholder={{ blurhash: STORE_THUMB_BLURHASH }}
+                transition={150}
+                recyclingKey={mediaUrl}
+              />
             </View>
           ) : (
             <View style={styles.cardHeroCircle}>
@@ -960,7 +1027,13 @@ function PurchaseSheet({
         {item.type === 'frame' && mediaUrl ? (
           <FrameWithAvatar frameUrl={mediaUrl} user={user} size={160} />
         ) : mediaUrl ? (
-          <Image source={{ uri: mediaUrl }} style={styles.sheetFrameImg} contentFit="contain" />
+          <Image
+            source={{ uri: mediaUrl }}
+            style={styles.sheetFrameImg}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            transition={150}
+          />
         ) : (
           <View style={styles.sheetHeroCircle}>
             <IconComp size={48} color="#fff" fill="#fff" strokeWidth={0} />
@@ -1764,6 +1837,8 @@ function FrameWithAvatar({
       source={{ uri: frameUrl }}
       style={{ width: frameSize, height: frameSize }}
       contentFit="contain"
+      cachePolicy="memory-disk"
+      transition={150}
     />
   );
 
@@ -1781,7 +1856,7 @@ function FrameWithAvatar({
         }}
       >
         {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+          <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" cachePolicy="memory-disk" />
         ) : (
           <Text weight="bold" style={{ fontSize: avatarSize * 0.38, color: '#fff' }}>
             {displayName.charAt(0).toUpperCase()}
@@ -1941,7 +2016,7 @@ function EntrancePreview({
     <View style={styles.entrancePreviewContainer}>
       {mediaUrl && (
         <Animated.View style={[styles.entranceGraphicWrap, animatedGraphicStyle]}>
-          <Image source={{ uri: mediaUrl }} style={styles.entranceGraphicImg} contentFit="contain" />
+          <Image source={{ uri: mediaUrl }} style={styles.entranceGraphicImg} contentFit="contain" cachePolicy="memory-disk" />
         </Animated.View>
       )}
 
@@ -1953,7 +2028,7 @@ function EntrancePreview({
           style={styles.nameplateGradient}
         >
           {avatar ? (
-          <Image source={{ uri: avatar }} style={styles.nameplateAvatar} contentFit="cover" />
+          <Image source={{ uri: avatar }} style={styles.nameplateAvatar} contentFit="cover" cachePolicy="memory-disk" />
         ) : (
           <View style={[styles.nameplateAvatar, { backgroundColor: 'rgba(255,255,255,0.35)', alignItems: 'center', justifyContent: 'center' }]}>
             <Text weight="bold" style={{ color: '#fff', fontSize: 10 }}>{name.charAt(0)}</Text>
@@ -2019,7 +2094,7 @@ function BubblePreview({
       <Animated.View style={[styles.bubbleMockRowRight, msg2Style]}>
         {bubbleUrl ? (
           <View style={styles.bubbleWrapper}>
-            <Image source={{ uri: bubbleUrl }} style={styles.bubbleBgImg} contentFit="fill" />
+            <Image source={{ uri: bubbleUrl }} style={styles.bubbleBgImg} contentFit="fill" cachePolicy="memory-disk" />
             <View style={styles.bubbleTextContainer}>
               <Text weight="bold" style={styles.bubbleMockTextRight}>
                 تبدو مذهلة جداً وذات جودة عالية!
@@ -2034,7 +2109,7 @@ function BubblePreview({
           </View>
         )}
         {avatar ? (
-          <Image source={{ uri: avatar }} style={styles.bubbleMockAvatarRight} contentFit="cover" />
+          <Image source={{ uri: avatar }} style={styles.bubbleMockAvatarRight} contentFit="cover" cachePolicy="memory-disk" />
         ) : (
           <View style={[styles.bubbleMockAvatarRight, styles.bubbleMockAvatar]} />
         )}
@@ -2049,7 +2124,7 @@ function DefaultPreview({ item }: { item: StoreDisplayItem }) {
   return (
     <View style={styles.defaultPreviewContainer}>
       {mediaUrl ? (
-        <Image source={{ uri: mediaUrl }} style={styles.defaultPreviewImg} contentFit="contain" />
+        <Image source={{ uri: mediaUrl }} style={styles.defaultPreviewImg} contentFit="contain" cachePolicy="memory-disk" transition={150} />
       ) : (
         <View style={[styles.defaultPreviewCircle, { backgroundColor: item.bgColors[1] }]}>
           <IconComp size={64} color="#fff" />

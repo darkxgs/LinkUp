@@ -16,7 +16,7 @@ import {
   Platform,
   I18nManager,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -36,6 +36,7 @@ const DRAG_THRESHOLD = 6;
 export function FloatingRoomBubble() {
   const { t } = useTranslation();
   const router = useRouter();
+  const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
   const isMinimized = useRoomSessionStore((s) => s.isMinimized);
@@ -53,7 +54,12 @@ export function FloatingRoomBubble() {
   const positionedRef = useRef(false);
   const draggingRef = useRef(false);
 
-  const showBubble = isMinimized && audioPinned && !!roomId;
+  // شاشات إدارة الروم (تعديل/تخصيص) — المستخدم ما زال منطقياً «داخل» نفس الروم،
+  // فلا نُظهر الفقاعة فوقها (التصغير نفسه يبقى فعّالاً حفاظاً على إصلاح تسريب الصوت،
+  // والفقاعة تعود فور الانتقال لأي شاشة أخرى)
+  const isRoomManagementScreen = pathname === '/room/edit' || pathname === '/room/customize';
+
+  const showBubble = isMinimized && audioPinned && !!roomId && !isRoomManagementScreen;
 
   useEffect(() => {
     if (showBubble && winW > 0 && !positionedRef.current) {

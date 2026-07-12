@@ -45,8 +45,11 @@ const VISIBLE_MS = 4500;
 function toGiftPop(n: Notification): GiftPop | null {
   const data = n.data ?? {};
   const postId = typeof data.postId === 'string' ? data.postId : undefined;
-  // مخصّص لهدايا المنشورات فقط — هدايا الغرف لها أنيميشن داخل الغرفة
-  if (!postId) return null;
+  const roomId = typeof data.roomId === 'string' && data.roomId ? data.roomId : undefined;
+  // هدايا الغرف لها أنيميشن داخل الغرفة — تُستثنى وحدها. هدايا المنشورات
+  // وهدايا المكالمات 1:1/البروفايل (بلا postId وبلا roomId) تُعرض كبانر —
+  // كانت هدية المكالمة تُقيَّد وتُسجَّل دون أي عرض حي للمستلم (b21)
+  if (!postId && roomId) return null;
   return {
     id: n.id,
     fromUid: n.fromUid,
@@ -57,7 +60,14 @@ function toGiftPop(n: Notification): GiftPop | null {
     value: Number(data.giftValue ?? 0) || 0,
     quantity: Number(data.quantity ?? 1) || 1,
     postId,
-    route: typeof data.route === 'string' ? data.route : `/post/${postId}`,
+    route:
+      typeof data.route === 'string'
+        ? data.route
+        : postId
+          ? `/post/${postId}`
+          : n.fromUid
+            ? `/chat/${n.fromUid}`
+            : undefined,
   };
 }
 
@@ -247,7 +257,9 @@ export function GiftReceivedOverlay() {
               <Text style={styles.subtitle} numberOfLines={2}>
                 <Text style={styles.senderName}>{current.fromName}</Text>
                 {' '}
-                {t('feed.giftReceivedOnPost', { gift: giftText })}
+                {current.postId
+                  ? t('feed.giftReceivedOnPost', { gift: giftText })
+                  : t('feed.giftReceivedGeneric', { gift: giftText })}
               </Text>
               {current.value > 0 ? (
                 <Text style={styles.value} numberOfLines={1}>

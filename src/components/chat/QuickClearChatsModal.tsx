@@ -38,6 +38,16 @@ export function QuickClearChatsModal({ visible, onClose, onDone }: Props) {
       const cleared = await quickClearOldChatMessages(selected);
       onDone?.(cleared);
       onClose();
+      if (cleared === 0) {
+        // نتيجة 0 شائعة (الأحدث من المهلة والهامة مستثناة) — وضّح السبب بدل
+        // رسالة نجاح بـ0 توحي أن الزر «لا يحذف شيئاً» (b20)
+        showAlert({
+          type: 'info',
+          title: t('chat.quickClearDone'),
+          message: t('chat.quickClearZeroMsg'),
+        });
+        return;
+      }
       showAlert({
         type: 'success',
         title: t('chat.quickClearDone'),

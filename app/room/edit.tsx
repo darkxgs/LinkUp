@@ -1,7 +1,7 @@
 /**
  * تعديل معلومات الروم — غلاف، اسم، إعلان، تخصيص، وضع الروم، عدد المقاعد.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -26,7 +26,7 @@ import { colors, radius, spacing } from '@/theme';
 import { useImageUpload } from '@/hooks/useImageUpload';
 import { useTranslation } from 'react-i18next';
 import {
-  subscribeToRoom,
+  fetchRoomOnce,
   updateRoomSettings,
   getRoomBlockedUsers,
   unblockUserFromRoom,
@@ -80,14 +80,22 @@ export default function EditRoomScreen() {
   const [showBlocked, setShowBlocked] = useState(false);
   const [blockedUsers, setBlockedUsers] = useState<RoomBlockedUser[]>([]);
   const [loadingBlocked, setLoadingBlocked] = useState(false);
+  // للتمرير/التركيز التلقائي على حقل كلمة المرور عند فشل تحقق «مقفل بلا كلمة»
+  const scrollRef = useRef<ScrollView>(null);
+  const passwordInputRef = useRef<TextInput>(null);
+  const passwordFieldY = useRef(0);
 
   useEffect(() => {
     if (!roomId) return;
-    const unsub = subscribeToRoom(roomId, (r) => {
-      if (!r) return;
+    // fetchRoomOnce وليس subscribeToRoom: الاشتراك الحي كان يعيد تصفير كل حقول
+    // النموذج (ومنها كلمة المرور المكتوبة ووضع «مقفل») مع أي تغير حي في الغرفة
+    // (دخول مستمع/هدية/حركة مايك) — النمط المعتمد للنماذج كما في RoomSettingsSheet
+    let alive = true;
+    void fetchRoomOnce(roomId).then((r) => {
+      if (!alive || !r) return;
       setBanner(r.banner ?? '');
       setName(r.name ?? '');
-      setVanityId(r.vanityId ?? '');
+      setVanityId((r as any).vanityId ?? '');
       setHostUid(r.hostUid ?? '');
       setSeats((r.seatsCount as 9 | 11 | 16 | 19 | 21) ?? 9);
       setCategory(((r.category as RoomCategory) ?? 'general'));
@@ -102,7 +110,9 @@ export default function EditRoomScreen() {
         setAnnAuto(Boolean(ann.autoShow));
       }
     });
-    return unsub;
+    return () => {
+      alive = false;
+    };
   }, [roomId]);
 
   const handleCover = async () => {
@@ -118,6 +128,12 @@ export default function EditRoomScreen() {
     }
     // غرفة مقفلة بلا كلمة مرور = غرفة مفتوحة فعلياً (البوابة تتجاوزها) — نمنع الحفظ
     if (mode === 'locked' && !password.trim()) {
+      // مرّر وركّز على الحقل — كان تحت طية الشاشة فيبقى غير مكتشف
+      scrollRef.current?.scrollTo({
+        y: Math.max(0, passwordFieldY.current - 80),
+        animated: true,
+      });
+      setTimeout(() => passwordInputRef.current?.focus(), 350);
       Alert.alert('تنبيه', 'يجب تعيين كلمة مرور للغرفة المقفلة');
       return;
     }
@@ -210,7 +226,7 @@ export default function EditRoomScreen() {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.md, paddingBottom: insets.bottom + 40 }} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={{ padding: spacing.md, paddingBottom: insets.bottom + 40 }} showsVerticalScrollIndicator={false}>
         {/* غلاف الروم */}
         <Pressable onPress={handleCover} disabled={uploading} style={styles.coverRow}>
           <View style={styles.coverThumb}>
@@ -326,9 +342,15 @@ export default function EditRoomScreen() {
 
         {/* كلمة مرور الغرفة المقفلة */}
         {mode === 'locked' && (
-          <View style={[styles.inputWrap, { marginTop: spacing.sm }]}>
+          <View
+            style={[styles.inputWrap, { marginTop: spacing.sm }]}
+            onLayout={(e) => {
+              passwordFieldY.current = e.nativeEvent.layout.y;
+            }}
+          >
             <Lock size={16} color="rgba(255,255,255,0.6)" />
             <TextInput
+              ref={passwordInputRef}
               value={password}
               onChangeText={(t) => t.length <= 20 && setPassword(t)}
               placeholder="كلمة مرور الدخول (مطلوبة للوضع المقفل)"

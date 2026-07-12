@@ -178,7 +178,11 @@ export const subscribeToFavoriteRoomsLive = (
               ? (roomSnap.val() as Record<string, unknown>)
               : null;
             const isLive = !!(roomData && roomData.isActive === true);
-            const hostAvatar = f.hostAvatar || String(roomData?.hostAvatar ?? '');
+            // البيانات الحية أولاً — وثيقة المفضلة لقطة وقت الإضافة لا تُحدَّث
+            // فكانت تعرض اسم روم/مضيف قديمين رغم جلب بيانات الغرفة أصلاً (b10)
+            const hostAvatar = String(roomData?.hostAvatar ?? '') || f.hostAvatar || '';
+            const hostName = String(roomData?.hostName ?? '') || f.hostName || '';
+            const roomName = String(roomData?.name ?? '') || f.roomName;
             const roomBanner = f.roomBanner || String(roomData?.banner ?? '');
             const isAgencyRoom =
               f.isAgencyRoom === true ||
@@ -190,6 +194,8 @@ export const subscribeToFavoriteRoomsLive = (
               isAgencyRoom && agencyId ? !(await agencyStillExists(agencyId)) : false;
             return {
               ...f,
+              roomName,
+              hostName: hostName || undefined,
               hostAvatar: hostAvatar || undefined,
               roomBanner: roomBanner || undefined,
               isAgencyRoom,
@@ -289,9 +295,10 @@ export const subscribeToRecentRoomsLive = (
               ? (roomSnap.val() as Record<string, unknown>)
               : null;
             const isLive = !!(roomData && roomData.isActive === true);
+            // البيانات الحية أولاً — وثيقة الزيارة لقطة قديمة (b10)
             const hostAvatar =
-              r.hostAvatar ||
-              String(roomData?.hostAvatar ?? '');
+              String(roomData?.hostAvatar ?? '') || r.hostAvatar || '';
+            const roomName = String(roomData?.name ?? '') || r.roomName;
             const roomBanner = r.roomBanner || String(roomData?.banner ?? '');
             const isAgencyRoom =
               r.isAgencyRoom === true ||
@@ -310,6 +317,7 @@ export const subscribeToRecentRoomsLive = (
               !!roomData && String(roomData.hostUid ?? '') === user.uid && !isAgencyRoom;
             return {
               ...r,
+              roomName,
               hostAvatar: hostAvatar || undefined,
               roomBanner: roomBanner || undefined,
               isAgencyRoom,

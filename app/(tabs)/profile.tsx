@@ -410,7 +410,10 @@ export default function ProfileScreen() {
                 </View>
               </View>
               <Pressable style={[styles.btnOutline, { flexDirection: ROW }]} onPress={() => go('/wallet/exchange')}>
-                <Text style={styles.btnOutlineText}>{t('wallet.exchangeWithdraw')}</Text>
+                {/* النص الإنجليزي أطول من العربي — تصغير تلقائي حتى لا يتجاوز حدود الزر */}
+                <Text style={[styles.btnOutlineText, { flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                  {t('wallet.exchangeWithdraw')}
+                </Text>
                 <ArrowRight size={13} color="#E11414" />
               </Pressable>
             </View>
@@ -430,7 +433,7 @@ export default function ProfileScreen() {
               </View>
               <Pressable onPress={() => go('/wallet/recharge')} style={styles.btnGoldWrap}>
                 <LinearGradient colors={['#FBBF24', '#F59E0B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.btnGold, { flexDirection: ROW }]}>
-                  <Text style={styles.btnGoldText}>+ {L('شحن', 'Recharge')}</Text>
+                  <Text style={[styles.btnGoldText, { flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>+ {L('شحن', 'Recharge')}</Text>
                   <ArrowRight size={13} color="#fff" />
                 </LinearGradient>
               </Pressable>
@@ -581,10 +584,10 @@ const styles = StyleSheet.create({
   coinImg: { width: 44, height: 44 },
   walletVal: { fontSize: 18, fontWeight: '800', color: '#15151A', fontFamily: DISPLAY, maxWidth: '100%' },
   walletLabel: { fontSize: 11, color: '#9A9AA5', fontFamily: BODY },
-  btnOutline: { width: '90%', height: 38, borderRadius: 12, borderWidth: 1, borderColor: '#F0BABA', backgroundColor: 'rgba(225,20,20,0.08)', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  btnOutline: { width: '90%', height: 38, borderRadius: 12, borderWidth: 1, borderColor: '#F0BABA', backgroundColor: 'rgba(225,20,20,0.08)', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
   btnOutlineText: { color: '#E11414', fontSize: 12.5, fontWeight: '800', fontFamily: HEAVY },
   btnGoldWrap: { width: '90%', height: 38, borderRadius: 12, overflow: 'hidden', shadowColor: '#F59E0B', shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
-  btnGold: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  btnGold: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
   btnGoldText: { color: '#fff', fontSize: 12.5, fontWeight: '800', fontFamily: HEAVY },
 
   toolsCard: { flexDirection: 'row', flexWrap: 'wrap', paddingVertical: 16, paddingHorizontal: 8 },

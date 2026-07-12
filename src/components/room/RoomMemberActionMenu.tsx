@@ -51,7 +51,8 @@ export function RoomMemberActionMenu({
           {showCancel && onCancel ? (
             <Pressable style={styles.option} onPress={() => { onClose(); onCancel(); }}>
               <Text variant="body" color="#EF4444" align="center">
-                {t('roomInfo.cancelMembership')}
+                {/* إزالة من الوكالة (removeAgencyMember) — تمييزاً عن «إلغاء عضوية الغرفة» (دور الغرفة) */}
+                {t('room.removeFromAgency', 'إزالة من الوكالة')}
               </Text>
             </Pressable>
           ) : null}

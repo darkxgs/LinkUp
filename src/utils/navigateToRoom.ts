@@ -42,14 +42,15 @@ export async function navigateToRoom(
   }
 
   const myUid = auth.currentUser?.uid;
-  if (!roomRequiresPassword(room, myUid) || isRoomPasswordVerified(trimmed)) {
+  // مقارنة برمز الغرفة الحالي — تغيير الرمز يبطل التحقق القديم (b18)
+  if (!roomRequiresPassword(room, myUid) || isRoomPasswordVerified(trimmed, room.password ?? '')) {
     goToRoom(router, trimmed, options);
     return;
   }
 
   const allowed = await useRoomEntryGateStore.getState().prompt(room);
   if (!allowed) return;
-  markRoomPasswordVerified(trimmed);
+  markRoomPasswordVerified(trimmed, room.password ?? '');
   goToRoom(router, trimmed, options);
 }
 

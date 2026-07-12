@@ -43,7 +43,7 @@ export const useRoomEntryGateStore = create<RoomEntryGateState>((set, get) => ({
       set({ passwordError: 'room.lockedRoomWrongPassword' });
       return;
     }
-    markRoomPasswordVerified(room.id);
+    markRoomPasswordVerified(room.id, room.password ?? '');
     resolver(true);
     set({ visible: false, room: null, passwordError: '', resolver: null });
   },
