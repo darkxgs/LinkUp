@@ -2,14 +2,13 @@
  * LinkUp Cloud Functions
  *
  * يحتوي:
- *  - generateLiveKitToken    → توكن LiveKit للمكالمات والغرف الصوتية والمطابقات
- *  - createMatch             → مطابقة مستخدمين (voice/video) وإنشاء غرفة LiveKit
+ *  - generateAgoraToken      → توكن Agora للمكالمات والغرف الصوتية والمطابقات
+ *  - createMatch             → مطابقة مستخدمين (voice/video) وإنشاء قناة صوت
  *  - endCall                 → إنهاء مكالمة وتسجيلها
  *  - processPendingAccountDeletions → حذف حسابات بعد فترة السماح (15 يوم)
  *
- * المفاتيح السرية تُحفظ عبر:
- *   firebase functions:config:set livekit.api_key="..." livekit.api_secret="..." livekit.ws_url="wss://..."
- * أو عبر متغيرات البيئة (.env) في الجيل الثاني من Functions.
+ * المفاتيح السرية عبر متغيرات البيئة (.env) في الجيل الثاني من Functions —
+ * بلا أي fallback مدمج بالسورس.
  */
 
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
@@ -18,7 +17,6 @@ import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from 'firebas
 import { setGlobalOptions } from 'firebase-functions/v2';
 import * as admin from 'firebase-admin';
 import type { DocumentReference } from 'firebase-admin/firestore';
-import { AccessToken, WebhookReceiver, RoomServiceClient } from 'livekit-server-sdk';
 import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import { getDefaultProfileMedia } from './defaultAvatars';
 import { applyFirstRechargeBonus } from './firstRechargeBonus';
@@ -117,22 +115,11 @@ async function queryUidByPublicAccountIdField(publicId: string): Promise<string 
 }
 
 // ==================== المفاتيح ====================
-// المفاتيح مدمجة مباشرة (تعمل على سيرفر Google فقط — ليست في التطبيق)
-// ⚠️ لا ترفع هذا الملف على مستودع GitHub عام
-const LIVEKIT_WS_PLACEHOLDER = 'wss://your-project.livekit.cloud';
+// (أُزيلت مفاتيح LiveKit المدمجة — LiveKit حُذف نهائياً 2026-07-12.
+//  ⚠️ المفاتيح القديمة كانت مسرّبة في تاريخ Git — يجب إبطالها من لوحة LiveKit Cloud
+//  وإلغاء الاشتراك، بيد صاحب الحساب. مفاتيح Agora في .env فقط بلا fallback.)
 
-function readLiveKitEnv(name: 'LIVEKIT_API_KEY' | 'LIVEKIT_API_SECRET' | 'LIVEKIT_WS_URL', fallback: string): string {
-  const raw = (process.env[name] ?? '').trim();
-  if (!raw) return fallback;
-  if (name === 'LIVEKIT_WS_URL' && raw === LIVEKIT_WS_PLACEHOLDER) return fallback;
-  return raw;
-}
-
-const LIVEKIT_API_KEY = readLiveKitEnv('LIVEKIT_API_KEY', 'APITDAg6EYAzKY4');
-const LIVEKIT_API_SECRET = readLiveKitEnv('LIVEKIT_API_SECRET', 'odl2kIdHY9cNnSEeRlx7hWCDTm25uazWe9wV0web2QJA');
-const LIVEKIT_WS_URL = readLiveKitEnv('LIVEKIT_WS_URL', 'wss://linup-shk03qgl.livekit.cloud');
-
-const TOKEN_EXPIRY_SECONDS = 3600; // ساعة
+const TOKEN_EXPIRY_SECONDS = 3600; // ساعة — توكنات المكالمات/التحدي (Agora)
 
 // ==================== تسعير المكالمات 1-to-1 ====================
 const DEFAULT_CALL_PRICING = {
@@ -479,62 +466,10 @@ async function resolveCallPrivilege(uid: string, peerUid?: string): Promise<bool
   return false;
 }
 
-// ==================== 1) LIVEKIT TOKEN ====================
-/**
- * يولّد توكن LiveKit للانضمام لغرفة أو مكالمة
- * يتطلب: roomName
- * اختياري: canPublish (هل يمكنه التحدث؟ المستمع false)
- * يُرجع: { token, wsUrl, identity, roomName }
- */
-// ⚡ يُستدعى عند كل دخول روم وكل مكالمة → الأحقّ بسقف أعلى متى سُمح بزيادة الحصّة.
-export const generateLiveKitToken = onCall(HOT_CALL_OPTS, async (request) => {
-  const uid = request.auth?.uid;
-  if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+// (أُزيلت generateLiveKitToken هنا — LiveKit حُذف نهائياً بأمر المالك 2026-07-12؛
+//  الدالة المنشورة حُذفت من الإنتاج والنسخ القديمة تحتاج التحديث لاستعادة الصوت)
 
-  const { roomName, canPublish = true, peerUid } = request.data as {
-    roomName?: string;
-    canPublish?: boolean;
-    peerUid?: string;
-  };
-  if (!roomName) throw new HttpsError('invalid-argument', 'roomName مطلوب');
-
-  if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET || !LIVEKIT_WS_URL) {
-    throw new HttpsError('failed-precondition', 'مفاتيح LiveKit غير مُعدّة على السيرفر');
-  }
-
-  const [freeCall, userSnap] = await Promise.all([
-    resolveCallPrivilege(uid, peerUid),
-    db.collection('users').doc(uid).get().catch(() => null),
-  ]);
-
-  const displayName = userSnap?.data()?.displayName ?? 'مستخدم';
-
-  const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-    identity: uid,
-    name: displayName,
-    ttl: TOKEN_EXPIRY_SECONDS,
-  });
-
-  at.addGrant({
-    roomJoin: true,
-    room: roomName,
-    canPublish,
-    canSubscribe: true,
-    canPublishData: true,
-  });
-
-  const token = await at.toJwt();
-
-  return {
-    token,
-    wsUrl: LIVEKIT_WS_URL,
-    identity: uid,
-    roomName,
-    freeCall,
-  };
-});
-
-// ==================== 1c) AGORA TOKEN (الهجرة التدريجية LiveKit→Agora) ====================
+// ==================== 1c) AGORA TOKEN ====================
 // المكافئ الموازي لـ generateLiveKitToken — إضافة صرفة لا تمس مسار LiveKit القائم.
 // الهوية نصية حصرياً (Firebase uid عبر buildTokenWithUserAccount) لتبقى مطابقة identity===uid في العميل.
 // المفاتيح سر سيرفري في functions/.env فقط — بلا fallback مدمج بالسورس عمداً.
@@ -583,17 +518,10 @@ export const generateAgoraToken = onCall(HOT_CALL_OPTS, async (request) => {
   return { token, appId, identity: uid, roomName, freeCall };
 });
 
-// ==================== 1b) كتم فعلي من الخادم (LiveKit Server API) ====================
-// علامة isMuted على المقعد وحدها لا توقف البث — هذا يكتم مسارات الصوت المنشورة
-// على مستوى خادم LiveKit نفسه، فلا يُسمع المكتوم حتى لو تجاهل جهازه العلامة.
-const LIVEKIT_HTTP_URL = LIVEKIT_WS_URL.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
-let roomServiceClient: RoomServiceClient | null = null;
-function getRoomServiceClient(): RoomServiceClient {
-  if (!roomServiceClient) {
-    roomServiceClient = new RoomServiceClient(LIVEKIT_HTTP_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
-  }
-  return roomServiceClient;
-}
+// ==================== 1b) كتم إداري للمقاعد ====================
+// بعد إزالة LiveKit: الإنفاذ عبر علامة المقعد في RTDB + مراقب seatMuteWatch في
+// العميل (يفرض الكتم فور تغير العلامة حتى أثناء التصغير). الإنفاذ السيرفري
+// الكامل على مستوى Agora (kicking-rule REST) قرار مستقبلي إن طلبه المالك.
 
 /**
  * كتم/فك كتم مشارك في غرفة صوتية — تحقق صلاحيات + رُتب على الخادم:
@@ -670,22 +598,9 @@ export const setRoomParticipantMuted = onCall(async (request) => {
     });
   }
 
-  // الكتم الفعلي على LiveKit — الغرف الصوتية تنشر مسارات مايك فقط
-  let livekitMuted = false;
-  try {
-    const svc = getRoomServiceClient();
-    const participant = await svc.getParticipant(`room_${roomId}`, targetUid);
-    for (const track of participant.tracks ?? []) {
-      if (!track.sid) continue;
-      await svc.mutePublishedTrack(`room_${roomId}`, targetUid, track.sid, muted);
-      livekitMuted = true;
-    }
-  } catch (e) {
-    // المشارك غير متصل بـ LiveKit حالياً — علامة المقعد كافية وسيُطبَّق الكتم عند اتصاله
-    console.log('setRoomParticipantMuted: livekit skip', roomId, targetUid, (e as Error)?.message);
-  }
-
-  return { ok: true, seatUpdated: Boolean(seatKey), livekitMuted };
+  // الإنفاذ: علامة المقعد أعلاه + seatMuteWatch في العميل يطبّقها فوراً على المحرك
+  // (livekitMuted أُبقي في الرد بقيمة ثابتة لتوافق النسخ القديمة التي تقرؤه)
+  return { ok: true, seatUpdated: Boolean(seatKey), livekitMuted: false };
 });
 
 // ==================== GOOGLE SIGN-IN ====================
@@ -1526,52 +1441,8 @@ export const purchaseAndSendStoreItem = onCall(async (request) => {
   };
 });
 
-// ==================== LIVEKIT WEBHOOK (تتبّع دقائق الغرف) ====================
-/**
- * يستقبل أحداث LiveKit Cloud لقياس دقائق استهلاك المزوّد فعلياً.
- * عند خروج مشارك (participant_left) نسجّل مدّة جلسته في providerSessions.
- * إعداد الرابط: LiveKit Cloud → Project Settings → Webhooks →
- *   https://us-central1-linkup-dc45f.cloudfunctions.net/livekitWebhook
- */
-const livekitReceiver = new WebhookReceiver(LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
-
-export const livekitWebhook = onRequest(async (req, res) => {
-  try {
-    const body =
-      typeof (req as any).rawBody !== 'undefined'
-        ? (req as any).rawBody.toString()
-        : JSON.stringify(req.body);
-    const event = await livekitReceiver.receive(body, req.headers.authorization);
-
-    if (event.event === 'participant_left' && event.participant) {
-      const p = event.participant;
-      const joinedAtSec = Number(p.joinedAt) || 0;
-      const leftAtSec = Number(event.createdAt) || Math.floor(Date.now() / 1000);
-      const durationSec = joinedAtSec > 0 ? Math.max(0, leftAtSec - joinedAtSec) : 0;
-
-      if (durationSec > 0) {
-        await db.collection('providerSessions').add({
-          provider: 'livekit',
-          kind: 'room',
-          room: event.room?.name ?? '',
-          roomSid: event.room?.sid ?? '',
-          identity: p.identity ?? '',
-          joinedAt: joinedAtSec * 1000,
-          leftAt: leftAtSec * 1000,
-          durationSec,
-          minutes: durationSec / 60,
-          createdAt: Date.now(),
-        });
-      }
-    }
-
-    res.status(200).send('ok');
-  } catch (e) {
-    console.error('livekitWebhook:', e);
-    // نرجّع 200 لتفادي إعادة الإرسال المتكرّر من LiveKit عند خطأ غير قابل للإصلاح
-    res.status(200).send('error-logged');
-  }
-});
+// (أُزيل livekitWebhook هنا — LiveKit حُذف نهائياً؛ providerSessions التاريخية باقية
+//  في Firestore، وقياس دقائق Agora من كونسول Agora مباشرة)
 
 // ==================== START CALL (جلسة مكالمة مفوترة) ====================
 /**

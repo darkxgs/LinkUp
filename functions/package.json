@@ -6,8 +6,8 @@
     "serve": "npm run build && firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "check:calls": "node ../scripts/check-calls-livekit.mjs",
-    "check:calls:json": "node ../scripts/check-calls-livekit.mjs --json",
+    
+    
     "check:all": "node ../../scripts/health-check-all.mjs"
   },
   "engines": {
@@ -19,7 +19,6 @@
     "agora-token": "^2.0.5",
     "firebase-admin": "^12.6.0",
     "firebase-functions": "^6.1.0",
-    "livekit-server-sdk": "^2.9.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
