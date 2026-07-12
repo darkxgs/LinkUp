@@ -1728,6 +1728,8 @@
     "suspendedBody": "Verification result does not match the gender on your account. Contact support if this is a mistake.",
     "rejectedTitle": "Verification failed",
     "rejectedBody": "Your verification request was not approved. You can try again or contact support.",
+    "retryTitle": "Retake photo",
+    "retryBody": "Your face was not clear — retake in better lighting with your full face inside the frame",
     "faceTitle": "Instant verification",
     "faceSubtitle": "Enter your name and take a selfie — if you're verified as female, your account is approved instantly",
     "faceVerifyNow": "Verify now",

@@ -6,7 +6,14 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { firestore } from '@/services/firebase';
 import { useAuth } from '@/hooks/useAuth';
 
-export type KycRequestStatus = 'processing' | 'pending' | 'approved' | 'rejected' | null;
+export type KycRequestStatus =
+  | 'processing'
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  /** استدعاء التحليل فشل قبل قرار السيرفر — ليست حالة نهائية؛ إعادة المحاولة متاحة فوراً */
+  | 'failed'
+  | null;
 export type VerificationStatus = 'approved' | 'rejected' | 'pending' | null;
 
 /** مرحلة العرض — مبنية على users + kycRequests كما في Firestore */
@@ -21,6 +28,15 @@ export function resolveKycUiPhase(state: Pick<
   KycVerificationState,
   'isVerified' | 'verificationStatus' | 'kycStatus'
 >): KycUiPhase {
+  // طلب فاشل (الاستدعاء لم يصل للسيرفر) — كأنه لا يوجد طلب: المحاولة متاحة فوراً
+  if (
+    state.kycStatus === 'failed'
+    && state.isVerified !== true
+    && state.verificationStatus !== 'approved'
+  ) {
+    return 'none';
+  }
+
   // إلغاء صريح من الإدارة — لا نعتمد على حقول KYC القديمة المتبقية
   if (state.isVerified === false) {
     if (state.verificationStatus === 'rejected' || state.kycStatus === 'rejected') {

@@ -8,6 +8,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system';
 import { ShieldCheck, RotateCcw } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -15,6 +17,48 @@ import { Text } from '@/components/ui';
 import { radius, spacing } from '@/theme';
 import { lu } from '@/theme/lu-brand';
 import { submitKycFaceVerification, type KycSubmitResult } from '@/services/firebase/kyc';
+
+/**
+ * تصغير الإطار قبل الإرسال — وجه للتصنيف لا يحتاج دقة الحساس الكاملة:
+ * من 3-10MB للإطار (8-16MP) إلى ~100-200KB → الرفع ثوانٍ بدل دقائق على 3G/4G،
+ * ويستحيل الاصطدام بسقف callable (10MB) أو رفض السيرفر للصور >8MB.
+ */
+const KYC_FRAME_MAX_WIDTH = 720;
+const KYC_FRAME_QUALITY = 0.7;
+/**
+ * سقف حجم الإطار الأصلي عند فشل التصغير — إطار كامل من الحساس (3-10MB) يعني
+ * base64 أكبر من سقف callable (10MB) أو رفعاً بدقائق على 3G ينتهي برفض السيرفر
+ * (>8MB/صورة) بعد الانتظار كله؛ الأفضل إسقاط الإطار الفاشل والاكتفاء بالباقي.
+ */
+const KYC_FALLBACK_MAX_BYTES = 1.5 * 1024 * 1024;
+
+const frameToBase64 = async (uri: string): Promise<string | null> => {
+  try {
+    const out = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: KYC_FRAME_MAX_WIDTH } }],
+      {
+        compress: KYC_FRAME_QUALITY,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      },
+    );
+    if (out.base64) return out.base64;
+  } catch {
+    // فشل المعالجة — لا نرسل الأصل إلا إذا كان صغيراً أصلاً (أقل من السقف أعلاه)
+  }
+  try {
+    const info = await FileSystem.getInfoAsync(uri, { size: true });
+    if (!info.exists || typeof info.size !== 'number' || info.size > KYC_FALLBACK_MAX_BYTES) {
+      return null; // إسقاط الإطار — الإطارات الأخرى تكفي، والسيرفر يعمل بإطار واحد
+    }
+    return await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+  } catch {
+    return null;
+  }
+};
 
 type Props = {
   fullName: string;
@@ -58,13 +102,20 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult, onBus
   }, [busy, onBusyChange]);
 
   const submitFrames = useCallback(
-    async (frames: string[], gestureId?: string) => {
+    async (frameUris: string[], gestureId?: string) => {
       const name = fullName.trim();
       if (name.length < 2) return;
 
       setStage('uploading');
       setError(null);
       try {
+        // تصغير + ضغط كل الإطارات بالتوازي قبل الإرسال — حمولة صغيرة = رفع بثوانٍ
+        const frames = (await Promise.all(frameUris.map(frameToBase64))).filter(
+          (f): f is string => typeof f === 'string' && f.length > 0,
+        );
+        if (!frames.length) {
+          throw new Error(t('kyc.faceCaptureFailed'));
+        }
         const result = await submitKycFaceVerification(
           frames[0]!,
           name,
@@ -85,15 +136,15 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult, onBus
     [displayName, fullName, onResult, t],
   );
 
+  // يلتقط ويعيد URI محلياً — التصغير/الضغط يجري لاحقاً بالتوازي في submitFrames
   const snapFrame = useCallback(async (): Promise<string | null> => {
     if (!cameraRef.current) return null;
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        quality: 0.6,
+        quality: 0.85,
         skipProcessing: true,
       });
-      return photo?.base64 ?? null;
+      return photo?.uri ?? null;
     } catch {
       return null;
     }
@@ -107,33 +158,33 @@ export function KycFaceVerify({ fullName, displayName, disabled, onResult, onBus
     setError(null);
     try {
       const gesture = gestures[Math.floor(Math.random() * gestures.length)]!;
-      const frames: string[] = [];
+      const frameUris: string[] = [];
 
       // 1) لقطة البداية — ثبات
       setStage('hold');
       setGestureText(t('kyc.gestureHold', 'ثبّتي وجهك داخل الإطار'));
       await wait(700);
       const f1 = await snapFrame();
-      if (f1) frames.push(f1);
+      if (f1) frameUris.push(f1);
 
       // 2) الإيماءة البسيطة — لقطة أثناءها
       setStage('gesture');
       setGestureText(gesture.label);
       await wait(1400);
       const f2 = await snapFrame();
-      if (f2) frames.push(f2);
+      if (f2) frameUris.push(f2);
 
       // 3) لقطة الختام
       setStage('final');
       setGestureText(t('kyc.gestureFinal', 'ممتاز! ثبات للحظة…'));
       await wait(800);
       const f3 = await snapFrame();
-      if (f3) frames.push(f3);
+      if (f3) frameUris.push(f3);
 
-      if (!frames.length) {
+      if (!frameUris.length) {
         throw new Error(t('kyc.faceCaptureFailed'));
       }
-      await submitFrames(frames, gesture.id);
+      await submitFrames(frameUris, gesture.id);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t('kyc.faceVerifyFailed');
       setError(msg);

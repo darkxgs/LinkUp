@@ -40,7 +40,7 @@ import { Text } from '@/components/ui';
 import { KycFaceVerify } from '@/components/kyc/KycFaceVerify';
 import { useAuth } from '@/hooks/useAuth';
 import { useKycVerification, resolveKycUiPhase, type KycUiPhase } from '@/hooks/useKycVerification';
-import { type KycSubmitResult } from '@/services/firebase/kyc';
+import { failStaleKycProcessing, type KycSubmitResult } from '@/services/firebase/kyc';
 import { BackChevron } from '@/components/ui/RtlChevron';
 import { shouldShowVerificationCenter } from '@/utils/genderAccess';
 import { useLightStatusBarOnFocus } from '@/hooks/useLightStatusBarOnFocus';
@@ -155,6 +155,15 @@ export default function KYCScreen() {
       ]);
       return;
     }
+    if (result.retry) {
+      // غير واضح/غير حاسم — رسالة إعادة تصوير فورية (ليست رفضاً نهائياً ولا مراجعة)
+      Alert.alert(
+        t('kyc.retryTitle'),
+        result.message ?? t('kyc.retryBody'),
+        [{ text: t('common.ok') }],
+      );
+      return;
+    }
     if (result.genderMismatch || (result.ok === false && !result.verified && !result.pending)) {
       Alert.alert(t('kyc.rejectedTitle'), result.message ?? t('kyc.rejectedBody'), [
         { text: t('common.ok') },
@@ -173,9 +182,19 @@ export default function KYCScreen() {
     ]);
   };
 
-  // «معالجة» بلا إرسال محلي = طلب قديم عالق (فشل الاستدعاء) — نعرضه كـ«قيد المراجعة» مع إتاحة المحاولة
-  const bannerPhase: KycUiPhase =
-    kycPhase === 'processing' && !submitting ? 'pending' : kycPhase;
+  // «معالجة» عالقة (فشل استدعاء قديم قبل وصول السيرفر) — تُحوَّل تلقائياً إلى failed
+  // فيختفي البانر وتُتاح إعادة المحاولة فوراً بدل «قيد المراجعة» وهمية لأجل غير مسمى
+  useEffect(() => {
+    if (kycState.loading || submitting || kycPhase !== 'processing') return;
+    void failStaleKycProcessing();
+    const id = setInterval(() => {
+      void failStaleKycProcessing();
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [kycState.loading, submitting, kycPhase]);
+
+  // البانر يعرض الحالة الحقيقية — «جارٍ المعالجة» صادقة لأن العالقة تُصحَّح أعلاه
+  const bannerPhase: KycUiPhase = kycPhase;
 
   return (
     <View style={styles.container}>
