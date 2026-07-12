@@ -19,6 +19,7 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import * as admin from 'firebase-admin';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { AccessToken, WebhookReceiver, RoomServiceClient } from 'livekit-server-sdk';
+import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import { getDefaultProfileMedia } from './defaultAvatars';
 import { applyFirstRechargeBonus } from './firstRechargeBonus';
 import { logCasinoRechargeActivityServer } from './casinoLiveActivityLog';
@@ -531,6 +532,55 @@ export const generateLiveKitToken = onCall(HOT_CALL_OPTS, async (request) => {
     roomName,
     freeCall,
   };
+});
+
+// ==================== 1c) AGORA TOKEN (الهجرة التدريجية LiveKit→Agora) ====================
+// المكافئ الموازي لـ generateLiveKitToken — إضافة صرفة لا تمس مسار LiveKit القائم.
+// الهوية نصية حصرياً (Firebase uid عبر buildTokenWithUserAccount) لتبقى مطابقة identity===uid في العميل.
+// المفاتيح سر سيرفري في functions/.env فقط — بلا fallback مدمج بالسورس عمداً.
+function readAgoraEnv(name: 'AGORA_APP_ID' | 'AGORA_APP_CERTIFICATE'): string {
+  const raw = (process.env[name] ?? '').trim();
+  if (!raw) {
+    throw new HttpsError('failed-precondition', 'مفاتيح Agora غير مُعدّة على السيرفر');
+  }
+  return raw;
+}
+
+// 6 ساعات لغرف الدردشة الطويلة، وساعة لما عداها (مكالمات/تحدي).
+// فرق سلوكي عن LiveKit: Agora يفصل الجلسة عند انتهاء الصلاحية —
+// العميل مسؤول عن التجديد عبر onTokenPrivilegeWillExpire → renewToken.
+const AGORA_ROOM_TOKEN_TTL_SECONDS = 21600;
+
+export const generateAgoraToken = onCall(HOT_CALL_OPTS, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+
+  const { roomName, canPublish = true, peerUid } = request.data as {
+    roomName?: string;
+    canPublish?: boolean;
+    peerUid?: string;
+  };
+  if (!roomName) throw new HttpsError('invalid-argument', 'roomName مطلوب');
+
+  const appId = readAgoraEnv('AGORA_APP_ID');
+  const appCertificate = readAgoraEnv('AGORA_APP_CERTIFICATE');
+
+  const freeCall = await resolveCallPrivilege(uid, peerUid);
+
+  const ttl = roomName.startsWith('room_') ? AGORA_ROOM_TOKEN_TTL_SECONDS : TOKEN_EXPIRY_SECONDS;
+  // SUBSCRIBER يمنع النشر فعلياً فقط مع تفعيل Co-Host Authentication من كونسول Agora
+  const role = canPublish ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER;
+  const token = RtcTokenBuilder.buildTokenWithUserAccount(
+    appId,
+    appCertificate,
+    roomName,
+    uid,
+    role,
+    ttl,
+    ttl,
+  );
+
+  return { token, appId, identity: uid, roomName, freeCall };
 });
 
 // ==================== 1b) كتم فعلي من الخادم (LiveKit Server API) ====================
