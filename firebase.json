@@ -38,6 +38,10 @@
       {
         "source": "/games/casino/**",
         "destination": "/games/casino/index.html"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
       }
     ]
   },
