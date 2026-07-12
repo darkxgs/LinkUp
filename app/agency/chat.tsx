@@ -14,7 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { onAuthStateChanged } from '@firebase/auth';
-import { Send, ImagePlus, Users as UsersIcon, UserPlus, Trash2, X, Crown, MessageCircle } from 'lucide-react-native';
+import { Send, ImagePlus, Users as UsersIcon, UserPlus, Trash2, X, Crown, MessageCircle, Camera } from 'lucide-react-native';
 
 import { Text, VoiceRecorder } from '@/components/ui';
 import { VoiceMessagePlayer } from '@/components/ui/VoiceMessagePlayer';
@@ -23,7 +23,8 @@ import { auth } from '@/services/firebase';
 import {
   openAgencyChat, subscribeToAgencyChat, subscribeToAgencyChatMessages,
   sendAgencyText, sendAgencyImage, sendAgencyVoice,
-  addAgencyChatMemberById, removeAgencyChatMember, updateAgencyChatName, deleteAgencyChatCompletely,
+  addAgencyChatMemberById, removeAgencyChatMember, updateAgencyChatName,
+  uploadAndSetAgencyChatAvatar, deleteAgencyChatCompletely,
   type AgencyChatMeta, type AgencyChatMessage,
 } from '@/services/firebase/agencyChat';
 import { lu } from '@/theme/lu-brand';
@@ -281,6 +282,7 @@ function ManageMembersModal({ visible, chat, myUid, onClose, onChatDeleted }: {
   const [busy, setBusy] = useState(false);
   const [clanName, setClanName] = useState(chat.name);
   const [renaming, setRenaming] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
 
   useEffect(() => {
     setClanName(chat.name);
@@ -297,6 +299,31 @@ function ManageMembersModal({ visible, chat, myUid, onClose, onChatDeleted }: {
       Alert.alert('خطأ', e?.message ?? 'تعذّر حفظ الاسم');
     } finally {
       setRenaming(false);
+    }
+  };
+
+  const handleChangeAvatar = async () => {
+    if (avatarBusy) return;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('تنبيه', 'يلزم إذن الوصول للصور لتغيير صورة العشيرة');
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.85,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (res.canceled || !res.assets?.[0]?.uri) return;
+    setAvatarBusy(true);
+    try {
+      await uploadAndSetAgencyChatAvatar(chat.agencyId, res.assets[0].uri);
+      Alert.alert('تم', 'تم تحديث صورة العشيرة للجميع');
+    } catch (e: any) {
+      Alert.alert('خطأ', e?.message ?? 'تعذّر تحديث صورة العشيرة');
+    } finally {
+      setAvatarBusy(false);
     }
   };
 
@@ -360,6 +387,23 @@ function ManageMembersModal({ visible, chat, myUid, onClose, onChatDeleted }: {
             <Text weight="bold" style={styles.sheetTitle}>أعضاء الدردشة ({chat.members.length})</Text>
             <Pressable onPress={onClose} hitSlop={10} style={styles.sheetClose}><X size={20} color={lu.colors.ink} /></Pressable>
           </View>
+
+          <Text style={styles.renameLabel}>صورة العشيرة</Text>
+          <Pressable onPress={() => void handleChangeAvatar()} disabled={avatarBusy} style={styles.clanAvatarRow}>
+            <View style={styles.clanAvatarWrap}>
+              {chat.avatar
+                ? <Image source={{ uri: chat.avatar }} style={styles.clanAvatarImg} contentFit="cover" />
+                : <View style={[styles.clanAvatarImg, styles.msgAvatarEmpty]}>
+                    <Text style={styles.msgAvatarLetter}>{(chat.name || 'ع').charAt(0)}</Text>
+                  </View>}
+              <View style={styles.clanAvatarBadge}>
+                {avatarBusy
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Camera size={14} color="#fff" strokeWidth={2.2} />}
+              </View>
+            </View>
+            <Text style={styles.clanAvatarHint}>اضغط لتغيير صورة المجموعة للجميع</Text>
+          </Pressable>
 
           <Text style={styles.renameLabel}>اسم العشيرة</Text>
           <View style={styles.renameRow}>
@@ -504,6 +548,20 @@ const styles = StyleSheet.create({
   sheetTitle: { fontSize: 16, color: lu.colors.ink },
   sheetClose: { width: 34, height: 34, borderRadius: 17, backgroundColor: lu.colors.card2, alignItems: 'center', justifyContent: 'center' },
   renameLabel: { fontSize: 12, color: lu.colors.muted, marginBottom: 6 },
+  clanAvatarRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14,
+  },
+  clanAvatarWrap: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: lu.colors.card2, borderWidth: 1, borderColor: lu.colors.line,
+  },
+  clanAvatarImg: { width: '100%', height: '100%', borderRadius: 32, overflow: 'hidden' },
+  clanAvatarBadge: {
+    position: 'absolute', right: -2, bottom: -2, width: 24, height: 24, borderRadius: 12,
+    backgroundColor: lu.colors.purple, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: lu.colors.bg,
+  },
+  clanAvatarHint: { flex: 1, fontSize: 13, color: lu.colors.muted, lineHeight: 18 },
   renameRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   renameInput: {
     flex: 1, height: 46, backgroundColor: lu.colors.card, borderRadius: lu.radius.sm,
