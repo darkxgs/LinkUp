@@ -1,11 +1,12 @@
 /**
- * قرار مزوّد الصوت (LiveKit / Agora) — علم سيرفري من Firestore config/settings
+ * قرار مزوّد الصوت (LiveKit / Agora) — Agora هو النظام الافتراضي لهذه النسخة
  *
  * القواعد بالترتيب:
- * 1) settings.rtcProvider === 'agora'  → Agora للجميع
- * 2) uid ضمن settings.agoraTestUids   → Agora لهذا الحساب فقط (تجربة موجهة)
- * 3) غير ذلك (أو أي فشل)              → LiveKit (المسار الحي الافتراضي)
+ * 1) settings.rtcProvider === 'livekit' → رجوع طارئ للنظام القديم (فرملة من الداشبورد)
+ * 2) غير ذلك (أو أي فشل)               → Agora (النظام المعتمد — بأمر المالك 2026-07-12)
  *
+ * النسخ القديمة الموزعة لا تقرأ هذا العلم أصلاً (LiveKit مدمج فيها) —
+ * فالعلم يحكم النسخ الجديدة فقط، والرجوع الطارئ لا يحتاج APK جديداً.
  * القراءة من Firestore مرة واحدة لكل جلسة تطبيق (كاش ذاكرة)، مع كاش
  * AsyncStorage ('rtc_provider_cache') ليصمد القرار عند الإقلاع دون شبكة.
  */
@@ -61,7 +62,7 @@ void hydrateStorageCache();
  * لا تضرب الشبكة أبداً: قرار الجلسة ← كاش الإقلاع ← LiveKit.
  */
 export function peekCachedProvider(): RtcProvider {
-  return sessionProvider ?? storageCache?.provider ?? 'livekit';
+  return sessionProvider ?? storageCache?.provider ?? 'agora';
 }
 
 /**
@@ -78,16 +79,8 @@ export async function resolveRtcProvider(uid?: string): Promise<RtcProvider> {
       const { firestore } = await import('@/services/firebase/index');
       const snap = await getDoc(doc(firestore, 'config', 'settings'));
       const data = (snap.exists() ? snap.data() : {}) as Record<string, unknown>;
-      let provider: RtcProvider = 'livekit';
-      if (data.rtcProvider === 'agora') {
-        provider = 'agora';
-      } else if (
-        uid &&
-        Array.isArray(data.agoraTestUids) &&
-        (data.agoraTestUids as unknown[]).includes(uid)
-      ) {
-        provider = 'agora';
-      }
+      // Agora افتراضياً — القيمة الصريحة 'livekit' وحدها ترجع للنظام القديم (طوارئ)
+      const provider: RtcProvider = data.rtcProvider === 'livekit' ? 'livekit' : 'agora';
       sessionProvider = provider;
       storageCache = { provider, uid };
       void AsyncStorage.setItem(
@@ -96,12 +89,12 @@ export async function resolveRtcProvider(uid?: string): Promise<RtcProvider> {
       ).catch(() => {});
       return provider;
     } catch {
-      // إقلاع دون شبكة — آخر قرار محفوظ لنفس الحساب، وإلا الافتراضي الآمن
+      // إقلاع دون شبكة — آخر قرار محفوظ لنفس الحساب، وإلا الافتراضي (Agora)
       await hydrateStorageCache().catch(() => {});
       if (storageCache && (!storageCache.uid || !uid || storageCache.uid === uid)) {
         return storageCache.provider;
       }
-      return 'livekit';
+      return 'agora';
     } finally {
       inflight = null;
     }
