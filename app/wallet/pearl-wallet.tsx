@@ -95,7 +95,7 @@ export default function PearlWalletScreen() {
           <LinearGradient colors={['#1A0A0C', '#0E0E11']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
           <View style={styles.balanceGlow} />
           <View style={styles.balanceRow}>
-            <Image source={require('../../assets/masa.png')} style={styles.pearlsIcon} contentFit="contain" />
+            <Image source={require('../../assets/masa.webp')} style={styles.pearlsIcon} contentFit="contain" />
             <View style={{ flex: 1 }}>
               <Text variant="caption" color="rgba(255,255,255,0.6)" style={{ textAlign: 'right', letterSpacing: 0.5, marginBottom: 4 }}>
                 رصيد الحساب

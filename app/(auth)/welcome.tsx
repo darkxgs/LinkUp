@@ -43,7 +43,7 @@ import { loadGoogleAuthConfig, useGoogleSignIn } from '@/services/social-auth';
 import { markOnboardingSeen } from '@/services/onboardingStorage';
 import { useAuth } from '@/hooks/useAuth';
 
-const GIFT_BOX = require('../../assets/design/onboarding/reward-gift.png');
+const GIFT_BOX = require('../../assets/design/onboarding/reward-gift.webp');
 const COIN_IMG = COIN_CURRENCY_ICON;
 const BG_IMG = require('../../assets/design/onboarding/background.jpeg');
 
@@ -109,7 +109,7 @@ export default function OnboardingScreen() {
       .catch((e) => console.warn('Failed to load dark mode', e));
   }, []);
 
-  const currentBg = isDarkMode ? require('../../assets/design/onboarding/background1.png') : BG_IMG;
+  const currentBg = isDarkMode ? require('../../assets/design/onboarding/background1.webp') : BG_IMG;
 
   const usableH = H - insets.top - insets.bottom;
   const scaleFactor = useMemo(

@@ -52,7 +52,7 @@ const INTEL_GAMES_CONFIG: IntelGame[] = [
     descFallback: 'معالم حقيقية — اختر الدولة الصحيحة',
     Icon: Flag,
     colors: ['#B02121', '#ED6D6D'],
-    image: require('../../assets/images/game_flag.png'),
+    image: require('../../assets/images/game_flag.webp'),
     route: `/games/webview?url=${HOST}/flag-guess/&name=Flag%20Guess`,
     isNew: true,
   },
@@ -64,7 +64,7 @@ const INTEL_GAMES_CONFIG: IntelGame[] = [
     descFallback: 'اعثر على الأزواج المتطابقة',
     Icon: Grid3x3,
     colors: ['#C40E1E', '#ff6a00'],
-    image: require('../../assets/images/game_memory.png'),
+    image: require('../../assets/images/game_memory.webp'),
     route: `/games/webview?url=${HOST}/memory-match/&name=Memory%20Match`,
   },
   {
@@ -75,7 +75,7 @@ const INTEL_GAMES_CONFIG: IntelGame[] = [
     descFallback: 'احفظ الترتيب وكرّره',
     Icon: Brain,
     colors: ['#FF3340', '#B00E0E'],
-    image: require('../../assets/images/game_sequence.png'),
+    image: require('../../assets/images/game_sequence.webp'),
     route: `/games/webview?url=${HOST}/sequence-memory/&name=Sequence%20Memory`,
   },
 ];

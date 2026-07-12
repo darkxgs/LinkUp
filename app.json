@@ -128,7 +128,8 @@
             "compileSdkVersion": 35,
             "targetSdkVersion": 34,
             "kotlinVersion": "1.9.25",
-            "enableProguardInReleaseBuilds": false,
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
             "packagingOptions": {
               "pickFirst": [
                 "**/libc++_shared.so",

@@ -238,7 +238,7 @@ export default function AristocracyScreen() {
                 <View style={styles.crownDisplay}>
                     <View style={styles.badgeImageContainer}>
                         <Image
-                            source={require('../../assets/images/vip-badge-main.png')}
+                            source={require('../../assets/images/vip-badge-main.webp')}
                             style={styles.mainBadgeImage}
                             resizeMode="contain"
                         />
@@ -327,7 +327,7 @@ export default function AristocracyScreen() {
                         </View>
                         <View style={styles.descRightContent}>
                             <Image
-                                source={require('../../assets/images/vip-crown.png')}
+                                source={require('../../assets/images/vip-crown.webp')}
                                 style={styles.descCrownImage}
                                 resizeMode="contain"
                             />

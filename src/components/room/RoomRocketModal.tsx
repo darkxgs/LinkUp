@@ -30,11 +30,11 @@ import {
 import { lu } from '@/theme/lu-brand';
 
 // الأصول المحلية
-const rocketBlue = require('../../../assets/rocket_blue.png');
-const rocketPurple = require('../../../assets/rocket_purple.png');
-const rocketGold = require('../../../assets/rocket_gold.png');
-const cyberMotorcycle = require('../../../assets/cyber_motorcycle.png');
-const goldCoinsStack = require('../../../assets/gold_coins_stack.png');
+const rocketBlue = require('../../../assets/rocket_blue.webp');
+const rocketPurple = require('../../../assets/rocket_purple.webp');
+const rocketGold = require('../../../assets/rocket_gold.webp');
+const cyberMotorcycle = require('../../../assets/cyber_motorcycle.webp');
+const goldCoinsStack = require('../../../assets/gold_coins_stack.webp');
 
 interface Props {
   visible: boolean;

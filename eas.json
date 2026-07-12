@@ -24,7 +24,8 @@
       },
       "android": {
         "buildType": "apk",
-        "image": "sdk-52"
+        "image": "sdk-52",
+        "gradleCommand": ":app:assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a"
       },
       "env": {
         "EXPO_PUBLIC_ENV": "staging"

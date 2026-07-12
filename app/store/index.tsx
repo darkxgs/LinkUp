@@ -586,7 +586,7 @@ export default function StoreScreen() {
           end={{ x: 1, y: 1 }}
           style={styles.balancePill}
         >
-          <Image source={require('../../assets/masa.png')} style={{ width: 16, height: 16 }} contentFit="contain" />
+          <Image source={require('../../assets/masa.webp')} style={{ width: 16, height: 16 }} contentFit="contain" />
           <Text weight="bold" style={styles.balanceText}>
             {(user?.stats?.pearls ?? 0).toLocaleString('en-US')}
           </Text>
@@ -895,7 +895,7 @@ const StoreCard = memo(function StoreCard({
                 {item.currency === 'coins' ? (
                   <Image source={COIN_CURRENCY_ICON} style={{ width: 14, height: 14 }} contentFit="contain" />
                 ) : (
-                  <Image source={require('../../assets/masa.png')} style={{ width: 14, height: 14 }} contentFit="contain" />
+                  <Image source={require('../../assets/masa.webp')} style={{ width: 14, height: 14 }} contentFit="contain" />
                 )}
                 <Text
                   weight="bold"
@@ -1063,7 +1063,7 @@ function PurchaseSheet({
               {item.currency === 'coins' ? (
                 <Image source={COIN_CURRENCY_ICON} style={{ width: 16, height: 16 }} contentFit="contain" />
               ) : (
-                <Image source={require('../../assets/masa.png')} style={{ width: 16, height: 16 }} contentFit="contain" />
+                <Image source={require('../../assets/masa.webp')} style={{ width: 16, height: 16 }} contentFit="contain" />
               )}
               <Text weight="bold" style={{ fontSize: 14, color: lu.colors.ink }}>
                 {item.price.toLocaleString('en-US')}
@@ -1922,7 +1922,7 @@ function PreviewOverlay({
           {item.currency === 'coins' ? (
             <Image source={COIN_CURRENCY_ICON} style={{ width: 18, height: 18 }} contentFit="contain" />
           ) : (
-            <Image source={require('../../assets/masa.png')} style={{ width: 18, height: 18 }} contentFit="contain" />
+            <Image source={require('../../assets/masa.webp')} style={{ width: 18, height: 18 }} contentFit="contain" />
           )}
           <Text weight="bold" style={styles.previewPriceText}>
             {item.price.toLocaleString('en-US')}

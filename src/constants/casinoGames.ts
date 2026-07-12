@@ -56,21 +56,21 @@ export type CasinoGameItem = {
 };
 
 export const CASINO_GAME_IMAGES: Record<CasinoFeaturedGameId, number> = {
-  plinko: require('../../assets/images/game_plinko.png'),
-  'crash-rocket': require('../../assets/images/game_crash.png'),
-  dino: require('../../assets/images/game_chicken.png'),
-  'spin-win': require('../../assets/images/game_spinwin.png'),
-  mines: require('../../assets/images/game_mines.png'),
-  'lucky-777': require('../../assets/images/game_slot.png'),
-  'duck-race': require('../../assets/images/game_duck.png'),
-  dice: require('../../assets/images/game_dice.png'),
-  'rock-paper-scissors': require('../../assets/images/game_xo.png'),
-  hilo: require('../../assets/images/game_coin.png'),
-  limbo: require('../../assets/images/game_crash.png'),
-  roulette: require('../../assets/images/game_roulette.png'),
-  blackjack: require('../../assets/images/game_wheel.png'),
-  'chicken-cross': require('../../assets/images/game_chicken.png'),
-  'dragon-tower': require('../../assets/images/game_dragontower.png'),
+  plinko: require('../../assets/images/game_plinko.webp'),
+  'crash-rocket': require('../../assets/images/game_crash.webp'),
+  dino: require('../../assets/images/game_chicken.webp'),
+  'spin-win': require('../../assets/images/game_spinwin.webp'),
+  mines: require('../../assets/images/game_mines.webp'),
+  'lucky-777': require('../../assets/images/game_slot.webp'),
+  'duck-race': require('../../assets/images/game_duck.webp'),
+  dice: require('../../assets/images/game_dice.webp'),
+  'rock-paper-scissors': require('../../assets/images/game_xo.webp'),
+  hilo: require('../../assets/images/game_coin.webp'),
+  limbo: require('../../assets/images/game_crash.webp'),
+  roulette: require('../../assets/images/game_roulette.webp'),
+  blackjack: require('../../assets/images/game_wheel.webp'),
+  'chicken-cross': require('../../assets/images/game_chicken.webp'),
+  'dragon-tower': require('../../assets/images/game_dragontower.webp'),
 };
 
 export function getCasinoGameImage(gameId: string): number | undefined {

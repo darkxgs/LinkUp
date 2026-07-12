@@ -233,7 +233,7 @@ export default function TitleWallScreen() {
   return (
     <View style={styles.fill}>
       <Image
-        source={require('../../assets/images/Title_background.png')}
+        source={require('../../assets/images/Title_background.webp')}
         style={StyleSheet.absoluteFill}
         contentFit="cover"
       />

@@ -97,8 +97,8 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
   for (let i = 0; i < user.uid.length; i++) uidHash = (uidHash * 31 + user.uid.charCodeAt(i)) >>> 0;
   const photoSource = isDefaultPhoto
     ? uidHash % 2 === 0
-      ? require('../../../assets/images/avatar_default_1.png')
-      : require('../../../assets/images/avatar_default_2.png')
+      ? require('../../../assets/images/avatar_default_1.webp')
+      : require('../../../assets/images/avatar_default_2.webp')
     : { uri: photo };
   const cardH = Math.round(width / CARD_ASPECT);
 

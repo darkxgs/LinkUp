@@ -64,7 +64,7 @@ export function LuLogo({ width, height, size = 42, light }: LuLogoProps) {
             style={StyleSheet.absoluteFillObject}
           />
           <Image
-            source={require('../../../assets/images/linkup-icon-standalone.png')}
+            source={require('../../../assets/images/linkup-icon-standalone.webp')}
             style={{ width: '68%', height: '68%' }}
             contentFit="contain"
           />
@@ -92,7 +92,7 @@ export function LuLogo({ width, height, size = 42, light }: LuLogoProps) {
   return (
     <View style={[styles.logoRow, { width: resolvedWidth, maxWidth: '100%' }]}>
       <Image
-        source={require('../../../assets/images/linkup-full-logo-black.png')}
+        source={require('../../../assets/images/linkup-full-logo-black.webp')}
         style={{ width: '100%', aspectRatio: FULL_LOGO_ASPECT }}
         contentFit="contain"
       />

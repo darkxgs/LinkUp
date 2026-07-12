@@ -61,7 +61,7 @@ export function WithdrawTabPanel() {
     <View style={styles.wrap}>
       <View style={styles.balanceCard}>
         <View style={styles.balanceRow}>
-          <Image source={require('../../../assets/masa.png')} style={styles.pearlIcon} contentFit="contain" />
+          <Image source={require('../../../assets/masa.webp')} style={styles.pearlIcon} contentFit="contain" />
           <View style={{ flex: 1 }}>
             <Text variant="caption" color="#6B7280" weight="bold">
               رصيد الماسة المتاح

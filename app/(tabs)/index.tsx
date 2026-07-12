@@ -329,7 +329,7 @@ export default function DiscoverScreen() {
   const matchTickets = [
     {
       id: 'video' as MatchMode,
-      girl: require('../../assets/images/hero_video_girl.png'),
+      girl: require('../../assets/images/hero_video_girl.webp'),
       icon: require('../../assets/images/hero_video_icon.png'),
       title: t('home.videoMatch'),
       sub: t('home.videoMatchDesc'),
@@ -342,7 +342,7 @@ export default function DiscoverScreen() {
     },
     {
       id: 'voice' as MatchMode,
-      girl: require('../../assets/images/hero_voice_girl.png'),
+      girl: require('../../assets/images/hero_voice_girl.webp'),
       icon: require('../../assets/images/hero_voice_icon.png'),
       title: t('home.voiceMatch'),
       sub: t('home.voiceMatchDesc'),

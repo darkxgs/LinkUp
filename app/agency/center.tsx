@@ -675,7 +675,7 @@ function IncomeTab({
           <Text style={styles.incomeCardLabel}>دخل المدير لهذه الفترة</Text>
         </View>
         <View style={styles.incomeValueRow}>
-          <Image source={require('../../assets/masa.png')} style={{ width: 28, height: 28 }} contentFit="contain" />
+          <Image source={require('../../assets/masa.webp')} style={{ width: 28, height: 28 }} contentFit="contain" />
           <Text style={styles.incomeValueText}>{fmt2(agentBonus)}</Text>
         </View>
       </View>
@@ -703,7 +703,7 @@ function IncomeTab({
                 <Text style={styles.todayLabelText}>اليوم</Text>
               </View>
             )}
-            <Image source={require('../../assets/masa.png')} style={{ width: 22, height: 22 }} contentFit="contain" />
+            <Image source={require('../../assets/masa.webp')} style={{ width: 22, height: 22 }} contentFit="contain" />
             <Text style={styles.hostsValueText}>{fmt2(totalEarnings)}</Text>
           </View>
         </View>
@@ -715,14 +715,14 @@ function IncomeTab({
             <View style={{ flex: 1, alignItems: 'flex-start' }}>
               <Text style={styles.warningLabel}>يمكن للمدير الحصول على إضافية</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                <Image source={require('../../assets/masa.png')} style={{ width: 16, height: 16 }} contentFit="contain" />
+                <Image source={require('../../assets/masa.webp')} style={{ width: 16, height: 16 }} contentFit="contain" />
                 <Text style={styles.warningValue}>{fmt2(neededManagerCoins)}</Text>
               </View>
             </View>
             <View style={{ flex: 1, alignItems: 'flex-end' }}>
               <Text style={styles.warningLabel}>متبقّي للمستوى التالي (كوين)</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                <Image source={require('../../assets/masa.png')} style={{ width: 16, height: 16 }} contentFit="contain" />
+                <Image source={require('../../assets/masa.webp')} style={{ width: 16, height: 16 }} contentFit="contain" />
                 <Text style={styles.warningValue}>{fmt2(neededHostCoins)}</Text>
               </View>
             </View>
@@ -781,14 +781,14 @@ function IncomeTab({
               ]}
             >
               <View style={[styles.tableCellContent, { width: '40%', justifyContent: 'flex-start' }]}>
-                <Image source={require('../../assets/masa.png')} style={{ width: 14, height: 14, opacity: isActive ? 1 : 0.4 }} contentFit="contain" />
+                <Image source={require('../../assets/masa.webp')} style={{ width: 14, height: 14, opacity: isActive ? 1 : 0.4 }} contentFit="contain" />
                 <Text style={[styles.tableCellText, isActive && styles.tableCellTextActive]}>
                   {fmt2(lvl.managerBonus)}
                 </Text>
               </View>
 
               <View style={[styles.tableCellContent, { width: '40%', justifyContent: 'center' }]}>
-                <Image source={require('../../assets/masa.png')} style={{ width: 14, height: 14, opacity: isActive ? 1 : 0.4 }} contentFit="contain" />
+                <Image source={require('../../assets/masa.webp')} style={{ width: 14, height: 14, opacity: isActive ? 1 : 0.4 }} contentFit="contain" />
                 <Text style={[styles.tableCellText, isActive && styles.tableCellTextActive]}>
                   {fmt2(lvl.supportTarget ?? lvl.hostTarget)}
                 </Text>

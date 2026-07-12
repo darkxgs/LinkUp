@@ -231,7 +231,7 @@ export function AgentWithdrawSection({ pearls, permissions }: Props) {
                keyboardType="number-pad"
                editable={isAllowed && agentDayAllowed}
             />
-            <Image source={require('../../../assets/masa.png')} style={styles.hugeInputIcon} contentFit="contain" />
+            <Image source={require('../../../assets/masa.webp')} style={styles.hugeInputIcon} contentFit="contain" />
          </View>
          
          {amt > 0 && amt < minWithdraw && (

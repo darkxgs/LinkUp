@@ -145,7 +145,7 @@ export function HostAgentTransferSection({ pearls, permissions, onSuccess }: Pro
                keyboardType="number-pad"
                editable={isAllowed}
             />
-            <Image source={require('../../../assets/masa.png')} style={styles.hugeInputIcon} contentFit="contain" />
+            <Image source={require('../../../assets/masa.webp')} style={styles.hugeInputIcon} contentFit="contain" />
          </View>
 
          {/* Quick Amounts Label */}

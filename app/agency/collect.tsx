@@ -322,7 +322,7 @@ export default function CollectScreen() {
               إجمالي الراتب الذي تم جمعه حتى الآن
             </Text>
             <View style={styles.amountRow}>
-              <Image source={require('../../assets/masa.png')} style={styles.summaryPearlIcon} />
+              <Image source={require('../../assets/masa.webp')} style={styles.summaryPearlIcon} />
               <Text style={styles.bigNumber}>
                 {totalCollected.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Text>
@@ -430,7 +430,7 @@ export default function CollectScreen() {
                   <View key={block.week} style={styles.weekSection}>
                     <View style={styles.weekSectionHeader}>
                       <View style={styles.weekTotalBadge}>
-                        <Image source={require('../../assets/masa.png')} style={styles.hostPearlIcon} />
+                        <Image source={require('../../assets/masa.webp')} style={styles.hostPearlIcon} />
                         <Text variant="caption" weight="bold" color="#E11414">
                           {block.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Text>
@@ -448,7 +448,7 @@ export default function CollectScreen() {
                     {block.rows.map((row) => (
                       <View key={row.id} style={styles.groupedHostRow}>
                         <View style={styles.groupedSalaryCol}>
-                          <Image source={require('../../assets/masa.png')} style={styles.hostPearlIcon} />
+                          <Image source={require('../../assets/masa.webp')} style={styles.hostPearlIcon} />
                           <Text variant="button" weight="bold" color="#1E293B">
                             {row.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </Text>

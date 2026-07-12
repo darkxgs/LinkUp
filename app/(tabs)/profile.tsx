@@ -401,7 +401,7 @@ export default function ProfileScreen() {
           <View style={[styles.walletRow, { flexDirection: ROW }]}>
             <View style={styles.walletCol}>
               <View style={[styles.walletBalRow, { flexDirection: ROW }]}>
-                <Image source={require('../../assets/masa.png')} style={styles.coinImg} contentFit="contain" />
+                <Image source={require('../../assets/masa.webp')} style={styles.coinImg} contentFit="contain" />
                 <View style={{ flex: 1, alignItems: isRtl ? 'flex-end' : 'flex-start' }}>
                   <Text style={styles.walletVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
                     {formatExact(stats.pearls ?? 0)}
