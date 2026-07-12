@@ -2,7 +2,7 @@
  * RoomVideoApprovalModal — معاينة طلب فيديو للموافقة/الرفض (داخل الروم)
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -13,14 +13,17 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Check, X, Film, Youtube, User } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
+import { Check, X, Film, Youtube, User, Play } from 'lucide-react-native';
 
 import { Text } from '@/components/ui';
+import { LocalVideoPreview } from '@/components/room/LocalVideoPreview';
 import {
   approveRoomVideoRequest,
   rejectRoomVideoRequest,
   type RoomVideoRequest,
 } from '@/services/roomVideoRequests';
+import { isUserOnRoomSeat } from '@/services/firebase/rooms';
 import { lu } from '@/theme/lu-brand';
 
 interface Props {
@@ -31,11 +34,42 @@ interface Props {
 }
 
 export function RoomVideoApprovalModal({ visible, request, onClose, roomId }: Props) {
+  const { t } = useTranslation();
   const { width: screenW } = useWindowDimensions();
   const previewW = Math.min(screenW - 48, 360);
   const previewH = Math.round(previewW / (16 / 9));
 
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
+  // معاينة الفيديو داخل النافذة — lazy: لا يُحمَّل المشغّل قبل ضغط زر المعاينة
+  const [previewing, setPreviewing] = useState(false);
+  // هل الطالب ما زال على المايك؟ null = جارٍ التحقق (نعرض النص الافتراضي)
+  const [requesterOnMic, setRequesterOnMic] = useState<boolean | null>(null);
+
+  // أي إغلاق/تبديل طلب يوقف المعاينة فوراً (unmount للمشغّل = unload حتمي)
+  useEffect(() => {
+    setPreviewing(false);
+  }, [visible, request?.id]);
+
+  // «على المايك» كانت عبارة ثابتة غير متحققة — نقرأ مقاعد RTDB لحظة العرض
+  useEffect(() => {
+    if (!visible || !request) {
+      setRequesterOnMic(null);
+      return;
+    }
+    let cancelled = false;
+    setRequesterOnMic(null);
+    isUserOnRoomSeat(roomId, request.requestedBy)
+      .then((onMic) => {
+        if (!cancelled) setRequesterOnMic(onMic);
+      })
+      .catch(() => {
+        // فشل القراءة — لا نعرض «نزل عن المايك» بلا دليل
+        if (!cancelled) setRequesterOnMic(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, request?.id, request?.requestedBy, roomId]);
 
   if (!request) return null;
 
@@ -47,6 +81,7 @@ export function RoomVideoApprovalModal({ visible, request, onClose, roomId }: Pr
       : null);
 
   const handleApprove = async () => {
+    setPreviewing(false); // القرار يوقف المعاينة فوراً
     setBusy('approve');
     try {
       await approveRoomVideoRequest(roomId, request.id);
@@ -59,6 +94,7 @@ export function RoomVideoApprovalModal({ visible, request, onClose, roomId }: Pr
   };
 
   const handleReject = async () => {
+    setPreviewing(false); // القرار يوقف المعاينة فوراً
     setBusy('reject');
     try {
       await rejectRoomVideoRequest(roomId, request.id);
@@ -94,8 +130,13 @@ export function RoomVideoApprovalModal({ visible, request, onClose, roomId }: Pr
               <Text variant="button" weight="bold" color={lu.colors.ink} numberOfLines={1}>
                 {request.requestedByName}
               </Text>
-              <Text variant="caption" color={lu.colors.muted}>
-                على المايك — يطلب مشاركة فيديو
+              <Text
+                variant="caption"
+                color={requesterOnMic === false ? lu.colors.live : lu.colors.muted}
+              >
+                {requesterOnMic === false
+                  ? t('room.videoRequesterOffMic')
+                  : t('room.videoRequesterOnMic')}
               </Text>
             </View>
             {request.sourceType === 'youtube' ? (
@@ -105,27 +146,57 @@ export function RoomVideoApprovalModal({ visible, request, onClose, roomId }: Pr
             )}
           </View>
 
-          {/* معاينة */}
+          {/* معاينة — غلاف ثابت يتحول لمشغّل محلي بحت عند ضغط زر المعاينة */}
           <View style={[styles.previewWrap, { width: previewW, height: previewH }]}>
-            {thumbUri ? (
-              <Image source={{ uri: thumbUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            {previewing ? (
+              <LocalVideoPreview
+                url={request.url}
+                sourceType={
+                  request.sourceType === 'youtube'
+                    ? 'youtube'
+                    : request.sourceType === 'hls'
+                      ? 'hls'
+                      : 'mp4'
+                }
+                youtubeId={request.youtubeId}
+                posterUri={thumbUri ?? undefined}
+              />
             ) : (
-              <View style={styles.previewFallback}>
-                <Film size={40} color={lu.colors.muted} strokeWidth={1.8} />
-                <Text variant="caption" color={lu.colors.muted} align="center" style={{ marginTop: 8 }}>
-                  {request.title ?? 'فيديو مرفوع'}
-                </Text>
-              </View>
+              <>
+                {thumbUri ? (
+                  <Image source={{ uri: thumbUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                ) : (
+                  <View style={styles.previewFallback}>
+                    <Film size={40} color={lu.colors.muted} strokeWidth={1.8} />
+                    <Text variant="caption" color={lu.colors.muted} align="center" style={{ marginTop: 8 }}>
+                      {request.title ?? 'فيديو مرفوع'}
+                    </Text>
+                  </View>
+                )}
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.55)']}
+                  style={styles.previewGradient}
+                />
+                {request.title ? (
+                  <Text variant="caption" weight="bold" color="#fff" style={styles.previewTitle} numberOfLines={2}>
+                    {request.title}
+                  </Text>
+                ) : null}
+                {/* زر تشغيل المعاينة — lazy: لا يُحمَّل الفيديو قبل الضغط */}
+                <View style={styles.previewBtnOverlay} pointerEvents="box-none">
+                  <Pressable
+                    onPress={() => setPreviewing(true)}
+                    style={styles.previewPlayBtn}
+                    accessibilityLabel={t('room.videoPreviewBtn')}
+                  >
+                    <Play size={16} color="#fff" fill="#fff" />
+                    <Text variant="caption" weight="bold" color="#fff">
+                      {t('room.videoPreviewBtn')}
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
             )}
-            <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.55)']}
-              style={styles.previewGradient}
-            />
-            {request.title ? (
-              <Text variant="caption" weight="bold" color="#fff" style={styles.previewTitle} numberOfLines={2}>
-                {request.title}
-              </Text>
-            ) : null}
           </View>
 
           {/* أزرار */}
@@ -231,6 +302,22 @@ const styles = StyleSheet.create({
     left: 10,
     right: 10,
     bottom: 10,
+  },
+  previewBtnOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewPlayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
   actions: {
     flexDirection: 'row',

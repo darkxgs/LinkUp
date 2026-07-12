@@ -185,6 +185,18 @@ export async function findMySeatInRoom(
 }
 
 /**
+ * هل المستخدم جالس على أي مقعد في الغرفة الآن؟ — قراءة لحظية من RTDB
+ * (نافذة موافقة الفيديو تتحقق أن الطالب ما زال على المايك لحظة العرض)
+ */
+export async function isUserOnRoomSeat(roomId: string, uid: string): Promise<boolean> {
+  if (!roomId || !uid) return false;
+  const snap = await get(ref(realtimeDb, `rooms/${roomId}/seats`));
+  if (!snap.exists()) return false;
+  const seats = snap.val() as Record<string, { uid?: string }>;
+  return Object.values(seats).some((s) => s?.uid === uid);
+}
+
+/**
  * «ابقَ في الروم» — إلغاء onDisconnect مؤقتاً حتى لا يُفرَّغ المقعد عند انقطاع RTDB العابر
  * (تنقّل داخل التطبيق، هدايا، موسيقى، خلفية).
  */
