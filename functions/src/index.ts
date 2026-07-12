@@ -8319,7 +8319,7 @@ export const adminDiscoverAristocracyUploads = onCall(async (request) => {
 // ==================== SHARE LINKS (روابط مختصرة + Deep Link) ====================
 export { createShareLink, shareRedirect, resolveShareLink } from './shareLinks';
 export { recordLoginSession } from './loginSession';
-export { processKycVerification, verifyGenderFace, repairKycMismatchBan, kycStatusSyncV2 } from './kycVerification';
+export { processKycVerification, verifyGenderFace, repairKycMismatchBan, kycStatusSyncV2, kycSlaSweep } from './kycVerification';
 export { getLandmarkQuizRound, getLandmarkCountries } from './intelligenceLandmarkQuiz';
 export { placeIntelligenceGameBet } from './intelligenceGames';
 export { roomGamesApi } from './roomGamesApi';

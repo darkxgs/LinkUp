@@ -5,7 +5,6 @@ The Firebase Functions package. `src/` holds the TypeScript source, `lib/` the c
 ## Files
 - `.env`
 - `.env.example`
-- `FACE_API_MODELS.md`
 - `check_user.js`
 - `check_user_membership.js`
 - `check_vip_config.js`

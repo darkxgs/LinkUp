@@ -1,27 +1,32 @@
 /**
- * KYC — تحليل الوجه (face-api محلي + Gemini/HuggingFace/AWS)
+ * KYC — تحليل الوجه (Nyckel أساسي + رأي ثانٍ من Gemini/AWS/HuggingFace للمنطقة الرمادية)
  *
  * الحالات في Firestore (كما في المشروع):
- *   kycRequests/{uid}.status → processing | pending | approved | rejected
+ *   kycRequests/{uid}.status → processing | pending | approved | rejected | failed
  *   users/{uid}.isVerified, verificationStatus → approved | rejected | pending
+ *
+ * الهدف: قرار آلي خلال ثوانٍ — «غير واضح» يُرفض بلطف فوراً برسالة إعادة تصوير،
+ * والمراجعة اليدوية استثناء حقيقي فقط (انقطاع مزوّدات/تعارض بيانات) برسالة صريحة.
  */
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
 import { RekognitionClient, DetectFacesCommand } from '@aws-sdk/client-rekognition';
-import { detectGenderWithFaceApi } from './faceApiGender';
 import { detectGenderWithNyckel, isNyckelConfigured } from './nyckelGender';
 import {
   applyKycDetectionResult,
   approveFemaleKyc,
   clearKycGenderMismatchBan,
+  kycBanClearPatch,
   decodeBase64Image,
   notifyUser,
   persistKycVerificationImage,
   readRegisteredGender,
   rejectKycVerification,
-  AI_CONFIDENCE_REVIEW,
-  NYCKEL_REVIEW_THRESHOLD,
+  DUAL_AGREEMENT_THRESHOLD,
+  NYCKEL_AUTO_THRESHOLD,
+  SECOND_OPINION_MIN_PRIMARY,
   type DetectionResult,
   type Gender,
 } from './kycVerification.shared';
@@ -32,8 +37,21 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? '';
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const HF_GENDER_MODEL = 'dima806/fairface_gender_image_detection';
 
+/**
+ * مهلة قصوى لكل استدعاء مزوّد خارجي — اتصال معلّق واحد كان يجمّد الطلب كله
+ * حتى سقف الدالة (120 ثانية) ثم يظهر للمستخدمة كفشل غامض. الهدف: قرار خلال ثوانٍ،
+ * ومزوّد بطيء يُتخطى إلى البديل التالي بدل انتظار غير محدود.
+ */
+export const KYC_PROVIDER_TIMEOUT_MS = 15_000;
+
+/** تهدئة verifyGenderFace — أدنى فاصل بين محاولتين (الالتقاط نفسه يستغرق ~3 ثوانٍ) */
+const FACE_ATTEMPT_MIN_INTERVAL_MS = 15_000;
+/** نافذة عدّ المحاولات وسقفها — يكفي مستخدمة حقيقية بإضاءة سيئة ويصد الطرق الآلي */
+const FACE_ATTEMPT_WINDOW_MS = 60 * 60 * 1000;
+const FACE_ATTEMPT_MAX_PER_WINDOW = 10;
+
 async function fetchImageBytes(url: string): Promise<Buffer> {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(KYC_PROVIDER_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`تعذّر تحميل صورة التحقق (${res.status})`);
   const ab = await res.arrayBuffer();
   return Buffer.from(ab);
@@ -56,6 +74,7 @@ async function detectWithGemini(imageBytes: Buffer): Promise<DetectionResult | n
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(KYC_PROVIDER_TIMEOUT_MS),
     body: JSON.stringify({
       contents: [{
         parts: [
@@ -98,20 +117,19 @@ async function detectWithHuggingFace(imageBytes: Buffer): Promise<DetectionResul
 
   const endpoint = `https://api-inference.huggingface.co/models/${HF_GENDER_MODEL}`;
 
-  const call = async (): Promise<Response> =>
-    fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/octet-stream',
-      },
-      body: new Uint8Array(imageBytes),
-    });
-
-  let res = await call();
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/octet-stream',
+    },
+    signal: AbortSignal.timeout(KYC_PROVIDER_TIMEOUT_MS),
+    body: new Uint8Array(imageBytes),
+  });
   if (res.status === 503) {
-    await new Promise((r) => setTimeout(r, 12_000));
-    res = await call();
+    // النموذج بارد — لا انتظار 12 ثانية هنا: الهدف قرار خلال ثوانٍ، والبدائل تكفي
+    console.warn('HuggingFace KYC model cold (503) — skipped');
+    return null;
   }
   if (!res.ok) {
     console.warn('HuggingFace KYC error:', res.status, await res.text());
@@ -128,72 +146,131 @@ async function detectWithHuggingFace(imageBytes: Buffer): Promise<DetectionResul
   return { gender, confidence, provider: 'huggingface' };
 }
 
-async function detectWithAws(imageBytes: Buffer): Promise<DetectionResult | null> {
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-  if (!accessKeyId || !secretAccessKey) return null;
+function isAwsConfigured(): boolean {
+  return Boolean(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY);
+}
 
-  const client = new RekognitionClient({
-    region: process.env.AWS_REGION || 'eu-central-1',
-    credentials: { accessKeyId, secretAccessKey },
-  });
+let rekognitionClient: RekognitionClient | null = null;
+function getRekognitionClient(): RekognitionClient | null {
+  if (!isAwsConfigured()) return null;
+  if (!rekognitionClient) {
+    rekognitionClient = new RekognitionClient({
+      region: process.env.AWS_REGION || 'eu-central-1',
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      },
+    });
+  }
+  return rekognitionClient;
+}
+
+/** جنس + وضعية رأس (Yaw) من Rekognition — الوضعية تُستخدم لتحقق الحيوية */
+async function detectFaceWithAws(
+  imageBytes: Buffer,
+): Promise<{ gender: Gender; confidence: number; yaw: number | null } | null> {
+  const client = getRekognitionClient();
+  if (!client) return null;
 
   const out = await client.send(
     new DetectFacesCommand({
       Image: { Bytes: imageBytes },
       Attributes: ['ALL'],
     }),
+    { abortSignal: AbortSignal.timeout(KYC_PROVIDER_TIMEOUT_MS) },
   );
 
   const face = out.FaceDetails?.[0];
-  if (!face?.Gender?.Value) return null;
+  if (!face) return null;
 
-  const value = String(face.Gender.Value);
-  const confidence = Number(face.Gender.Confidence ?? 0);
+  const value = String(face.Gender?.Value ?? '');
   const gender: Gender =
     value === 'Female' ? 'female' : value === 'Male' ? 'male' : 'unknown';
-
-  return { gender, confidence, provider: 'aws_rekognition' };
+  return {
+    gender,
+    confidence: Number(face.Gender?.Confidence ?? 0),
+    yaw: typeof face.Pose?.Yaw === 'number' ? face.Pose.Yaw : null,
+  };
 }
 
+async function detectWithAws(imageBytes: Buffer): Promise<DetectionResult | null> {
+  const face = await detectFaceWithAws(imageBytes);
+  if (!face || face.gender === 'unknown') return null;
+  return { gender: face.gender, confidence: face.confidence, provider: 'aws_rekognition' };
+}
+
+/** رأي ثانٍ من أول مزوّد مضبوط غير Nyckel — null إن لم يُضبط أي بديل */
+async function getSecondOpinion(imageBytes: Buffer): Promise<DetectionResult | null> {
+  for (const fn of [detectWithAws, detectWithGemini, detectWithHuggingFace]) {
+    try {
+      const result = await fn(imageBytes);
+      if (result && result.gender !== 'unknown' && result.confidence > 0) return result;
+    } catch (e) {
+      console.warn('KYC second-opinion provider failed:', e);
+    }
+  }
+  return null;
+}
+
+/**
+ * Nyckel أولاً؛ نتيجته الحاسمة (≥ عتبة القبول) قرار فوري بلا استدعاءات إضافية.
+ * المنطقة الرمادية أو غيابه → رأي ثانٍ من مزوّد مستقل: اتفاق المزوّدين يقبل بعتبة
+ * أدنى (DUAL_AGREEMENT_THRESHOLD)، وتعارضهما = «غير حاسم» (إعادة تصوير فورية).
+ */
 async function detectGenderFromImage(imageBytes: Buffer): Promise<DetectionResult> {
+  let primary: DetectionResult | null = null;
   if (isNyckelConfigured()) {
     try {
-      const nyckel = await detectGenderWithNyckel(imageBytes);
-      if (nyckel && nyckel.gender !== 'unknown' && nyckel.confidence >= NYCKEL_REVIEW_THRESHOLD) {
-        return nyckel;
-      }
-      if (nyckel && nyckel.confidence > 0) {
-        return nyckel;
-      }
+      primary = await detectGenderWithNyckel(imageBytes);
     } catch (e) {
       console.warn('Nyckel KYC skipped:', e);
     }
   }
 
-  try {
-    const faceApi = await detectGenderWithFaceApi(imageBytes);
-    if (faceApi && faceApi.gender !== 'unknown' && faceApi.confidence >= 50) {
-      return { ...faceApi, provider: 'face_api' };
-    }
-  } catch (e) {
-    console.warn('face-api skipped:', e);
+  if (primary && primary.gender !== 'unknown' && primary.confidence >= NYCKEL_AUTO_THRESHOLD) {
+    return primary;
   }
 
-  for (const fn of [detectWithGemini, detectWithHuggingFace, detectWithAws]) {
-    try {
-      const result = await fn(imageBytes);
-      if (result && result.gender !== 'unknown' && result.confidence >= AI_CONFIDENCE_REVIEW) {
-        return result;
-      }
-      if (result && result.confidence > 0) {
-        return result;
-      }
-    } catch (e) {
-      console.warn('KYC provider failed:', e);
+  const second = await getSecondOpinion(imageBytes);
+
+  if (primary && primary.gender !== 'unknown' && primary.confidence > 0) {
+    if (
+      second
+      && second.gender === primary.gender
+      && primary.confidence >= SECOND_OPINION_MIN_PRIMARY
+      && second.confidence >= DUAL_AGREEMENT_THRESHOLD
+    ) {
+      // اتفاق مزوّدين مستقلين — يرفع الحالة الرمادية إلى قرار تلقائي
+      return {
+        ...primary,
+        confidence: Math.max(primary.confidence, second.confidence),
+        corroborated: true,
+        secondProvider: second.provider,
+        secondConfidence: second.confidence,
+      };
     }
+    if (second && second.gender !== primary.gender) {
+      // مزوّدان متعارضان — غير حاسم؛ الأسلم والأسرع إعادة التصوير
+      return {
+        gender: 'unknown',
+        confidence: 0,
+        provider: primary.provider,
+        secondProvider: second.provider,
+        secondConfidence: second.confidence,
+      };
+    }
+    // لا رأي ثانٍ متاح — نتيجة Nyckel وحدها (قد تكون رمادية → إعادة تصوير)
+    return primary;
   }
-  return { gender: 'unknown', confidence: 0, provider: 'none' };
+
+  // Nyckel غائب/فاشل/غير حاسم — المزوّد البديل وحده بعتبته العالية (85)
+  if (second) return second;
+
+  // Nyckel ردّ «غير معروف» (وجه غير واضح مثلاً «Humans only») — إعادة تصوير
+  if (primary) return primary;
+
+  // لا مزوّد استجاب إطلاقاً — تُميَّز عن «وجه غير واضح» لتذهب للمراجعة اليدوية
+  return { gender: 'unknown', confidence: 0, provider: 'none', noProvider: true };
 }
 
 type FaceVerifyPersonal = {
@@ -209,16 +286,17 @@ type MultiFrameMeta = {
   framesAnalyzed: number;
   /** كل الإطارات متطابقة بايتاً-ببايت — صورة ثابتة مُعادة وليست لقطات كاميرا حية */
   staticFrames: boolean;
-  /** إطارات أعطت جنسين متعارضين — مشبوه، يتحوّل لمراجعة يدوية */
+  /** إطارات أعطت جنسين متعارضين */
   genderConflict: boolean;
   perFrame: Array<{ gender: Gender; confidence: number; provider: string }>;
 };
 
 /**
- * تحليل عدة إطارات (حتى 3) من فيديو/كاميرا التحقق — أدق من إطار واحد:
- * - الإطارات المتطابقة تماماً تُعدّ صورة ثابتة → مراجعة يدوية
- * - جنسان متعارضان بين الإطارات → مراجعة يدوية
- * - اتفاق الإطارات → الثقة = متوسط الإطارات المتفقة (أثبت من لقطة واحدة)
+ * تحليل عدة إطارات (حتى 3) من كاميرا التحقق — أدق من إطار واحد:
+ * - الإطارات المتطابقة تماماً تُعدّ صورة ثابتة → غير حاسم (لا توثيق تلقائي)
+ * - أغلبية الإطارات تحسم الجنس؛ التعادل أو أقلية واثقة جداً → غير حاسم
+ * - الثقة = أفضل إطار من الأغلبية (لا «متوسط» يسمح لإطار الالتفاتة الأضعف
+ *   بإسقاط أنثى حقيقية إلى صف المراجعة)
  */
 async function detectGenderFromFrames(
   frames: Buffer[],
@@ -242,7 +320,7 @@ async function detectGenderFromFrames(
       try {
         return await detectGenderFromImage(bytes);
       } catch {
-        return { gender: 'unknown', confidence: 0, provider: 'none' } as DetectionResult;
+        return { gender: 'unknown', confidence: 0, provider: 'none', noProvider: true } as DetectionResult;
       }
     }),
   );
@@ -259,17 +337,20 @@ async function detectGenderFromFrames(
     })),
   };
 
+  // «لا مزوّد» فقط إذا لم يستجب أي مزوّد لأي إطار — حالة انقطاع حقيقية
+  const noProvider = results.length > 0 && results.every((r) => r.noProvider === true);
+
   const valid = results.filter((r) => r.gender !== 'unknown' && r.confidence > 0);
   if (!valid.length) {
-    return { detected: { gender: 'unknown', confidence: 0, provider: 'none' }, meta };
-  }
-
-  const hasMale = valid.some((r) => r.gender === 'male');
-  const hasFemale = valid.some((r) => r.gender === 'female');
-  if (hasMale && hasFemale) {
-    // تعارض بين الإطارات — لا قرار تلقائي؛ يذهب لمراجعة الإدارة
-    meta.genderConflict = true;
-    return { detected: { gender: 'unknown', confidence: 0, provider: valid[0]!.provider }, meta };
+    return {
+      detected: {
+        gender: 'unknown',
+        confidence: 0,
+        provider: 'none',
+        ...(noProvider ? { noProvider: true } : {}),
+      },
+      meta,
+    };
   }
 
   if (staticFrames) {
@@ -277,21 +358,57 @@ async function detectGenderFromFrames(
     return { detected: { gender: 'unknown', confidence: 0, provider: valid[0]!.provider }, meta };
   }
 
-  const gender = valid[0]!.gender;
-  const best = valid.reduce((a, b) => (b.confidence > a.confidence ? b : a), valid[0]!);
-  const avgConfidence = Math.round(
-    valid.reduce((s, r) => s + r.confidence, 0) / valid.length,
-  );
-  return {
-    detected: { gender, confidence: avgConfidence, provider: best.provider },
-    meta,
-  };
+  const females = valid.filter((r) => r.gender === 'female');
+  const males = valid.filter((r) => r.gender === 'male');
+  meta.genderConflict = females.length > 0 && males.length > 0;
+
+  const majority =
+    females.length > males.length ? females : males.length > females.length ? males : null;
+  if (!majority) {
+    // تعادل (إطار ضد إطار) — غير حاسم
+    return { detected: { gender: 'unknown', confidence: 0, provider: valid[0]!.provider }, meta };
+  }
+
+  // أقلية معارضة واثقة بمستوى القبول — مشبوه؛ لا قرار تلقائي
+  const minority = majority === females ? males : females;
+  const minorityTop = minority.reduce((m, r) => Math.max(m, r.confidence), 0);
+  if (meta.genderConflict && minorityTop >= NYCKEL_AUTO_THRESHOLD) {
+    return { detected: { gender: 'unknown', confidence: 0, provider: valid[0]!.provider }, meta };
+  }
+
+  // أفضل إطار من الأغلبية — إطار الالتفاتة الأضعف لا يسحب النتيجة للأسفل
+  const best = majority.reduce((a, b) => (b.confidence > a.confidence ? b : a), majority[0]!);
+  return { detected: best, meta };
+}
+
+/**
+ * تحقق فعلي من إيماءة الالتفات بمقارنة زاوية الرأس (Yaw) بين لقطة الثبات
+ * ولقطة الإيماءة — يعمل فقط عند ضبط AWS Rekognition؛ بدونه يُتخطى بلا أثر.
+ */
+async function verifyGestureLiveness(
+  frames: Buffer[],
+  gesture: string,
+): Promise<'passed' | 'failed' | 'skipped'> {
+  if (!isAwsConfigured()) return 'skipped';
+  if (!gesture.startsWith('turn_') || frames.length < 2) return 'skipped';
+  try {
+    const [before, during] = await Promise.all([
+      detectFaceWithAws(frames[0]!),
+      detectFaceWithAws(frames[1]!),
+    ]);
+    if (before?.yaw == null || during?.yaw == null) return 'skipped';
+    // عتبة متساهلة (٤°) حتى لا تُرفض التفاتة خفيفة حقيقية
+    return Math.abs(during.yaw - before.yaw) >= 4 ? 'passed' : 'failed';
+  } catch (e) {
+    console.warn('KYC gesture liveness check skipped:', e);
+    return 'skipped';
+  }
 }
 
 /**
  * تحليل صورة وجه مباشرة (base64) — للتحقق السريع من التطبيق.
  * يدعم `framesBase64` (حتى 3 إطارات تُلتقط تلقائياً أثناء إيماءة بسيطة عشوائية):
- * اتفاق الإطارات يرفع الدقة، وتعارضها أو تطابقها البايتي (صورة ثابتة) → مراجعة يدوية.
+ * اتفاق الإطارات يرفع الدقة، وتعارضها أو تطابقها البايتي (صورة ثابتة) → إعادة تصوير.
  * التوافق الخلفي: `imageBase64` وحدها تعمل كالسابق تماماً.
  */
 export const verifyGenderFace = onCall({ memory: '1GiB', timeoutSeconds: 120 }, async (request) => {
@@ -321,23 +438,44 @@ export const verifyGenderFace = onCall({ memory: '1GiB', timeoutSeconds: 120 }, 
   if (!frames.length) throw new HttpsError('invalid-argument', 'صورة غير صالحة');
 
   const userRef = db.collection('users').doc(uid);
-  const userSnap = await userRef.get();
+  const kycRef = db.collection('kycRequests').doc(uid);
+  const [userSnap, kycSnap] = await Promise.all([userRef.get(), kycRef.get()]);
   if (!userSnap.exists) throw new HttpsError('not-found', 'المستخدم غير موجود');
   const userData = userSnap.data()!;
+  const kycData = kycSnap.data() ?? {};
+  // عدّاد المحاولات الرمادية السابقة — بعد MAX يتحوّل الطلب لمراجعة يدوية صريحة
+  const grayAttempts = Number(kycData.faceGrayAttempts) || 0;
 
   const now = Date.now();
-  const kycRef = db.collection('kycRequests').doc(uid);
-  const frameUrls: string[] = [];
-  for (let i = 0; i < frames.length; i++) {
-    try {
-      frameUrls.push(
-        await persistKycVerificationImage(uid, frames[i]!, i === 0 ? 'face' : 'frame'),
-      );
-    } catch (e) {
-      console.error('KYC face image persist error:', e);
-    }
+
+  // تهدئة: كل محاولة تكلّف حتى 3 استدعاءات Nyckel + 9 آراء ثانية + 3 كتابات Storage،
+  // ورسالة «أعيدي المحاولة» تشجّع التكرار — فاصل أدنى بين المحاولات + سقف بالساعة.
+  // الحقول تُكتب من السيرفر فقط (محمية في firestore.rules من تعديل العميل).
+  const lastAttemptAt = Number(kycData.faceLastAttemptAt) || 0;
+  if (lastAttemptAt && now - lastAttemptAt < FACE_ATTEMPT_MIN_INTERVAL_MS) {
+    throw new HttpsError(
+      'resource-exhausted',
+      'محاولات متتالية سريعة — انتظري ثوانٍ قليلة ثم أعيدي المحاولة',
+    );
   }
-  const verificationImageUrl = frameUrls[0] ?? '';
+  let attemptWindowStart = Number(kycData.faceAttemptWindowStart) || 0;
+  let attemptCount = Number(kycData.faceAttemptCount) || 0;
+  if (!attemptWindowStart || now - attemptWindowStart >= FACE_ATTEMPT_WINDOW_MS) {
+    attemptWindowStart = now;
+    attemptCount = 0;
+  }
+  if (attemptCount >= FACE_ATTEMPT_MAX_PER_WINDOW) {
+    throw new HttpsError(
+      'resource-exhausted',
+      'وصلتِ الحد الأقصى من المحاولات مؤقتاً — أعيدي المحاولة بعد نحو ساعة',
+    );
+  }
+
+  // حفظ الإطارات في Storage بالتوازي مع التحليل — لا يؤخر القرار
+  // (العميل لم يعد يرفع الإطار الأول بنفسه؛ هذا هو المصدر الوحيد للروابط)
+  const persistPromise = Promise.allSettled(
+    frames.map((f, i) => persistKycVerificationImage(uid, f, i === 0 ? 'face' : 'frame')),
+  );
 
   await kycRef.set(
     {
@@ -346,38 +484,84 @@ export const verifyGenderFace = onCall({ memory: '1GiB', timeoutSeconds: 120 }, 
       fullName: personal.fullName?.trim() ?? personal.displayName ?? userData.displayName ?? '',
       status: 'processing',
       method: 'face',
-      ...(verificationImageUrl
-        ? { selfie: verificationImageUrl, verificationFrameUrl: verificationImageUrl }
-        : {}),
-      ...(frameUrls.length > 1 ? { verificationFrameUrls: frameUrls } : {}),
       ...(gesture ? { livenessGesture: gesture } : {}),
+      faceLastAttemptAt: now,
+      faceAttemptWindowStart: attemptWindowStart,
+      faceAttemptCount: attemptCount + 1,
       createdAt: now,
       updatedAt: now,
     },
     { merge: true },
   );
 
+  // فحص الإيماءة (حيوية) بالتوازي مع تحليل الجنس — AWS فقط، وإلا skipped
+  const gesturePromise = verifyGestureLiveness(frames, gesture);
+
   let detected: DetectionResult;
+  let meta: MultiFrameMeta | null = null;
   try {
     const analysis = await detectGenderFromFrames(frames);
     detected = analysis.detected;
-    await kycRef.set(
-      {
-        livenessFrames: analysis.meta.framesAnalyzed,
-        livenessStatic: analysis.meta.staticFrames,
-        livenessConflict: analysis.meta.genderConflict,
-        livenessPerFrame: analysis.meta.perFrame,
-        updatedAt: Date.now(),
-      },
-      { merge: true },
-    );
+    meta = analysis.meta;
   } catch (e) {
     console.error('verifyGenderFace analyze error:', e);
-    detected = { gender: 'unknown', confidence: 0, provider: 'none' };
+    detected = { gender: 'unknown', confidence: 0, provider: 'none', noProvider: true };
+  }
+  const gestureCheck = await gesturePromise;
+
+  // روابط الإطارات + بيانات الحيوية — كتابة واحدة بعد اكتمال الحفظ المتوازي
+  const persisted = await persistPromise;
+  persisted.forEach((r) => {
+    if (r.status === 'rejected') console.error('KYC face image persist error:', r.reason);
+  });
+  const frameUrls = persisted
+    .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
+    .map((r) => r.value);
+  const verificationImageUrl = frameUrls[0] ?? '';
+  await kycRef.set(
+    {
+      ...(verificationImageUrl
+        ? { selfie: verificationImageUrl, verificationFrameUrl: verificationImageUrl }
+        : {}),
+      ...(frameUrls.length > 1 ? { verificationFrameUrls: frameUrls } : {}),
+      ...(meta
+        ? {
+            livenessFrames: meta.framesAnalyzed,
+            livenessStatic: meta.staticFrames,
+            livenessConflict: meta.genderConflict,
+            livenessPerFrame: meta.perFrame,
+          }
+        : {}),
+      livenessGestureCheck: gestureCheck,
+      updatedAt: Date.now(),
+    },
+    { merge: true },
+  );
+
+  if (gestureCheck === 'failed') {
+    // الرأس لم يتحرك مع تعليمة الالتفات — مشبوه (صورة معروضة؟) → إعادة تصوير لا توثيق
+    return rejectKycVerification(
+      uid,
+      kycRef,
+      userRef,
+      {
+        aiGender: detected.gender,
+        aiConfidence: detected.confidence,
+        aiProvider: detected.provider,
+        updatedAt: Date.now(),
+      },
+      'face',
+      Date.now(),
+      'لم تُرصد الحركة المطلوبة أثناء الالتقاط',
+      'لم نلحظ الحركة المطلوبة أثناء التصوير — أعيدي المحاولة واتبعي التعليمة التي تظهر على الشاشة',
+      detected,
+      { retry: true, userData },
+    );
   }
 
   return applyKycDetectionResult(uid, kycRef, userRef, userData, detected, 'face', {
     fullName: personal.fullName?.trim() || personal.displayName?.trim(),
+    grayAttempts,
   });
 });
 
@@ -494,8 +678,8 @@ export const kycStatusSyncV2 = onDocumentUpdated('kycRequests/{uid}', async (eve
       verifiedGender: readRegisteredGender(userData),
       verifiedAt: now,
       verificationStatus: 'approved',
-      isBanned: false,
-      banReason: admin.firestore.FieldValue.delete(),
+      // يرفع فقط حظر «تعارض الجنس» القديم — الحظر الإداري لسبب آخر يبقى
+      ...kycBanClearPatch(userData),
       updatedAt: now,
     });
     await notifyUser(
@@ -525,7 +709,96 @@ export const kycStatusSyncV2 = onDocumentUpdated('kycRequests/{uid}', async (eve
     reason,
     'تم رفض طلب التوثيق — راجع بياناتك وحاول مجدداً',
     { gender: 'unknown', confidence: 0, provider: 'none' },
+    { userData },
   );
+});
+
+/** processing أقدم من هذا = عالق (سقف verifyGenderFace 120ث وprocessKycVerification 180ث) */
+const KYC_PROCESSING_STALE_MS = 5 * 60 * 1000;
+/** pending (مراجعة يدوية) أقدم من هذا يُصعَّد للأدمن مرة واحدة */
+const KYC_PENDING_ESCALATE_MS = 10 * 60 * 1000;
+
+/**
+ * سويب SLA من السيرفر وحده — يحل سيناريو «20 دقيقة صامتة» بلا APK جديد:
+ *
+ * 1) processing عالق (أغلقت التطبيق/انقطعت الشبكة قبل وصول قرار السيرفر، أو
+ *    استدعاء قديم فشل): يتحوّل إلى failed مع إشعار «أعيدي المحاولة» — بديل
+ *    failStaleKycProcessing في التطبيق يعمل فقط مع APK الجديد وفقط وشاشة KYC
+ *    مفتوحة؛ هذا السويب يغطي مستخدمات الـAPK الحالي المُسلَّم أيضاً، ويعالج
+ *    المتراكم الحالي بأثر رجعي من أول تشغيل.
+ * 2) pending (مراجعة يدوية حقيقية) أقدم من 10 دقائق: تصعيد للأدمن مرة واحدة
+ *    لكل طلب (slaEscalatedAt) حتى لا تنام الطلبات في الصف بلا أحد ينتبه.
+ *
+ * الاستعلام بالحالة فقط (بلا نطاق زمني) — لا يحتاج فهرساً مركّباً؛ الترشيح الزمني هنا.
+ */
+export const kycSlaSweep = onSchedule('every 5 minutes', async () => {
+  const now = Date.now();
+
+  // 1) processing عالقة → failed + إشعار إعادة محاولة فوري
+  const processingSnap = await db
+    .collection('kycRequests')
+    .where('status', '==', 'processing')
+    .limit(300)
+    .get();
+  let failedCount = 0;
+  for (const docSnap of processingSnap.docs) {
+    const data = docSnap.data();
+    const updatedAt = Number(data.updatedAt) || Number(data.createdAt) || 0;
+    // بلا أي طابع زمني نعتبره قديماً (وثائق تالفة من مسارات قديمة) — يُنهى أيضاً
+    if (updatedAt && now - updatedAt < KYC_PROCESSING_STALE_MS) continue;
+    try {
+      await docSnap.ref.set(
+        { status: 'failed', failedReason: 'stale_processing_sweep', updatedAt: now },
+        { merge: true },
+      );
+      await notifyUser(
+        docSnap.id,
+        'تعذّر إكمال محاولة التوثيق السابقة — افتحي شاشة التوثيق وأعيدي المحاولة الآن',
+        // data.route صريح — إشعار kyc_retry يفتح شاشة KYC حتى مع APK قديم
+        { title: 'أعيدي المحاولة', type: 'kyc_retry', route: '/wallet/kyc' },
+      );
+      failedCount += 1;
+    } catch (e) {
+      console.error('kycSlaSweep stale-processing error:', docSnap.id, e);
+    }
+  }
+  if (failedCount) console.warn(`kycSlaSweep: حوّل ${failedCount} طلب processing عالق إلى failed`);
+
+  // 2) pending أقدم من 10 دقائق → تصعيد للأدمن (مرة واحدة لكل طلب)
+  const pendingSnap = await db
+    .collection('kycRequests')
+    .where('status', '==', 'pending')
+    .limit(400)
+    .get();
+  const stalePending = pendingSnap.docs.filter((d) => {
+    const data = d.data();
+    if (Number(data.slaEscalatedAt) > 0) return false;
+    const updatedAt = Number(data.updatedAt) || Number(data.createdAt) || 0;
+    return !updatedAt || now - updatedAt >= KYC_PENDING_ESCALATE_MS;
+  });
+  if (!stalePending.length) return;
+
+  const batch = db.batch();
+  stalePending.forEach((d) => batch.set(d.ref, { slaEscalatedAt: now }, { merge: true }));
+  await batch.commit();
+
+  console.warn(
+    `kycSlaSweep: تصعيد ${stalePending.length} طلب KYC معلّق للمراجعة اليدوية:`,
+    stalePending.map((d) => d.id).join(', '),
+  );
+
+  // إشعار موجز واحد لكل أدمن (لا إشعار لكل طلب) — يظهر في التطبيق/الدفع إن وُجد جهاز
+  try {
+    const adminsSnap = await db.collection('admins').limit(10).get();
+    const message = `يوجد ${stalePending.length} طلب توثيق (KYC) بانتظار المراجعة اليدوية منذ أكثر من 10 دقائق`;
+    await Promise.allSettled(
+      adminsSnap.docs.map((a) =>
+        notifyUser(a.id, message, { title: 'مراجعة KYC متأخرة', type: 'kyc_admin_escalation' }),
+      ),
+    );
+  } catch (e) {
+    console.error('kycSlaSweep admin escalation notify error:', e);
+  }
 });
 
 /** يرفع حظراً خاطئاً من فشل توثيق سابق — يُستدعى من التطبيق عند تسجيل الدخول */

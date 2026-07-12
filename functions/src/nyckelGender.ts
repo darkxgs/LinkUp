@@ -13,6 +13,9 @@ const NYCKEL_GENDER_FUNCTION_ID = (
   process.env.NYCKEL_GENDER_FUNCTION_ID ?? 'gender-detector'
 ).trim();
 
+/** مهلة قصوى لاستدعاءات Nyckel — اتصال معلّق لا يجمّد طلب KYC كله */
+const NYCKEL_TIMEOUT_MS = 15_000;
+
 let tokenCache: { token: string; renewAt: number } | null = null;
 
 export function isNyckelConfigured(): boolean {
@@ -28,6 +31,7 @@ async function getNyckelBearerToken(): Promise<string | null> {
   const res = await fetch(`${NYCKEL_BASE}/connect/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    signal: AbortSignal.timeout(NYCKEL_TIMEOUT_MS),
     body: new URLSearchParams({
       client_id: NYCKEL_CLIENT_ID,
       client_secret: NYCKEL_CLIENT_SECRET,
@@ -85,6 +89,7 @@ export async function detectGenderWithNyckel(imageBytes: Buffer): Promise<Detect
         'Content-Type': 'application/json',
         'Nyckel-Client-Name': 'linkup-kyc',
       },
+      signal: AbortSignal.timeout(NYCKEL_TIMEOUT_MS),
       body: JSON.stringify({ data: dataUri }),
     },
   );

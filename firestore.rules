@@ -590,14 +590,28 @@ service cloud.firestore {
     // طلبات التحقق من الهوية (KYC)
     match /kycRequests/{uid} {
       allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
+      // 'failed' — يكتبها العميل عندما يفشل استدعاء التحليل بعد كتابة processing
+      // حتى لا يبقى الطلب عالقاً على «قيد المعالجة» للأبد (لا تمس approved/rejected)
+      //
+      // المفاتيح المحمية تُكتب من السيرفر/الأدمن فقط — منع العميل من:
+      // تصفير عدّاد المحاولات الرمادية (faceGrayAttempts) وعدّادات التهدئة
+      // (faceAttemptCount/faceAttemptWindowStart/faceLastAttemptAt)، أو زرع
+      // syncedStatus مسبقاً فتتعطل مزامنة kycStatusSyncV2 لاحقاً، أو التلاعب
+      // بصف مراجعة الأدمن (aiNeedsReview/aiReviewReason/slaEscalatedAt)
       allow create: if request.auth != null && request.auth.uid == uid
         && request.resource.data.uid == uid
-        && request.resource.data.status in ['processing', 'pending'];
+        && request.resource.data.status in ['processing', 'pending', 'failed']
+        && !request.resource.data.keys()
+          .hasAny(['approvedAt', 'aiGender', 'aiConfidence', 'aiProvider', 'genderMatch', 'rejectionReason',
+                   'faceGrayAttempts', 'syncedStatus', 'aiNeedsReview', 'aiReviewReason', 'slaEscalatedAt',
+                   'faceAttemptCount', 'faceAttemptWindowStart', 'faceLastAttemptAt']);
       allow update: if request.auth != null && request.auth.uid == uid
         && request.resource.data.uid == uid
-        && request.resource.data.status in ['processing', 'pending']
+        && request.resource.data.status in ['processing', 'pending', 'failed']
         && !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny(['approvedAt', 'aiGender', 'aiConfidence', 'aiProvider', 'genderMatch', 'rejectionReason']);
+          .hasAny(['approvedAt', 'aiGender', 'aiConfidence', 'aiProvider', 'genderMatch', 'rejectionReason',
+                   'faceGrayAttempts', 'syncedStatus', 'aiNeedsReview', 'aiReviewReason', 'slaEscalatedAt',
+                   'faceAttemptCount', 'faceAttemptWindowStart', 'faceLastAttemptAt']);
       allow update, delete: if hasAdminPerm('kyc-requests');
     }
 

@@ -1,5 +1,12 @@
 /**
  * منطق KYC المشترك — الحالات والنتائج كما في Firestore
+ *
+ * فلسفة القرار (سريع + مظبوط):
+ * - قرار آلي فوري (قبول/رفض) لكل النتائج الحاسمة.
+ * - «غير واضح» أو «منطقة رمادية» → رفض لطيف فوري برسالة «أعيدي التصوير في إضاءة أوضح»
+ *   بدل تعليق الطلب في صف مراجعة صامت.
+ * - المراجعة اليدوية استثناء مُدار للحالات الحقيقية فقط (انقطاع المزوّدات، تعارض بيانات
+ *   الحساب، محاولات رمادية متكررة) مع رسالة صريحة «قيد المراجعة اليدوية».
  */
 import { randomUUID } from 'crypto';
 import * as admin from 'firebase-admin';
@@ -33,7 +40,13 @@ export type Gender = 'male' | 'female' | 'unknown';
 export type DetectionResult = {
   gender: Gender;
   confidence: number;
-  provider: 'face_api' | 'gemini' | 'huggingface' | 'aws_rekognition' | 'nyckel' | 'none';
+  provider: 'gemini' | 'huggingface' | 'aws_rekognition' | 'nyckel' | 'none';
+  /** رأي ثانٍ من مزوّد مستقل وافق على النتيجة — يسمح بعتبة قبول أدنى */
+  corroborated?: boolean;
+  secondProvider?: string;
+  secondConfidence?: number;
+  /** لم يستجب أي مزوّد إطلاقاً (انقطاع/غير مضبوط) — تختلف عن «وجه غير واضح» */
+  noProvider?: boolean;
 };
 
 export type KycOutcome = {
@@ -42,6 +55,8 @@ export type KycOutcome = {
   pending?: boolean;
   suspended?: boolean;
   genderMismatch?: boolean;
+  /** غير واضح/غير حاسم — على المستخدمة إعادة التصوير فوراً (ليست مراجعة يدوية) */
+  retry?: boolean;
   message?: string;
   aiGender?: string;
   aiConfidence?: number;
@@ -51,18 +66,33 @@ export const AI_CONFIDENCE_AUTO = 85;
 export const AI_CONFIDENCE_REVIEW = 65;
 /** Nyckel — عتبة الموافقة التلقائية للمضيفة (0–100) */
 export const NYCKEL_AUTO_THRESHOLD = 72;
-/** Nyckel — أقل منها → مراجعة يدوية */
+/** Nyckel — أقل منها = «غير واضح» (إعادة تصوير فورية) */
 export const NYCKEL_REVIEW_THRESHOLD = 58;
-/** عتبة face-api للموافقة التلقائية (0–100) — 70 ≈ 0.7 */
-export const FACE_API_AUTO_THRESHOLD = 70;
+/** اتفاق مزوّدين مستقلين على نفس الجنس → عتبة قبول أدنى من عتبة المزوّد الواحد */
+export const DUAL_AGREEMENT_THRESHOLD = 65;
+/**
+ * أدنى ثقة من المزوّد الأساسي تستحق طلب رأي ثانٍ (تحتها = غير واضح أصلاً).
+ * مساوية لعتبة «غير الواضح» (NYCKEL_REVIEW_THRESHOLD): ثقة Gemini المُبلَّغة ذاتياً
+ * منفوخة عادة (80-95)، فلا نسمح لاتفاقه برفع حالة كانت سترفض كـ«غير واضح» أصلاً.
+ */
+export const SECOND_OPINION_MIN_PRIMARY = 58;
+/** محاولات «المنطقة الرمادية» المسموحة قبل التحويل للمراجعة اليدوية */
+export const MAX_FACE_GRAY_RETRIES = 2;
 /** سبب حظر قديم من منطق KYC السابق — يُرفع تلقائياً ولا يُعاد تطبيقه */
 export const KYC_GENDER_MISMATCH_BAN_REASON = 'gender_verification_mismatch';
 
-export function readRegisteredGender(userData: FirebaseFirestore.DocumentData): Gender {
+/** الجنس كما هو مخزّن فعلاً (بدون افتراض) — undefined إن لم يُسجَّل */
+export function readRawGender(
+  userData: FirebaseFirestore.DocumentData,
+): string | undefined {
   const g =
     (userData.profile as { gender?: string } | undefined)?.gender
     ?? userData.gender;
-  return g === 'female' ? 'female' : 'male';
+  return typeof g === 'string' && g ? g : undefined;
+}
+
+export function readRegisteredGender(userData: FirebaseFirestore.DocumentData): Gender {
+  return readRawGender(userData) === 'female' ? 'female' : 'male';
 }
 
 export function decodeBase64Image(raw: string): Buffer {
@@ -128,6 +158,24 @@ export async function notifyUser(uid: string, message: string, data: Record<stri
   });
 }
 
+/**
+ * حقول رفع الحظر التي يجوز لمسار KYC كتابتها — لا يُرفع حظر إداري لسبب آخر:
+ * محظور بسبب سبام/احتيال مثلاً لا يفك حظره بمجرد خوض محاولة توثيق تنتهي بالرفض.
+ */
+export function kycBanClearPatch(
+  userData: FirebaseFirestore.DocumentData,
+): Record<string, unknown> {
+  const bannedForOtherReason =
+    userData.isBanned === true
+    && String(userData.banReason ?? '') !== KYC_GENDER_MISMATCH_BAN_REASON;
+  if (bannedForOtherReason) return {};
+  return {
+    isBanned: false,
+    banReason: admin.firestore.FieldValue.delete(),
+    bannedAt: admin.firestore.FieldValue.delete(),
+  };
+}
+
 /** يرفع حظراً خاطئاً من محاولات توثيق سابقة */
 export async function clearKycGenderMismatchBan(
   userRef: FirebaseFirestore.DocumentReference,
@@ -164,9 +212,13 @@ export async function approveFemaleKyc(
 
   await kycRef.set(
     {
+      // تنظيف آثار محاولات سابقة (مراجعة/منطقة رمادية) — القرار الحالي نهائي
+      aiNeedsReview: admin.firestore.FieldValue.delete(),
+      faceGrayAttempts: admin.firestore.FieldValue.delete(),
+      rejectionReason: admin.firestore.FieldValue.delete(),
       ...aiPatch,
       status: 'approved',
-      // مؤشر أن users/{uid} زُومن في نفس المسار — يمنع إعادة المعالجة في syncKycStatusToUser
+      // مؤشر أن users/{uid} زُومن في نفس المسار — يمنع إعادة المعالجة في kycStatusSyncV2
       syncedStatus: 'approved',
       method,
       approvedAt: now,
@@ -183,9 +235,8 @@ export async function approveFemaleKyc(
     profile: { ...profile, gender: 'female' },
     verifiedAt: now,
     verificationStatus: 'approved',
-    isBanned: false,
-    banReason: admin.firestore.FieldValue.delete(),
-    bannedAt: admin.firestore.FieldValue.delete(),
+    // يرفع فقط حظر «تعارض الجنس» القديم — الحظر الإداري لسبب آخر يبقى
+    ...kycBanClearPatch(userData),
     updatedAt: now,
   };
   if (resolvedName) userPatch.displayName = resolvedName;
@@ -216,9 +267,22 @@ export async function rejectKycVerification(
   rejectionReason: string,
   userMessage: string,
   detected: DetectionResult,
+  options?: {
+    /**
+     * رفض لطيف قابل لإعادة المحاولة فوراً («أعيدي التصوير») — لا يمس عدّاد
+     * المنطقة الرمادية ويُعيد retry:true للتطبيق ليعرض رسالة إعادة التصوير.
+     */
+    retry?: boolean;
+    /** بيانات users/{uid} — لتقييد رفع الحظر بحظر «تعارض الجنس» فقط */
+    userData?: FirebaseFirestore.DocumentData;
+  },
 ): Promise<KycOutcome> {
+  const isRetry = options?.retry === true;
   await kycRef.set(
     {
+      aiNeedsReview: admin.firestore.FieldValue.delete(),
+      // الرفض النهائي يصفّر عدّاد المحاولات الرمادية؛ رفض إعادة التصوير يُبقيه
+      ...(isRetry ? {} : { faceGrayAttempts: admin.firestore.FieldValue.delete() }),
       ...aiPatch,
       status: 'rejected',
       syncedStatus: 'rejected',
@@ -230,19 +294,21 @@ export async function rejectKycVerification(
   await userRef.update({
     isVerified: false,
     verificationStatus: 'rejected',
-    isBanned: false,
-    banReason: admin.firestore.FieldValue.delete(),
-    bannedAt: admin.firestore.FieldValue.delete(),
+    // بلا userData لا نلمس الحظر إطلاقاً (الأسلم) — ومعه يُرفع حظر «تعارض الجنس» فقط،
+    // فمحظور إدارياً لسبب آخر لا يفك حظره بمجرد محاولة توثيق تنتهي بالرفض
+    ...(options?.userData ? kycBanClearPatch(options.userData) : {}),
     updatedAt: now,
   });
-  await notifyUser(uid, userMessage, {
-    title: 'رفض التحقق',
-    type: 'kyc_rejected',
-    route: '/wallet/kyc',
-  });
+  await notifyUser(
+    uid,
+    userMessage,
+    isRetry
+      ? { title: 'أعيدي التصوير', type: 'kyc_retry', route: '/wallet/kyc' }
+      : { title: 'رفض التحقق', type: 'kyc_rejected', route: '/wallet/kyc' },
+  );
   return {
     ok: false,
-    genderMismatch: true,
+    ...(isRetry ? { retry: true } : { genderMismatch: true }),
     message: userMessage,
     aiGender: detected.gender,
     aiConfidence: detected.confidence,
@@ -250,10 +316,56 @@ export async function rejectKycVerification(
 }
 
 /**
- * يطبّق نتيجة AI على kycRequests + users — نفس السيناريو الحالي:
+ * الحالة اليدوية الحقيقية الوحيدة — pending صريح مع رسالة واضحة للمستخدمة
+ * (لا صمت ٢٠ دقيقة): انقطاع المزوّدات، تعارض بيانات الحساب، أو محاولات رمادية متكررة.
+ */
+export async function holdForManualReview(
+  uid: string,
+  kycRef: FirebaseFirestore.DocumentReference,
+  userRef: FirebaseFirestore.DocumentReference,
+  aiPatch: Record<string, unknown>,
+  method: 'ai' | 'face' | 'manual',
+  now: number,
+  detected: DetectionResult,
+  userMessage: string,
+  reviewReason?: string,
+): Promise<KycOutcome> {
+  await kycRef.set(
+    {
+      ...aiPatch,
+      status: 'pending',
+      syncedStatus: 'pending',
+      method,
+      aiNeedsReview: true,
+      ...(reviewReason ? { aiReviewReason: reviewReason } : {}),
+      rejectionReason: admin.firestore.FieldValue.delete(),
+    },
+    { merge: true },
+  );
+  await userRef.set(
+    { verificationStatus: 'pending', updatedAt: now },
+    { merge: true },
+  );
+  await notifyUser(uid, userMessage, {
+    title: 'التحقق من الهوية',
+    type: 'kyc_pending',
+    route: '/wallet/kyc',
+  });
+  return {
+    ok: true,
+    pending: true,
+    message: userMessage,
+    aiGender: detected.gender,
+    aiConfidence: detected.confidence,
+  };
+}
+
+/**
+ * يطبّق نتيجة AI على kycRequests + users:
  * - approved → isVerified + verificationStatus: approved
  * - rejected → verificationStatus: rejected فقط (بدون حظر الحساب)
- * - pending → status: pending
+ * - retry (غير واضح/رمادي) → rejected برسالة «أعيدي التصوير» — إعادة محاولة فورية
+ * - pending → للحالات اليدوية الحقيقية فقط، مع رسالة «قيد المراجعة اليدوية» صريحة
  */
 export async function applyKycDetectionResult(
   uid: string,
@@ -262,71 +374,123 @@ export async function applyKycDetectionResult(
   userData: FirebaseFirestore.DocumentData,
   detected: DetectionResult,
   method: 'ai' | 'face' | 'manual',
-  options?: { fullName?: string },
+  options?: {
+    fullName?: string;
+    /** عدد المحاولات السابقة التي انتهت في المنطقة الرمادية (من kycRequests.faceGrayAttempts) */
+    grayAttempts?: number;
+  },
 ): Promise<KycOutcome> {
   await clearKycGenderMismatchBan(userRef, userData);
 
   const registeredGender = readRegisteredGender(userData);
+  const rawGender = readRawGender(userData);
   const now = Date.now();
   const aiPatch = {
     aiGender: detected.gender,
     aiConfidence: detected.confidence,
     aiProvider: detected.provider,
+    ...(detected.corroborated ? { aiCorroborated: true } : {}),
+    ...(detected.secondProvider
+      ? {
+          aiSecondProvider: detected.secondProvider,
+          aiSecondConfidence: detected.secondConfidence ?? 0,
+        }
+      : {}),
     registeredGender,
     genderMatch: detected.gender === 'unknown' ? null : detected.gender === registeredGender,
     updatedAt: now,
   };
 
   const autoThreshold =
-    detected.provider === 'face_api'
-      ? FACE_API_AUTO_THRESHOLD
-      : detected.provider === 'nyckel'
-        ? NYCKEL_AUTO_THRESHOLD
-        : AI_CONFIDENCE_AUTO;
+    detected.provider === 'nyckel' ? NYCKEL_AUTO_THRESHOLD : AI_CONFIDENCE_AUTO;
   const reviewThreshold =
-    detected.provider === 'face_api'
-      ? 50
-      : detected.provider === 'nyckel'
-        ? NYCKEL_REVIEW_THRESHOLD
-        : AI_CONFIDENCE_REVIEW;
+    detected.provider === 'nyckel' ? NYCKEL_REVIEW_THRESHOLD : AI_CONFIDENCE_REVIEW;
+  // اتفاق مزوّدين مستقلين يعوّض العتبة الأعلى للمزوّد الواحد
+  const effectiveAuto = detected.corroborated
+    ? Math.min(autoThreshold, DUAL_AGREEMENT_THRESHOLD)
+    : autoThreshold;
 
   const resolvedFullName = options?.fullName?.trim();
 
-  /** التحقق الفوري بالوجه — أنثى بثقة كافية → توثيق مباشر */
+  /**
+   * التحقق الفوري بالوجه — مصفوفة قرار كاملة، كل مساراتها فورية عدا
+   * حالتين حقيقيتين للمراجعة اليدوية (انقطاع المزوّدات / تعارض بيانات الحساب).
+   */
   if (method === 'face') {
-    if (detected.gender === 'female' && detected.confidence >= autoThreshold) {
+    const grayAttempts = options?.grayAttempts ?? 0;
+
+    // أنثى بثقة حاسمة → توثيق فوري
+    if (detected.gender === 'female' && detected.confidence >= effectiveAuto) {
+      if (rawGender === 'male') {
+        // حساب مسجّل ذكراً صراحةً — لا نقلب جنس الحساب بقرار AI واحد
+        return holdForManualReview(
+          uid, kycRef, userRef, aiPatch, method, now, detected,
+          'بيانات حسابك مسجّلة بجنس مختلف — أُحيل طلبك للمراجعة اليدوية وسنبلغك بالنتيجة',
+          'female_detected_on_male_account',
+        );
+      }
       return approveFemaleKyc(
-        uid,
-        kycRef,
-        userRef,
-        userData,
-        aiPatch,
-        method,
-        now,
-        detected,
-        resolvedFullName,
+        uid, kycRef, userRef, userData, aiPatch, method, now, detected, resolvedFullName,
       );
     }
-    if (detected.gender === 'male' && detected.confidence >= autoThreshold) {
+
+    // ذكر بثقة حاسمة → رفض فوري
+    if (detected.gender === 'male' && detected.confidence >= effectiveAuto) {
       return rejectKycVerification(
-        uid,
-        kycRef,
-        userRef,
-        aiPatch,
-        method,
-        now,
+        uid, kycRef, userRef, aiPatch, method, now,
         'التحقق متاح للمضيفات الإناث فقط',
         'فشل التوثيق: التحقق متاح للمضيفات الإناث فقط',
         detected,
+        { userData },
       );
     }
+
+    // لا مزوّد استجاب إطلاقاً (انقطاع/غير مضبوط) — حالة يدوية حقيقية برسالة صريحة
+    if (detected.gender === 'unknown' && detected.noProvider === true) {
+      return holdForManualReview(
+        uid, kycRef, userRef, aiPatch, method, now, detected,
+        'تعذّر التحليل الآلي مؤقتاً — طلبك قيد المراجعة اليدوية وسنبلغك بالنتيجة فور الانتهاء',
+        'no_ai_provider',
+      );
+    }
+
+    // وجه غير واضح — رفض لطيف فوري بدل تعليق الطلب في صف مراجعة صامت
+    if (detected.gender === 'unknown' || detected.confidence < reviewThreshold) {
+      return rejectKycVerification(
+        uid, kycRef, userRef, aiPatch, method, now,
+        'لم يظهر الوجه بوضوح في الصور',
+        'لم نتمكن من رؤية وجهك بوضوح — أعيدي التصوير في إضاءة أوضح مع إبقاء وجهك كاملاً داخل الإطار',
+        detected,
+        { retry: true, userData },
+      );
+    }
+
+    // منطقة رمادية (بين عتبة المراجعة وعتبة القبول) — إعادة تصوير فورية أولاً
+    if (grayAttempts < MAX_FACE_GRAY_RETRIES) {
+      return rejectKycVerification(
+        uid, kycRef, userRef,
+        { ...aiPatch, faceGrayAttempts: grayAttempts + 1 },
+        method, now,
+        'نتيجة غير حاسمة — مطلوبة إعادة تصوير بجودة أفضل',
+        'النتيجة غير حاسمة — أعيدي التصوير في إضاءة أوضح ووجهك مكشوف ومواجه للكاميرا',
+        detected,
+        { retry: true, userData },
+      );
+    }
+
+    // محاولات رمادية متكررة — حالة يدوية حقيقية مع رسالة صريحة (لا صمت)
+    return holdForManualReview(
+      uid, kycRef, userRef, aiPatch, method, now, detected,
+      'تعذّر الحسم تلقائياً بعد عدة محاولات — طلبك الآن قيد المراجعة اليدوية وسنبلغك بالنتيجة',
+      'gray_zone_retries_exhausted',
+    );
   }
 
   /** مركز التحقق للمضيفات — ذكر مُكتشَف بثقة عالية → رفض التوثيق فقط (بدون حظر) */
   if (
     detected.provider === 'nyckel'
     && detected.gender === 'male'
-    && detected.confidence >= autoThreshold
+    && detected.confidence >= effectiveAuto
   ) {
     return rejectKycVerification(
       uid,
@@ -340,15 +504,23 @@ export async function applyKycDetectionResult(
         ? 'فشل التوثيق: نتيجة التحليل لا تطابق متطلبات التحقق كمضيفة'
         : 'فشل التوثيق: التحقق متاح للمضيفات الإناث فقط',
       detected,
+      { userData },
     );
   }
 
-  /** Nyckel — أنثى مُكتشَفة بثقة عالية → توثيق تلقائي */
+  /** Nyckel — أنثى مُكتشَفة بثقة عالية → توثيق تلقائي (بلا قلب جنس حساب مسجّل ذكراً) */
   if (
     detected.provider === 'nyckel'
     && detected.gender === 'female'
-    && detected.confidence >= autoThreshold
+    && detected.confidence >= effectiveAuto
   ) {
+    if (rawGender === 'male') {
+      return holdForManualReview(
+        uid, kycRef, userRef, aiPatch, method, now, detected,
+        'بيانات حسابك مسجّلة بجنس مختلف — أُحيل طلبك للمراجعة اليدوية وسنبلغك بالنتيجة',
+        'female_detected_on_male_account',
+      );
+    }
     return approveFemaleKyc(
       uid,
       kycRef,
@@ -392,7 +564,7 @@ export async function applyKycDetectionResult(
     };
   }
 
-  if (detected.gender !== registeredGender && detected.confidence >= autoThreshold) {
+  if (detected.gender !== registeredGender && detected.confidence >= effectiveAuto) {
     return rejectKycVerification(
       uid,
       kycRef,
@@ -403,10 +575,11 @@ export async function applyKycDetectionResult(
       'تعارض بين الجنس المسجّل ونتيجة التحقق',
       'فشل التوثيق: نتيجة التحليل لا تطابق بيانات حسابك — يمكنك المحاولة مجدداً',
       detected,
+      { userData },
     );
   }
 
-  if (detected.gender === registeredGender && detected.confidence >= autoThreshold) {
+  if (detected.gender === registeredGender && detected.confidence >= effectiveAuto) {
     await kycRef.set(
       {
         ...aiPatch,
@@ -422,8 +595,8 @@ export async function applyKycDetectionResult(
       verifiedGender: detected.gender,
       verifiedAt: now,
       verificationStatus: 'approved',
-      isBanned: false,
-      banReason: admin.firestore.FieldValue.delete(),
+      // يرفع فقط حظر «تعارض الجنس» القديم — الحظر الإداري لسبب آخر يبقى
+      ...kycBanClearPatch(userData),
       updatedAt: now,
     });
     await activateAgencyHostIfNeeded(uid);
@@ -455,7 +628,7 @@ export async function applyKycDetectionResult(
   return {
     ok: true,
     pending: true,
-    message: 'قيد المراجعة',
+    message: 'قيد المراجعة اليدوية — سنبلغك بالنتيجة فور الانتهاء',
     aiGender: detected.gender,
     aiConfidence: detected.confidence,
   };

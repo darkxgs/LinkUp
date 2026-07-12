@@ -1,12 +1,11 @@
 # Functions Source
 
-Cloud Function implementations: cascade delete, casino live-activity logging, KYC & gender verification (faceApi/nyckel), first-recharge bonus, intelligence games & landmark quiz, login sessions, platform staff, recharge-bot API, room-games API, room presence cleanup, share links, staff/agency ops, and the weekly lottery. `index.ts` is the export entrypoint.
+Cloud Function implementations: cascade delete, casino live-activity logging, KYC & gender verification (nyckel primary + second-opinion providers), first-recharge bonus, intelligence games & landmark quiz, login sessions, platform staff, recharge-bot API, room-games API, room presence cleanup, share links, staff/agency ops, and the weekly lottery. `index.ts` is the export entrypoint.
 
 ## Files
 - `cascadeDelete.ts`
 - `casinoLiveActivityLog.ts`
 - `defaultAvatars.ts`
-- `faceApiGender.ts`
 - `firstRechargeBonus.ts`
 - `index.ts`
 - `intelligenceGames.ts`
