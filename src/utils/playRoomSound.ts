@@ -35,7 +35,7 @@ let sfxEpoch = 0;
 
 /**
  * مهلة لاستدعاءات expo-av داخل الطابور — stopAsync/createAsync قد يعلّقان
- * أثناء استحواذ LiveKit على تركيز الصوت (أندرويد) فيتجمد الطابور كله.
+ * أثناء استحواذ جلسة الصوت (Agora) على تركيز الصوت (أندرويد) فيتجمد الطابور كله.
  * عند تجاوز المهلة نرفض ونكمل؛ onLateResolve تنظّف الناتج المتأخر إن وصل.
  */
 const SFX_OP_TIMEOUT_MS = 4000;
@@ -66,9 +66,9 @@ function withSfxTimeout<T>(p: Promise<T>, onLateResolve?: (v: T) => void): Promi
     );
   });
 }
-/** تهيئة الصوت أثناء جلسة LiveKit — MixWithOthers حتى تُسمع المؤثرات مع المايك */
+/** تهيئة الصوت أثناء جلسة صوت الغرفة — MixWithOthers حتى تُسمع المؤثرات مع المايك */
 let voiceSfxAudioConfigured = false;
-/** true أثناء جلسة LiveKit */
+/** true أثناء جلسة صوت الغرفة */
 let roomVoiceSessionActive = false;
 
 /** أصوات الهدايا المحمّلة مسبقاً — تُعاد للكاش بعد التشغيل لإعادة تشغيل فورية */
@@ -78,7 +78,7 @@ const preloadedAssetSounds = new Map<string, Sound>();
 
 /**
  * كتم المؤثرات المحلية (مؤثرات الغرفة + أصوات الهدايا) — يتبع كتم الروم الكلي.
- * كان كتم الروم يكتم أعضاء LiveKit والموسيقى فقط بينما المؤثرات تستمر بالصوت الكامل.
+ * كان كتم الروم يكتم أعضاء الغرفة والموسيقى فقط بينما المؤثرات تستمر بالصوت الكامل.
  */
 let roomSfxMuted = false;
 
@@ -131,7 +131,7 @@ export async function configureSoundEffectsAudio(force = false): Promise<void> {
         shouldDuckAndroid: false,
         playThroughEarpieceAndroid: false,
         interruptionModeIOS: AV.InterruptionModeIOS.MixWithOthers,
-        // لا نقاطع صوت الغرفة (LiveKit) عند تشغيل مؤثرات محلية.
+        // لا نقاطع صوت الغرفة (Agora) عند تشغيل مؤثرات محلية.
         interruptionModeAndroid: AV.InterruptionModeAndroid.DuckOthers,
       });
       voiceSfxAudioConfigured = true;
@@ -158,7 +158,7 @@ export async function configureSoundEffectsAudio(force = false): Promise<void> {
   }
 }
 
-/** تهيئة مسبقة عند دخول الروم — يحمّل expo-av فقط إن كان LiveKit نشطاً */
+/** تهيئة مسبقة عند دخول الروم — يحمّل expo-av فقط إن كانت جلسة الصوت نشطة */
 export async function warmGiftSoundEngine(): Promise<void> {
   await getAV();
   if (!roomVoiceSessionActive) {
@@ -171,7 +171,7 @@ export async function configureVideoPlaybackAudio(): Promise<void> {
   const AV = await getAV();
 
   // أثناء جلسة صوت الغرفة لا نطفئ التسجيل — allowsRecordingIOS: false يقلب
-  // فئة AVAudioSession من PlayAndRecord فيُقتل مايك LiveKit لمن هو على المقعد
+  // فئة AVAudioSession من PlayAndRecord فيُقتل مايك جلسة الصوت لمن هو على المقعد
   // (دخولية مستخدم تُطفئ مايك المتحدثين). نعيد تأكيد وضع الخلط بدلاً منه.
   if (roomVoiceSessionActive) {
     await configureSoundEffectsAudio(true);
@@ -438,7 +438,7 @@ async function playRoomSoundSourceInner(
   cacheKey?: string,
 ): Promise<void> {
   // مؤثرات الغرفة تعزف داخل جلسة صوت حية فقط — بعد المغادرة (تغيّر الجيل
-  // أو انتهاء جلسة LiveKit) تُسقط العملية نفسها بدل الانفجار المتأخر
+  // أو انتهاء جلسة الصوت) تُسقط العملية نفسها بدل الانفجار المتأخر
   if (epoch !== sfxEpoch || !roomVoiceSessionActive) return;
   if (roomSfxMuted) return; // كتم الروم يشمل المؤثرات المحلية
   await pauseActiveGiftSound();

@@ -1,8 +1,7 @@
 /**
  * التحقق من الهوية (KYC) — رفع الوثائق + فيديو + تحليل AI من السيرفر
  */
-import * as FileSystem from 'expo-file-system';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import {
   ref as storageRef,
   uploadBytes,
@@ -10,6 +9,12 @@ import {
 } from 'firebase/storage';
 import { httpsCallable } from 'firebase/functions';
 import { firestore, storage, auth, functions } from './index';
+
+/** مهلة استدعاء التحقق — مطابقة لمهلة السيرفر 120s (الافتراضي 70s كان أقصر منها) */
+const KYC_CALLABLE_TIMEOUT_MS = 120_000;
+
+/** طلب «processing» أقدم من هذا العمر = عالق (السيرفر ينتهي خلال 120 ثانية كحد أقصى) */
+const STALE_PROCESSING_MS = 3 * 60 * 1000;
 
 export type KycFileKind = 'idFront' | 'idBack' | 'selfie' | 'video' | 'frame';
 
@@ -45,6 +50,8 @@ export interface KycSubmitResult {
   pending?: boolean;
   suspended?: boolean;
   genderMismatch?: boolean;
+  /** غير واضح/غير حاسم — أعيدي التصوير فوراً (ليست مراجعة يدوية ولا رفضاً نهائياً) */
+  retry?: boolean;
   message?: string;
   aiGender?: string;
   aiConfidence?: number;
@@ -129,20 +136,39 @@ export async function submitKycVerification(
   return res.data;
 }
 
-async function uploadKycBase64Image(base64: string, kind: KycFileKind): Promise<string> {
-  const b64 = base64.replace(/^data:image\/\w+;base64,/, '').trim();
-  if (!b64) throw new Error('صورة غير صالحة');
-  const dest = `${FileSystem.cacheDirectory}kyc_${kind}_${Date.now()}.jpg`;
-  await FileSystem.writeAsStringAsync(dest, b64, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  return uploadKycAsset(dest, kind);
+/**
+ * يحوّل طلباً عالقاً على «processing» (فشل استدعاء سابق قبل وصوله للسيرفر)
+ * إلى «failed» حتى لا تظهر «قيد المراجعة» وهمية للأبد — تُتيح إعادة المحاولة فوراً.
+ */
+export async function failStaleKycProcessing(): Promise<boolean> {
+  const user = auth.currentUser;
+  if (!user) return false;
+  try {
+    const ref = doc(firestore, 'kycRequests', user.uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return false;
+    const data = snap.data();
+    if (data.status !== 'processing') return false;
+    const updatedAt = Number(data.updatedAt) || 0;
+    if (Date.now() - updatedAt < STALE_PROCESSING_MS) return false;
+    await setDoc(
+      ref,
+      { status: 'failed', failedReason: 'stale_processing', updatedAt: Date.now() },
+      { merge: true },
+    );
+    return true;
+  } catch {
+    // قواعد قديمة قد ترفض 'failed' قبل نشرها — لا نكسر الشاشة
+    return false;
+  }
 }
 
 /**
  * تحقق سريع بالوجه — verifyGenderFace Cloud Function.
  * `framesBase64`: حتى 3 إطارات تُلتقط تلقائياً أثناء إيماءة بسيطة (تحقق حيوية) —
  * اختيارية؛ بدونها يعمل بإطار واحد كالسابق.
+ * لا رفع مسبق إلى Storage من العميل: السيرفر يحفظ الإطارات بنفسه بالتوازي مع
+ * التحليل — يوفّر رفعاً مزدوجاً ودقائق على الشبكات الضعيفة.
  */
 export async function submitKycFaceVerification(
   imageBase64: string,
@@ -155,16 +181,15 @@ export async function submitKycFaceVerification(
   if (!user) throw new Error('يجب تسجيل الدخول');
 
   const trimmedName = fullName.trim();
-  const verificationImageUrl = await uploadKycBase64Image(imageBase64, 'selfie');
+  const kycDocRef = doc(firestore, 'kycRequests', user.uid);
   const now = Date.now();
+  // كتابة متفائلة تُظهر «جارٍ المعالجة» لحظياً عبر onSnapshot — الروابط يكتبها السيرفر
   await setDoc(
-    doc(firestore, 'kycRequests', user.uid),
+    kycDocRef,
     {
       uid: user.uid,
       displayName: displayName.trim() || trimmedName,
       fullName: trimmedName,
-      selfie: verificationImageUrl,
-      verificationFrameUrl: verificationImageUrl,
       status: 'processing',
       method: 'face',
       createdAt: now,
@@ -181,18 +206,35 @@ export async function submitKycFaceVerification(
       personal: { fullName: string; displayName: string };
     },
     KycSubmitResult
-  >(functions, 'verifyGenderFace');
+  >(functions, 'verifyGenderFace', { timeout: KYC_CALLABLE_TIMEOUT_MS });
 
-  const res = await fn({
-    imageBase64,
-    ...(framesBase64 && framesBase64.length > 1 ? { framesBase64 } : {}),
-    ...(gesture ? { gesture } : {}),
-    personal: {
-      fullName: trimmedName,
-      displayName: displayName.trim() || trimmedName,
-    },
-  });
-  return res.data;
+  try {
+    const res = await fn({
+      imageBase64,
+      ...(framesBase64 && framesBase64.length > 1 ? { framesBase64 } : {}),
+      ...(gesture ? { gesture } : {}),
+      personal: {
+        fullName: trimmedName,
+        displayName: displayName.trim() || trimmedName,
+      },
+    });
+    return res.data;
+  } catch (e) {
+    // فشل قبل قرار السيرفر — لا نترك الطلب عالقاً على processing («قيد المراجعة» وهمية)
+    try {
+      const snap = await getDoc(kycDocRef);
+      if (snap.exists() && snap.data().status === 'processing') {
+        await setDoc(
+          kycDocRef,
+          { status: 'failed', failedReason: 'call_failed', updatedAt: Date.now() },
+          { merge: true },
+        );
+      }
+    } catch {
+      // لا نخفي الخطأ الأصلي
+    }
+    throw e;
+  }
 }
 
 /** طلب يدوي — بيانات + صور → pending للوحة التحكم (بدون AI) */

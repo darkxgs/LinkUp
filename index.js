@@ -8,7 +8,7 @@
  * لا تضع await أو import ديناميكي لـ expo-router هنا — وإلا يظهر:
  *   "main" has not been registered
  *
- * LiveKit يُحمَّل فقط عند دخول الروم (roomAudioSession) أو المكالمة (useCall).
+ * محرك الصوت (Agora) يُحمَّل فقط عند دخول الروم (roomAudioSession) أو المكالمة (useCall).
  * RTL من التخزين: يُشغَّل بالتوازي + initI18n في _layout
  */
 import './polyfills';

@@ -1,6 +1,7 @@
 /**
- * يحافظ على اتصال LiveKit للروم أثناء التصغير (ابقَ في الروم)
- * يُركَّب في جذر التطبيق — لا يعتمد على شاشة الروم
+ * يحافظ على اتصال صوت الروم (Agora) أثناء التصغير (ابقَ في الروم)
+ * يُركَّب في جذر التطبيق — لا يعتمد على شاشة الروم
+ * (كان اسمه RoomLiveKitHost قبل إزالة LiveKit)
  */
 import { useEffect } from 'react';
 import {
@@ -10,7 +11,7 @@ import {
 import { roomAudioSession } from '@/services/roomAudioSession';
 import { syncPinnedRoomListenAudio } from '@/services/pinnedRoomAudio';
 
-export function RoomLiveKitHost() {
+export function RoomAudioHost() {
   const roomId = useRoomSessionStore((s) => s.roomId);
   const audioPinned = useRoomSessionStore((s) => s.audioPinned);
 
@@ -21,7 +22,7 @@ export function RoomLiveKitHost() {
 
     return () => {
       const session = useRoomSessionStore.getState();
-      // العودة لشاشة الروم (نفس roomId) — لا نقطع LiveKit؛ الشاشة تعيد ضبط النشر/الاستماع
+      // العودة لشاشة الروم (نفس roomId) — لا نقطع جلسة الصوت؛ الشاشة تعيد ضبط النشر/الاستماع
       if (session.roomId === roomId) return;
       if (!roomId || !isRoomSessionPinned(roomId)) {
         void roomAudioSession.disconnect();

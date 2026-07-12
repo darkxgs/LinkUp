@@ -1,4 +1,4 @@
-import { getRtcEnvironmentKind, type RtcEnvironmentKind } from '@/services/livekitNative';
+import { getRtcEnvironmentKind, type RtcEnvironmentKind } from '@/services/rtc/rtcEnvironment';
 
 export const RTC_ENV_EXPO_GO = 'RTC_ENV_EXPO_GO';
 export const RTC_ENV_SIMULATOR = 'RTC_ENV_SIMULATOR';

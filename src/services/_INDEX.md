@@ -1,6 +1,6 @@
 # Service Layer
 
-Business-logic / API modules. Top-level files cover cross-cutting domains (agency, calls, wallet/coins, rooms, room music, LiveKit audio routing, location, permissions, KYC). Firebase data access is grouped under `firebase/`.
+Business-logic / API modules. Top-level files cover cross-cutting domains (agency, calls, wallet/coins, rooms, room music, RTC audio via Agora (`rtc/`), location, permissions, KYC). Firebase data access is grouped under `firebase/`.
 
 ## Files
 - `accountSecurity.ts`
@@ -17,8 +17,6 @@ Business-logic / API modules. Top-level files cover cross-cutting domains (agenc
 - `currencyExchange.ts`
 - `hostPearlTransfer.ts`
 - `incomingCalls.ts`
-- `livekitAudioRouting.ts`
-- `livekitNative.ts`
 - `locationService.ts`
 - `lockedMedia.ts`
 - `loginSession.ts`

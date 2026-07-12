@@ -23,8 +23,9 @@ export function translateCallableError(err: unknown): string {
     return SESSION_EXPIRED_MSG;
   }
   if (code === 'functions/failed-precondition') {
-    if (msg.includes('LiveKit')) {
-      return 'خدمة المكالمات والغrooms الصوتية غير مهيّأة على السيرفر';
+    // رسائل تهيئة خدمة الصوت من السيرفر (Agora — و'LiveKit' أثر تاريخي من دوال قديمة)
+    if (msg.includes('Agora') || msg.includes('LiveKit')) {
+      return 'خدمة المكالمات والغرف الصوتية غير مهيّأة على السيرفر';
     }
     if (msg.includes('لعبت هذه اللعبة اليوم') || msg.includes('رصيد غير كاف')) {
       return msg;

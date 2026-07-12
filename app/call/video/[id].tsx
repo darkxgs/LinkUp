@@ -1,6 +1,6 @@
 /**
  * LinkUp App — Video Call Screen
- * مكالمة فيديو كاملة عبر LiveKit (callSession + VideoView)
+ * مكالمة فيديو كاملة عبر Agora (callSession + CallVideoView)
  */
 
 import { useTranslation } from 'react-i18next';

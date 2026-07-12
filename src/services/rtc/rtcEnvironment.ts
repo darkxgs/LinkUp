@@ -1,6 +1,6 @@
 /**
- * فحص بيئة RTC — مستقل عن المزوّد (LiveKit/Agora)
- * منسوخ من livekitNative.ts تمهيداً للترحيل (الأصل يُحذف في مرحلة لاحقة)
+ * فحص بيئة RTC — مستقل عن المزوّد
+ * (كان منسوخاً من livekitNative.ts — حُذف الأصل مع إزالة LiveKit وهذا هو المرجع الوحيد)
  */
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';

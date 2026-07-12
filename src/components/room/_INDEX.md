@@ -27,6 +27,7 @@ The largest component group: everything that renders inside a live audio room â€
 - `PinnedMessagesBanner.tsx`
 - `RoomAgencyInvitePopup.tsx`
 - `RoomAppLifecycle.tsx`
+- `RoomAudioHost.tsx`
 - `RoomBackgroundKeepAlive.tsx`
 - `RoomBlockedUsersPanel.tsx`
 - `RoomBottomSheet.tsx`
@@ -54,7 +55,6 @@ The largest component group: everything that renders inside a live audio room â€
 - `RoomJoinMicModal.tsx`
 - `RoomKickBanModal.tsx`
 - `RoomLiveHeader.tsx`
-- `RoomLiveKitHost.tsx`
 - `RoomMediaPlayingPill.tsx`
 - `RoomMemberActionMenu.tsx`
 - `RoomMicInvitePopup.tsx`

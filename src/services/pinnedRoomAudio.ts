@@ -4,7 +4,7 @@
 import { roomAudioSession } from '@/services/roomAudioSession';
 import { getLiveKitRoomName, useRoomSessionStore } from '@/stores/roomSessionStore';
 
-/** اتصال LiveKit أثناء التصغير + ضبط مستوى السماع */
+/** اتصال جلسة الصوت أثناء التصغير + ضبط مستوى السماع */
 export async function syncPinnedRoomListenAudio(roomId: string): Promise<void> {
   if (!roomId) return;
   const session = useRoomSessionStore.getState();

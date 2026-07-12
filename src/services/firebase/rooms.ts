@@ -27,7 +27,6 @@ import {
 } from 'firebase/database';
 import { doc, getDoc, updateDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { realtimeDb, auth, firestore, functions } from './index';
-import { roomAudioSession } from '@/services/roomAudioSession';
 import { resolveDisplayName } from '@/utils/displayName';
 import { resolveOfficialUserAvatar } from '@/utils/userAvatar';
 import { prefetchAvatarUris } from '@/utils/imageConfig';
@@ -148,7 +147,7 @@ async function bindSeatOnDisconnect(roomId: string, seatIdx: number): Promise<vo
 
   const seatRef = ref(realtimeDb, `rooms/${roomId}/seats/seat_${seatIdx}`);
   // لا نُفرّغ المقعد فوراً عند انقطاع RTDB العابر (شبكة تتذبذب والمستخدم يتحدث عبر
-  // LiveKit على اتصال مستقل!) — نضع علامة انقطاع فقط، والمقعد يُفرَّغ بعد مهلة سماح
+  // جلسة الصوت على اتصال مستقل!) — نضع علامة انقطاع فقط، والمقعد يُفرَّغ بعد مهلة سماح
   // في pruneStaleRoomSeats إن لم يعُد. هذا يمنع «النزول التلقائي من المايك بدون سبب».
   await onDisconnect(seatRef).update({ disconnectedAt: serverTimestamp() });
   // عدنا متصلين الآن — امسح أي علامة انقطاع سابقة
@@ -1904,7 +1903,7 @@ export const toggleMute = async (
 // ==================== SET SPEAKING STATE ====================
 /**
  * تحديد ما إذا كان المستخدم يتكلم حالياً (للموجات الصوتية)
- * يُستخدم من LiveKit عبر isSpeaking / audioLevel
+ * يُستخدم من جلسة الصوت عبر isSpeaking / audioLevel
  */
 export const setSeatSpeaking = async (
   roomId: string,
@@ -2196,9 +2195,9 @@ export async function pruneStaleRoomSeats(roomId: string): Promise<number> {
   const now = Date.now();
   const SEAT_AUDIENCE_GRACE_MS = 120_000;
   // مهلة سماح بعد انقطاع RTDB — onDisconnect يضع علامة disconnectedAt بدل الإفراغ
-  // الفوري؛ من عاد خلال المهلة يبقى على مايكه (اتصال LiveKit مستقل عن RTDB).
+  // الفوري؛ من عاد خلال المهلة يبقى على مايكه (اتصال جلسة الصوت مستقل عن RTDB).
   // رُفعت 60ث → 180ث: الدقيقة الواحدة كانت تُنزِل متحدثين نشطين من المايك عند
-  // تقطع شبكة أطول قليلاً بينما صوتهم عبر LiveKit ما زال شغالاً (نزول ذاتي مفاجئ)
+  // تقطع شبكة أطول قليلاً بينما صوتهم عبر جلسة الصوت ما زال شغالاً (نزول ذاتي مفاجئ)
   const SEAT_DISCONNECT_GRACE_MS = 180_000;
 
   for (const [key, seat] of Object.entries(seats)) {
@@ -3150,7 +3149,7 @@ export const hostToggleUserMicMute = async (
     if (Number.isNaN(idx)) throw new Error('مقعد غير صالح');
     const nextMuted = !(seat.isMuted === true);
     await toggleMute(roomId, idx, nextMuted);
-    // كتم فعلي على خادم LiveKit — يوقف البث حتى لو تجاهل جهاز المكتوم العلامة.
+    // كتم فعلي على خادم الصوت — يوقف البث حتى لو تجاهل جهاز المكتوم العلامة.
     // بالخلفية: العلامة كُتبت أعلاه، وفشل الاستدعاء لا يُبطل العملية.
     void import('firebase/functions')
       .then(({ httpsCallable }) =>

@@ -49,7 +49,7 @@ import { AppPermissionsPrompt } from '@/components/permissions/AppPermissionsPro
 import { PushNotificationRouter } from '@/components/PushNotificationRouter';
 import { RoomFloatingOverlay } from '@/components/room/RoomFloatingOverlay';
 import { LazyCallFloatingOverlay } from '@/components/call/LazyCallFloatingOverlay';
-import { RoomLiveKitHost } from '@/components/room/RoomLiveKitHost';
+import { RoomAudioHost } from '@/components/room/RoomAudioHost';
 import { RoomAppLifecycle } from '@/components/room/RoomAppLifecycle';
 import { RoomSessionHost } from '@/components/room/RoomSessionHost';
 import { RoomPasswordGateHost } from '@/components/room/RoomPasswordGateHost';
@@ -236,7 +236,7 @@ export default function RootLayout() {
             {/* دعوات التحدي تصل كرسالة داخل المحادثة (بدون شاشة مكالمة) */}
             <OutgoingChallengeGate />
             <PushNotificationRouter />
-            <RoomLiveKitHost />
+            <RoomAudioHost />
             <RoomPinnedBackgroundHost />
             <RoomPinnedMediaHost />
             <RoomBackgroundKeepAlive />

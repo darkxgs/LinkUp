@@ -12,17 +12,18 @@ import {
 
 export type { RoomConnectionState, RoomParticipant };
 
-interface UseLiveKitRoomOptions {
+interface UseRoomAudioOptions {
   roomName: string;
   canPublish?: boolean;
   autoConnect?: boolean;
 }
 
-export function useLiveKitRoom({
+/** صوت الغرفة الحي (Agora) — كان اسمه useLiveKitRoom قبل إزالة LiveKit */
+export function useRoomAudio({
   roomName,
   canPublish = true,
   autoConnect = true,
-}: UseLiveKitRoomOptions) {
+}: UseRoomAudioOptions) {
   const [snapshot, setSnapshot] = useState(() => roomAudioSession.getSnapshot());
 
   useEffect(() => {

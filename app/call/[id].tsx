@@ -263,7 +263,7 @@ export default function VoiceCallScreen() {
             onPress={() => {
               const sess = typeof session === 'string' && session ? `&session=${encodeURIComponent(session)}` : '';
               const src = source === 'match' ? '&source=match' : '';
-              // ثبّت الجلسة حتى لا يُقطع LiveKit عند الانتقال لشاشة الفيديو
+              // ثبّت الجلسة حتى لا تُقطع جلسة الصوت عند الانتقال لشاشة الفيديو
               useCallSessionStore.setState({
                 sessionPinned: true,
                 channelName,

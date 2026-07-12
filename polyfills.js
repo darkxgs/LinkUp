@@ -1,10 +1,11 @@
 /**
  * Polyfills لمحرّك Hermes
  *
- * Hermes (محرّك JS في React Native) ينقصه globals تحتاجها
- * مكتبة LiveKit / livekit-client / webrtc:
+ * Hermes (محرّك JS في React Native) ينقصه globals تحتاجها مكتبات
+ * التطبيق (Firebase وغيرها — أُضيفت أصلاً لأجل LiveKit وبقيت بعد إزالته
+ * لأن مكتبات أخرى تعتمد عليها):
  *   - TextDecoder   (Hermes فيه TextEncoder فقط)
- *   - DOMException  (يستخدمه webrtc-adapter داخل livekit-client)
+ *   - DOMException  (تشير إليه مكتبات ويب متعددة وHermes لا يوفّره)
  *   - URL           (نسخة Hermes ناقصة)
  *   - crypto.getRandomValues (لتوليد المعرّفات)
  *
@@ -27,7 +28,7 @@ if (typeof global.TextDecoder === 'undefined') {
   global.TextDecoder = TextDecoder;
 }
 
-// 4) DOMException — يشير إليه livekit-client وHermes ما يوفّره
+// 4) DOMException — تشير إليه مكتبات ويب وHermes ما يوفّره
 if (typeof global.DOMException === 'undefined') {
   global.DOMException = class DOMException extends Error {
     constructor(message, name) {

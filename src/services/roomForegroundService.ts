@@ -1,6 +1,5 @@
 /**
- * خدمة أمامية على أندرويد — تبقي اتصال LiveKit للروم أثناء الخلفية
- * @see https://github.com/livekit/client-sdk-react-native#background-processing
+ * خدمة أمامية على أندرويد — تبقي اتصال صوت الروم (Agora) أثناء الخلفية
  */
 import { Platform } from 'react-native';
 

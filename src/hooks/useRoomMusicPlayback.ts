@@ -169,7 +169,7 @@ export function useRoomMusicPlayback(
       // إعادة تأكيد وضع الصوت دائماً قبل بدء المقطع (force) — مكوّن آخر
       // (فيديو دخولية/مسجّل صوت) قد يكون بدّل الوضع بعد التهيئة الأولى؛
       // بدء التشغيل بوضعٍ بلا allowsRecordingIOS كان يقلب فئة AVAudioSession
-      // فيقتل مايك LiveKit — «تُسمع كم كلمة ثم يطير الـDJ عن المايك»
+      // فيقتل مايك جلسة الصوت — «تُسمع كم كلمة ثم يطير الـDJ عن المايك»
       await configureSoundEffectsAudio(true);
       const { sound } = await AV.Audio.Sound.createAsync(
         { uri: playableUri },

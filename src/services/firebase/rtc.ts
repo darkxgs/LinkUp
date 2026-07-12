@@ -1,7 +1,9 @@
 /**
  * RTC Service — يجلب tokens الآمنة من Cloud Functions
  *
- * LiveKit → المكالمات 1-to-1 (صوت/فيديو) + المطابقات + الغرف الصوتية
+ * Agora → المكالمات 1-to-1 (صوت/فيديو) + المطابقات + الغرف الصوتية
+ * (أزيل غلاف getLiveKitToken مع إزالة LiveKit من التطبيق — دالة
+ * generateLiveKitToken السيرفرية باقية للنسخ القديمة الموزعة فقط.)
  *
  * كل المفاتيح السرية على السيرفر — التطبيق يطلب توكن قصير العمر فقط.
  */
@@ -55,30 +57,6 @@ async function callFunction<TReq, TRes>(
     throw new Error(translateCallableError(e));
   }
 }
-
-// ==================== LIVEKIT ====================
-export interface LiveKitTokenResult {
-  token: string;
-  wsUrl: string;
-  identity: string;
-  roomName: string;
-  freeCall?: boolean;
-}
-
-/**
- * جلب توكن LiveKit للانضمام لغرفة أو مكالمة
- * @param canPublish هل يمكنه التحدث؟ (المضيف/المتحدثون true، المستمعون false)
- * @param peerUid معرّف الطرف الآخر — لفحص امتياز المكالمة المجانية للوكالة
- */
-export const getLiveKitToken = async (
-  roomName: string,
-  canPublish = true,
-  peerUid?: string,
-): Promise<LiveKitTokenResult> =>
-  callFunction<
-    { roomName: string; canPublish: boolean; peerUid?: string },
-    LiveKitTokenResult
-  >('generateLiveKitToken', { roomName, canPublish, ...(peerUid ? { peerUid } : {}) });
 
 // ==================== AGORA ====================
 export interface AgoraTokenResult {

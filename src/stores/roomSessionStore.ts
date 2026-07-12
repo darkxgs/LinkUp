@@ -85,4 +85,5 @@ export const isRoomSessionPinned = (roomId: string): boolean => {
   return s.audioPinned && s.roomId === roomId;
 };
 
+/** اسم قناة الصوت للغرفة — الاسم تاريخي من عهد LiveKit والقيمة نفسها تُستخدم مع Agora */
 export const getLiveKitRoomName = (roomId: string) => `room_${roomId}`;

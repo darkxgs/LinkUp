@@ -14,7 +14,7 @@ interface Props {
   canMic: boolean;
   volumeMuted: boolean;
   onToggleVolume: () => void;
-  /** حالة الكتم من مقعد Firebase — أدق من حالة LiveKit المحلية */
+  /** حالة الكتم من مقعد Firebase — أدق من حالة جلسة الصوت المحلية */
   micMuted?: boolean;
   onToggleMic?: () => void;
 }

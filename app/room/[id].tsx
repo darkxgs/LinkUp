@@ -217,7 +217,7 @@ import { hasVipPrivilege, resolveVipPrivilegeAsset, userHasVipFeature } from '@/
 import { currentMonthKey } from '@/services/firebase/agencyPrinceSystem';
 import { resolveGiftAnimationPayload } from '@/components/ui/giftUtils';
 import { preloadVideoBackground } from '@/utils/videoCacheManager';
-import { useLiveKitRoom } from '@/hooks/useLiveKitRoom';
+import { useRoomAudio } from '@/hooks/useRoomAudio';
 import { useAlert } from '@/components/ui';
 import { colors, radius, spacing, shadows } from '@/theme';
 import { lu } from '@/theme/lu-brand';
@@ -954,7 +954,7 @@ export default function RoomScreen() {
     return unsub;
   }, [roomId, room?.agencyId, room?.isAgencyRoom]);
 
-  // تحميل مسبق لـ LiveKit + توكني الاستماع والنشر فور معرفة الغرفة
+  // تحميل مسبق لمحرك الصوت + توكني الاستماع والنشر فور معرفة الغرفة
   useEffect(() => {
     if (!roomId) return;
     const roomName = `room_${roomId}`;
@@ -993,7 +993,7 @@ export default function RoomScreen() {
     const unsub = subscribeToRoomFrames(setRoomFrames);
     return unsub;
   }, []);
-  // ملاحظة: حُذفت simulatedSpeakers الوهمية — الآن نعتمد على LiveKit isSpeaking الحقيقي
+  // ملاحظة: حُذفت simulatedSpeakers الوهمية — الآن نعتمد على isSpeaking الحقيقي من جلسة الصوت
 
   const showSeatEmoji = useCallback((uid: string, emoji: string) => {
     if (!uid || !emoji?.trim()) return;
@@ -2984,7 +2984,7 @@ export default function RoomScreen() {
     [room, room?.seats, room?.hostUid, liveAudience, audienceUidSet],
   );
 
-  // ===== LiveKit: الصوت الحقيقي للغرفة =====
+  // ===== صوت الغرفة الحي (Agora) =====
   // على مقعد فقط = ينشر صوت (الكل يسمعه). خارج المقعد = مستمع فقط.
   const onMic = !!mySeat;
   const canSpeak = onMic;
@@ -2994,7 +2994,7 @@ export default function RoomScreen() {
   const {
     participants: lkParticipants,
     connectionState: lkConnectionState,
-  } = useLiveKitRoom({
+  } = useRoomAudio({
     roomName: roomId ? `room_${roomId}` : '',
     canPublish: onMic && gateOpen,
     autoConnect: Boolean(roomId) && gateOpen,
@@ -3011,7 +3011,7 @@ export default function RoomScreen() {
     roomAudioSession.setRemoteAudioMuted(volumeMuted);
   }, [gateOpen, volumeMuted, lkConnectionState]);
 
-  // بعد العودة من «احتفظ» — إعادة ضبط LiveKit (نشر/استماع) دون انتظار انقطاع كامل
+  // بعد العودة من «احتفظ» — إعادة ضبط جلسة الصوت (نشر/استماع) دون انتظار انقطاع كامل
   useEffect(() => {
     if (!roomId || !gateOpen || !pendingPinnedAudioResumeRef.current) return;
     const task = InteractionManager.runAfterInteractions(() => {
@@ -3048,7 +3048,7 @@ export default function RoomScreen() {
     }
   }, [gateOpen, onMic, lkConnectionState, mySeat?.isMuted, mySeat?.seatIndex, volumeMuted]);
 
-  // مغادرة المقعد → إيقاف المايك فوراً قبل إعادة اتصال LiveKit كمستمع
+  // مغادرة المقعد → إيقاف المايك فوراً قبل إعادة اتصال جلسة الصوت كمستمع
   useEffect(() => {
     if (!gateOpen || onMic) return;
     void roomAudioSession.setMuted(true);
@@ -3364,7 +3364,7 @@ export default function RoomScreen() {
     const nextMuted = !(mySeat.isMuted === true);
     micSyncSuppressRef.current = Date.now();
     if (nextMuted) {
-      // كتم النفس لا يُرفض إدارياً — اكتم LiveKit فوراً وبالتوازي مع كتابة RTDB
+      // كتم النفس لا يُرفض إدارياً — اكتم جلسة الصوت فوراً وبالتوازي مع كتابة RTDB
       // (كان التسلسل يترك المايك يبث حتى اكتمال رحلة الشبكة)
       const lkMute = roomAudioSession.setMuted(true).catch(() => {});
       try {
@@ -3936,7 +3936,7 @@ export default function RoomScreen() {
         setShowMoreRooms(false);
         await enterAgencyRoomAndNavigate(router, agencyId, { replace: true });
         if (oldRoomId) {
-          // skipAudioDisconnect: جلسة LiveKit مفردة — قطعها هنا كان يفصل صوت
+          // skipAudioDisconnect: جلسة الصوت مفردة — قطعها هنا كان يفصل صوت
           // روم الوكالة الجديد الذي انتقلنا إليه للتو (قارن المسار 1208-1223)
           void completeRoomLeave(oldRoomId, user?.uid, { skipAudioDisconnect: true });
         } else {

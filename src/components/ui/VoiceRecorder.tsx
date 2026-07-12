@@ -103,7 +103,7 @@ export function VoiceRecorder({
       }
       if (AVRef.current) {
         // أثناء جلسة صوت الغرفة لا نطفئ التسجيل — allowsRecordingIOS: false
-        // يقلب فئة AVAudioSession فيقتل مايك LiveKit لمن هو على المقعد
+        // يقلب فئة AVAudioSession فيقتل مايك جلسة الصوت لمن هو على المقعد
         // (المسجّل يظهر داخل شات الروم المدمج)
         if (isRoomVoiceSessionActive()) {
           configureSoundEffectsAudio(true).catch(() => {});
