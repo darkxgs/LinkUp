@@ -92,7 +92,7 @@ type Tab = 'overview' | 'edit' | 'sessions' | 'transactions' | 'withdrawals' | '
 export default function UserDetailPage() {
   const { uid = '' } = useParams();
   const navigate = useNavigate();
-  const { can } = useAdminProfile();
+  const { isSuper, can } = useAdminProfile();
   const [user, setUser] = useState<AdminUserFull | null>(null);
   const [txs, setTxs] = useState<AdminTransaction[]>([]);
   const [withdrawals, setWithdrawals] = useState<AdminUserWithdrawal[]>([]);
@@ -186,10 +186,12 @@ export default function UserDetailPage() {
           <ArrowRight size={16} /> المستخدمون
         </button>
         <div style={{ marginInlineStart: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setNotifyOpen(true)}>
-            <Bell size={16} /> إرسال إشعار
-          </button>
-          {can('users') && (
+          {(isSuper || can('users:notify')) && (
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setNotifyOpen(true)}>
+              <Bell size={16} /> إرسال إشعار
+            </button>
+          )}
+          {(isSuper || can('users:edit')) && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setTab('edit')}>
               <Pencil size={16} /> تعديل
             </button>
@@ -294,7 +296,17 @@ export default function UserDetailPage() {
               <InfoBox label="جوائز ألعاب" value={formatNumber(summary.gameWins)} />
               <InfoBox label="صافي ألعاب" value={formatNumber(summary.gameBets - summary.gameWins)} />
               <InfoBox label="نقاط VIP" value={formatNumber(user.vipPoints)} />
-              <InfoBox label="زوار البروفايل" value={formatNumber(user.visitors)} />
+              {/* إصلاح #17 — عرض كلا مصدري الزوار للتشخيص */}
+              <InfoBox label="زوار البروفايل (MAX)" value={formatNumber(user.visitors)} />
+              {(user.visitorsStats !== undefined || user.visitorsDirect !== undefined) && (
+                <div style={{ padding: '10px 14px', background: 'var(--bg-app)', borderRadius: 10, gridColumn: 'span 2' }}>
+                  <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)' }}>تفاصيل عداد الزوار (للتشخيص)</p>
+                  <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 13 }}>
+                    <span>stats.visitors: <strong>{formatNumber(user.visitorsStats ?? 0)}</strong></span>
+                    <span>data.visitors: <strong>{formatNumber(user.visitorsDirect ?? 0)}</strong></span>
+                  </div>
+                </div>
+              )}
               <InfoBox label="آخر دخول" value={user.lastLoginAt ? formatDate(user.lastLoginAt) : '—'} />
               <InfoBox label="IP آخر دخول" value={user.lastLoginIp || '—'} />
             </div>
@@ -312,7 +324,7 @@ export default function UserDetailPage() {
       )}
 
       {tab === 'edit' && (
-        <UserEditPanel user={user} canEdit={can('users')} onSaved={load} onDeleted={() => navigate(adminPath('/users'))} />
+        <UserEditPanel user={user} canEdit={can('users:edit')} onSaved={load} onDeleted={() => navigate(adminPath('/users'))} />
       )}
 
       {tab === 'transactions' && (
@@ -474,6 +486,7 @@ function UserEditPanel({
   onSaved: () => void;
   onDeleted: () => void;
 }) {
+  const { isSuper, can } = useAdminProfile();
   const [patch, setPatch] = useState<AdminUpdateAppUserPatch>({
     displayName: user.displayName,
     email: user.email ?? '',
@@ -785,22 +798,30 @@ function UserEditPanel({
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? '...' : 'حفظ التعديلات'}
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={handleBan}>
-            <Ban size={16} /> {user.isBanned ? 'رفع الحظر الدائم' : 'حظر دائم'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => (user.isSuspended ? void handleUnsuspend() : setSuspendModalOpen(true))}
-          >
-            <Lock size={16} /> {user.isSuspended ? 'رفع التعليق المؤقت' : 'تعليق مؤقت'}
-          </button>
-          <button type="button" className="btn" style={{ background: '#FEE2E2', color: '#B91C1C' }} onClick={handleDelete} disabled={saving}>
-            <Trash2 size={16} /> حذف نهائي
-          </button>
+          {(isSuper || canEdit) && (
+            <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
+              {saving ? '...' : 'حفظ التعديلات'}
+            </button>
+          )}
+          {(isSuper || can('users:ban')) && (
+            <button type="button" className="btn btn-ghost" onClick={handleBan}>
+              <Ban size={16} /> {user.isBanned ? 'رفع الحظر الدائم' : 'حظر دائم'}
+            </button>
+          )}
+          {(isSuper || can('users:ban')) && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => (user.isSuspended ? void handleUnsuspend() : setSuspendModalOpen(true))}
+            >
+              <Lock size={16} /> {user.isSuspended ? 'رفع التعليق المؤقت' : 'تعليق مؤقت'}
+            </button>
+          )}
+          {(isSuper || can('users:delete')) && (
+            <button type="button" className="btn" style={{ background: '#FEE2E2', color: '#B91C1C' }} onClick={handleDelete} disabled={saving}>
+              <Trash2 size={16} /> حذف نهائي
+            </button>
+          )}
         </div>
       </div>
 

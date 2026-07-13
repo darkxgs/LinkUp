@@ -721,6 +721,12 @@ function ItemModal({
             <label><input type="checkbox" checked={form.enabled !== false} onChange={(e) => patch({ enabled: e.target.checked })} /> مفعّل</label>
             <label><input type="checkbox" checked={!!form.isNew} onChange={(e) => patch({ isNew: e.target.checked || undefined })} /> جديد</label>
             <label><input type="checkbox" checked={!!form.isLimited} onChange={(e) => patch({ isLimited: e.target.checked || undefined })} /> محدود</label>
+            {/* إصلاح #15 — إخفاء/إظهار زر «إهداء» بعد الشراء */}
+            <label title="عند إيقاف التفعيل: يختفي زر «إهداء» من هذا العنصر بعد الشراء">
+              <input type="checkbox" checked={form.allowGift !== false}
+                onChange={(e) => patch({ allowGift: e.target.checked ? undefined : false })} />
+              {' '}إتاحة الإهداء بعد الشراء 🎁
+            </label>
           </div>
           <div className="form-row">
             <label>ترتيب العرض</label>

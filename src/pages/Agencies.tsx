@@ -17,7 +17,7 @@ import { useAdminProfile } from '@/contexts/AdminProfileContext';
 export default function AgenciesPage() {
   const navigate = useNavigate();
   const { partyPending, partyPendingCount, refresh: refreshAlerts } = useAdminAlerts();
-  const { isSuper } = useAdminProfile();
+  const { isSuper, can } = useAdminProfile();
   const [agencies, setAgencies] = useState<AdminAgency[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -153,7 +153,7 @@ export default function AgenciesPage() {
           <button type="button" className="btn-secondary" onClick={load} disabled={loading || bulkBusy}>
             <RefreshCw size={16} /> تحديث
           </button>
-          {isSuper && (
+          {(isSuper || can('agencies:delete')) && (
             <button
               type="button"
               className="btn-danger"
@@ -225,22 +225,26 @@ export default function AgenciesPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    disabled={busy === `party-${req.id}`}
-                    onClick={() => void handleReviewParty(req, 'approve')}
-                  >
-                    موافقة
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-danger"
-                    disabled={busy === `party-${req.id}`}
-                    onClick={() => void handleReviewParty(req, 'reject')}
-                  >
-                    رفض
-                  </button>
+                  {(isSuper || can('agencies:approve')) && (
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={busy === `party-${req.id}`}
+                      onClick={() => void handleReviewParty(req, 'approve')}
+                    >
+                      موافقة
+                    </button>
+                  )}
+                  {(isSuper || can('agencies:reject')) && (
+                    <button
+                      type="button"
+                      className="btn-danger"
+                      disabled={busy === `party-${req.id}`}
+                      onClick={() => void handleReviewParty(req, 'reject')}
+                    >
+                      رفض
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn-secondary"
@@ -280,7 +284,13 @@ export default function AgenciesPage() {
       </div>
 
       <div className="card">
-        {loading ? <Loading /> : agencies.length === 0 ? <Empty text="لا توجد وكالات" /> : (
+        {!isSuper && !can('agencies:view') ? (
+          <Empty text="غير مصرح لك بعرض الوكالات. يرجى مراجعة المسؤول." />
+        ) : loading ? (
+          <Loading />
+        ) : agencies.length === 0 ? (
+          <Empty text="لا توجد وكالات" />
+        ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
@@ -326,23 +336,27 @@ export default function AgenciesPage() {
                         >
                           <Eye size={15} />
                         </button>
-                        <button
-                          className="action-icon"
-                          onClick={() => handleVerify(a)}
-                          disabled={busy === a.id}
-                          title={a.isVerified ? 'إلغاء التوثيق' : 'توثيق'}
-                          style={{ color: a.isVerified ? '#b00814' : '#9CA3AF' }}
-                        >
-                          <ShieldCheck size={15} />
-                        </button>
-                        <button
-                          className="action-icon delete"
-                          onClick={() => handleDelete(a)}
-                          disabled={busy === a.id}
-                          title="حذف"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        {(isSuper || can('agencies:edit')) && (
+                          <button
+                            className="action-icon"
+                            onClick={() => handleVerify(a)}
+                            disabled={busy === a.id}
+                            title={a.isVerified ? 'إلغاء التوثيق' : 'توثيق'}
+                            style={{ color: a.isVerified ? '#b00814' : '#9CA3AF' }}
+                          >
+                            <ShieldCheck size={15} />
+                          </button>
+                        )}
+                        {(isSuper || can('agencies:delete')) && (
+                          <button
+                            className="action-icon delete"
+                            onClick={() => handleDelete(a)}
+                            disabled={busy === a.id}
+                            title="حذف"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

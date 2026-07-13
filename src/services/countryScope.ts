@@ -45,9 +45,12 @@ export function isInAdminCountryScope(country?: string | null): boolean {
 
 export function countryFromUserDoc(data: Record<string, unknown> | undefined): string {
   if (!data) return '';
-  const profile = data.profile as Record<string, unknown> | undefined;
+  const lastLoginLoc = data.lastLoginLocation as Record<string, unknown> | undefined;
   return normalizeCountryCode(
-    (profile?.country as string) ?? (data.country as string) ?? (data.countryCode as string),
+    (data.ipCountry as string) ??
+    (lastLoginLoc?.country as string) ??
+    (data.country as string) ??
+    (data.countryCode as string)
   );
 }
 

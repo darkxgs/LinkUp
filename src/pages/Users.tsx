@@ -211,7 +211,7 @@ export default function UsersPage() {
           <button className="btn btn-ghost btn-sm" onClick={load} disabled={loading}>
             <RefreshCw size={16} /> تحديث
           </button>
-          {can('users') && (
+          {(isSuper || can('users:sync')) && (
             <button
               className="btn btn-ghost btn-sm"
               disabled={syncing}
@@ -233,7 +233,7 @@ export default function UsersPage() {
               <Hash size={16} /> {syncing ? 'جارٍ المزامنة...' : 'مزامنة المعرّفات'}
             </button>
           )}
-          {can('users') && (
+          {(isSuper || can('users:add')) && (
             <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>
               <Plus size={16} /> مستخدم جديد
             </button>
@@ -248,7 +248,7 @@ export default function UsersPage() {
         <StatChip label="المحددون" value={checked.size} color="#e11212" />
       </div>
 
-      {can('users') && (
+      {(isSuper || can('users:delete')) && (
         <div className="card" style={{ padding: 12, marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)' }}>حذف جماعي:</span>
           <button
@@ -308,9 +308,11 @@ export default function UsersPage() {
           <span style={{ color: 'var(--text-muted)', fontSize: 14, fontWeight: 600 }}>
             {filtered.length} مستخدم
           </span>
-          <button className="btn btn-ghost btn-sm" onClick={handleExport}>
-            <Download size={16} /> تصدير CSV
-          </button>
+          {(isSuper || can('users:export')) && (
+            <button className="btn btn-ghost btn-sm" onClick={handleExport}>
+              <Download size={16} /> تصدير CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -321,7 +323,13 @@ export default function UsersPage() {
       )}
 
       <div className="card">
-        {loading ? <Loading /> : filtered.length === 0 ? <Empty /> : (
+        {!isSuper && !can('users:view') ? (
+          <Empty text="غير مصرح لك بعرض قائمة المستخدمين. يرجى مراجعة المسؤول." />
+        ) : loading ? (
+          <Loading />
+        ) : filtered.length === 0 ? (
+          <Empty />
+        ) : (
           <>
           <div className="table-wrap">
             <table className="data-table">
@@ -407,19 +415,25 @@ export default function UsersPage() {
                     <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{timeAgo(u.lastSeen ?? u.createdAt)}</td>
                     <td>
                       <div className="action-btns">
-                        <button className="action-icon view" onClick={() => navigate(adminPath(`/users/${u.uid}`))} title="تفاصيل وتعديل">
-                          <Pencil size={16} />
-                        </button>
-                        <button className="action-icon edit" onClick={() => setNotifyUser(u)} title="إرسال إشعار">
-                          <Bell size={16} />
-                        </button>
-                        <button
-                          className={`action-icon ${u.isBanned ? 'ok' : 'ban'}`}
-                          onClick={() => handleBan(u)}
-                          title={u.isBanned ? 'إلغاء الحظر' : 'حظر'}
-                        >
-                          {u.isBanned ? <CheckCircle size={16} /> : <Ban size={16} />}
-                        </button>
+                        {(isSuper || can('users:details')) && (
+                          <button className="action-icon view" onClick={() => navigate(adminPath(`/users/${u.uid}`))} title="تفاصيل وتعديل">
+                            <Pencil size={16} />
+                          </button>
+                        )}
+                        {(isSuper || can('users:notify')) && (
+                          <button className="action-icon edit" onClick={() => setNotifyUser(u)} title="إرسال إشعار">
+                            <Bell size={16} />
+                          </button>
+                        )}
+                        {(isSuper || can('users:ban')) && (
+                          <button
+                            className={`action-icon ${u.isBanned ? 'ok' : 'ban'}`}
+                            onClick={() => handleBan(u)}
+                            title={u.isBanned ? 'إلغاء الحظر' : 'حظر'}
+                          >
+                            {u.isBanned ? <CheckCircle size={16} /> : <Ban size={16} />}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

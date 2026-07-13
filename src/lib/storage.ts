@@ -61,9 +61,11 @@ function resolveImageType(file: File): string {
   const byExt: Record<string, string> = {
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
     webp: 'image/webp', gif: 'image/gif',
+    svga: 'application/octet-stream',
+    json: 'application/json',
   };
   if (ext && byExt[ext]) return byExt[ext];
-  throw new Error('الصيغ المدعومة: PNG, JPG, WebP, GIF');
+  throw new Error('الصيغ المدعومة: PNG, JPG, WebP, GIF, SVGA, JSON');
 }
 
 async function uploadToStorage(

@@ -26,7 +26,8 @@ export default function Sidebar({ open, onClose, onLogout }: Props) {
         items: section.items.filter((item) => {
           if (item.superOnly) return isSuper;
           const perm = navItemPerm(item);
-          return isSuper || !perm || can(perm);
+          if (isSuper || !perm) return true;
+          return can(`${perm}:sidebar`) || can(perm);
         }),
       })).filter((section) => section.items.length > 0),
     [isSuper, can],

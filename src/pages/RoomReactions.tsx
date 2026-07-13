@@ -124,9 +124,9 @@ export default function RoomReactionsPage() {
 
   const handleBulkUpload = async (fileList: FileList | null) => {
     if (!activePack || !fileList?.length || bulkUploading) return;
-    const files = Array.from(fileList).filter((f) => f.type.startsWith('image/') || /\.(gif|png|jpe?g|webp)$/i.test(f.name));
+    const files = Array.from(fileList).filter((f) => f.type.startsWith('image/') || /\.(gif|png|jpe?g|webp|svga|json)$/i.test(f.name));
     if (!files.length) {
-      alert('لم يُعثر على صور صالحة');
+      alert('لم يُعثر على ملصقات أو صور صالحة (PNG, JPG, WebP, GIF, SVGA, JSON)');
       return;
     }
 
@@ -191,11 +191,11 @@ export default function RoomReactionsPage() {
         <div>
           <h1>
             <Smile size={26} style={{ verticalAlign: 'middle', marginLeft: 8, color: 'var(--brand-primary)' }} />
-            رموز الروم (GIF / صور)
+            الملصقات والرموز التعبيرية المتحركة (Stickers & Reactions)
           </h1>
           <p>
-            أضف تصنيفات (مثل: حيوانات، تعبيرات…) وارفع لكل تصنيف صور GIF متحركة أو PNG/WebP ثابتة.
-            تظهر في لوحة الإيموجي داخل الغرفة وعلى المقاعد والشات.
+            أضف تصنيفات (مثل: تعبيرات متحركة، حيوانات، ورود…) وارفع ملفات SVGA أو Lottie JSON أو GIF أو PNG/WebP.
+            تظهر فوراً في لوحة الملصقات والإيموجي داخل الغرف الصوتية وفي الشات.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -251,7 +251,7 @@ export default function RoomReactionsPage() {
           </div>
         </div>
         <div className="room-decor-stat room-decor-stat-hint">
-          GIF للصور المتحركة · PNG/WebP للثابتة · حد الرفع 15 ميجابايت · يمكن اختيار عدة صور دفعة واحدة
+          الملصقات المتحركة: SVGA, JSON (Lottie), GIF · الملصقات الثابتة: PNG, WebP · حد الرفع 15 ميجابايت
         </div>
       </div>
 
@@ -335,10 +335,14 @@ export default function RoomReactionsPage() {
                   </div>
                   <div className="room-decor-badges">
                     {item.enabled === false ? <Badge variant="gray">معطّل</Badge> : null}
-                    {item.imageUrl.toLowerCase().includes('.gif') ? (
+                    {item.imageUrl.toLowerCase().endsWith('.svga') ? (
+                      <Badge variant="gold">SVGA</Badge>
+                    ) : item.imageUrl.toLowerCase().endsWith('.json') ? (
+                      <Badge variant="green">Lottie</Badge>
+                    ) : item.imageUrl.toLowerCase().includes('.gif') ? (
                       <Badge variant="pink">GIF</Badge>
                     ) : (
-                      <Badge variant="blue">صورة</Badge>
+                      <Badge variant="blue">IMAGE</Badge>
                     )}
                   </div>
                   <div className="room-decor-card-meta" style={{ justifyContent: 'center', marginTop: 8 }}>
@@ -373,7 +377,7 @@ export default function RoomReactionsPage() {
       <input
         ref={bulkInputRef}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
+        accept="image/png,image/jpeg,image/webp,image/gif,.svga,application/json"
         multiple
         hidden
         tabIndex={-1}
@@ -628,7 +632,7 @@ function ItemEditor({
                 {uploading ? 'جاري الرفع…' : 'اختر ملف'}
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  accept="image/png,image/jpeg,image/webp,image/gif,.svga,application/json"
                   hidden
                   disabled={uploading}
                   onChange={(e) => {
