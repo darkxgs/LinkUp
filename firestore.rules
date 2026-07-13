@@ -127,12 +127,18 @@ service cloud.firestore {
       allow read: if request.auth != null;
       // إنشاء: مستخدم مسجّل يجعل نفسه ownerUid
       allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
-      // تحديث: المالك أو أدمن يملك صلاحية 'agencies'، أو إضافة memberCount من أي شخص (لما يقبل دعوة)
+      // تحديث: المالك أو أدمن يملك صلاحية 'agencies'، أو حقول عدّادات يكتبها مسار الهدايا/القبول
       allow update: if request.auth != null && (
         resource.data.ownerUid == request.auth.uid ||
         hasAdminPerm('agencies') ||
         request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['memberCount', 'totalEarnings', 'updatedAt'])
+          .hasOnly([
+            'memberCount',
+            'totalEarnings',
+            'updatedAt',
+            'periodSupportCoins',
+            'periodSupportWeekKey',
+          ])
       );
       allow delete: if request.auth != null && (resource.data.ownerUid == request.auth.uid || hasAdminPerm('agencies'));
     }

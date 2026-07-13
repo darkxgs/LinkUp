@@ -7809,8 +7809,12 @@ export const bumpAgencyPeriodSupportOnGiftSent = onDocumentCreated(
       });
       if (alreadyProcessed) return;
 
-      const roomSnap = await rtdb.ref(`rooms/${roomId}`).once('value');
-      const agencyId = String(roomSnap.val()?.agencyId ?? '').trim();
+      // العميل يمرّر agencyId عند الإهداء في روم الوكالة — أسرع من قراءة RTDB وأوثق
+      let agencyId = String(tx.agencyId ?? '').trim();
+      if (!agencyId) {
+        const roomSnap = await rtdb.ref(`rooms/${roomId}`).once('value');
+        agencyId = String(roomSnap.val()?.agencyId ?? '').trim();
+      }
       if (!agencyId) return;
 
       await bumpAgencyPeriodSupportCoins(agencyId, coins);
@@ -7877,10 +7881,14 @@ export const creditAgencyPearlsOnGift = onDocumentCreated(
         if (!isFemaleHostMember) return;
       }
       const txType = String(tx.type ?? '');
+      // التطبيق يسجّل pearlsEarned مباشرة بعد الإهداء — لا نكرّر الزيادة هنا
+      const clientAlreadyRecorded = tx.agencyEarningRecordedByClient === true;
       const batch = db.batch();
-      batch.update(memberDoc.ref, {
-        pearlsEarned: admin.firestore.FieldValue.increment(pearls),
-      });
+      if (!clientAlreadyRecorded) {
+        batch.update(memberDoc.ref, {
+          pearlsEarned: admin.firestore.FieldValue.increment(pearls),
+        });
+      }
 
       if (!PEARL_WALLET_PRE_CREDITED_TYPES.has(txType)) {
         const userRef = db.collection('users').doc(hostUid);
@@ -7890,9 +7898,13 @@ export const creditAgencyPearlsOnGift = onDocumentCreated(
           updatedAt: Date.now(),
         });
       }
-      await batch.commit();
+      // قد يكون الـ batch فارغاً إذا سجّل العميل التحصيل والمحفظة مسبقاً
+      if (!clientAlreadyRecorded || !PEARL_WALLET_PRE_CREDITED_TYPES.has(txType)) {
+        await batch.commit();
+      }
 
-      const memberAgencyId = String(memberDoc.data().agencyId ?? '');
+      const memberAgencyId =
+        String(tx.agencyId ?? '').trim() || String(memberDoc.data().agencyId ?? '');
       if (memberAgencyId) {
         await creditBdReferralCommission(memberAgencyId, pearls);
         await bumpAgencyEarningsDaily(memberAgencyId, hostUid, pearls, String(tx.type ?? ''));
