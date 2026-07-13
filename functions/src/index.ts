@@ -7809,6 +7809,9 @@ export const bumpAgencyPeriodSupportOnGiftSent = onDocumentCreated(
       });
       if (alreadyProcessed) return;
 
+      // العميل سجّل دعم الفترة مباشرة — لا نكرّر الزيادة
+      if (tx.agencySupportRecordedByClient === true) return;
+
       // العميل يمرّر agencyId عند الإهداء في روم الوكالة — أسرع من قراءة RTDB وأوثق
       let agencyId = String(tx.agencyId ?? '').trim();
       if (!agencyId) {
