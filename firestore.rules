@@ -19,9 +19,19 @@ service cloud.firestore {
       return isAdmin() && adminDoc().data.role == 'super';
     }
 
-    // صلاحية دقيقة لصفحة واحدة (key == routePath في navConfig.ts) — مدير النظام يمر دائماً
+    // يحوّل مفتاحاً دقيقاً ('withdraw:approve') إلى مفتاح صفحته ('withdrawals')
+    // للتوافق مع الأدمن القديم الذي يحمل مفتاح الصفحة فقط
+    function permPageKey(key) {
+      return key.split(':')[0] == 'withdraw' ? 'withdrawals'
+        : (key.split(':')[0] == 'kyc' ? 'kyc-requests' : key.split(':')[0]);
+    }
+
+    // صلاحية دقيقة أو مفتاح صفحتها (توافق خلفي) — مدير النظام يمر دائماً
     function hasAdminPerm(key) {
-      return isSuperAdmin() || (isAdmin() && adminDoc().data.permissions[key] == true);
+      return isSuperAdmin() || (isAdmin() && (
+        adminDoc().data.permissions[key] == true ||
+        adminDoc().data.permissions[permPageKey(key)] == true
+      ));
     }
 
     function userAgencyId() {
@@ -127,10 +137,10 @@ service cloud.firestore {
       allow read: if request.auth != null;
       // إنشاء: مستخدم مسجّل يجعل نفسه ownerUid
       allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
-      // تحديث: المالك أو أدمن يملك صلاحية 'agencies'، أو حقول عدّادات يكتبها مسار الهدايا/القبول
+      // تحديث: المالك أو أدمن يملك صلاحية 'agencies:edit'، أو حقول عدّادات يكتبها مسار الهدايا/القبول
       allow update: if request.auth != null && (
         resource.data.ownerUid == request.auth.uid ||
-        hasAdminPerm('agencies') ||
+        hasAdminPerm('agencies:edit') ||
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly([
             'memberCount',
@@ -140,7 +150,7 @@ service cloud.firestore {
             'periodSupportWeekKey',
           ])
       );
-      allow delete: if request.auth != null && (resource.data.ownerUid == request.auth.uid || hasAdminPerm('agencies'));
+      allow delete: if request.auth != null && (resource.data.ownerUid == request.auth.uid || hasAdminPerm('agencies:delete'));
     }
 
     // عضوية الوكالات
@@ -266,10 +276,11 @@ service cloud.firestore {
       );
       // إنشاء: المستخدم يقدّم طلب لنفسه
       allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
-      // تحديث: الوكيل المسؤول، أو أدمن يملك صلاحية 'withdrawals'
+      // تحديث: الوكيل المسؤول، أو أدمن يملك صلاحية 'withdraw:approve' أو 'withdraw:reject'
       allow update: if request.auth != null && (
         resource.data.agentUid == request.auth.uid ||
-        hasAdminPerm('withdrawals')
+        hasAdminPerm('withdraw:approve') ||
+        hasAdminPerm('withdraw:reject')
       );
       allow delete: if hasAdminPerm('withdrawals');
     }
@@ -618,7 +629,7 @@ service cloud.firestore {
           .hasAny(['approvedAt', 'aiGender', 'aiConfidence', 'aiProvider', 'genderMatch', 'rejectionReason',
                    'faceGrayAttempts', 'syncedStatus', 'aiNeedsReview', 'aiReviewReason', 'slaEscalatedAt',
                    'faceAttemptCount', 'faceAttemptWindowStart', 'faceLastAttemptAt']);
-      allow update, delete: if hasAdminPerm('kyc-requests');
+      allow update, delete: if hasAdminPerm('kyc:approve') || hasAdminPerm('kyc:reject');
     }
 
     // ألعاب التحدي الجماعي (1v1 Online Challenges)
