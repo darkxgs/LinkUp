@@ -56,12 +56,11 @@ service firebase.storage {
     // (25MB القديمة كانت ترفض الملفات الكبيرة بـ storage/unauthorized)
     match /room_music/{roomId}/{fileName} {
       allow read: if true;
-      // create/update فقط تفحص الحجم والنوع — «write» الموحّدة كانت ترفض الحذف
+      // create/update فقط تفحص الحجم — «write» الموحّدة كانت ترفض الحذف
       // دائماً (request.resource غير موجود عند delete) فتبقى نسخ المزامنة يتيمة
       // ويظهر storage/unauthorized عند إيقاف الموسيقى/مغادرة الروم
       allow create, update: if request.auth != null
-        && request.resource.size <= 120 * 1024 * 1024
-        && request.resource.contentType.matches('audio/.*');
+        && request.resource.size <= 120 * 1024 * 1024;
       allow delete: if request.auth != null;
     }
 

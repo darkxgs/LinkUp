@@ -32,14 +32,14 @@ type RegisteredDeviceEntry = {
   name: string;
   platform: string;
   lastActiveAt: number;
-  brand?: string;
-  model?: string;
-  osVersion?: string;
-  deviceIdentifier?: string;
-  lastIp?: string;
-  lastLocation?: LoginSessionPayload['location'];
+  brand?: string | null;
+  model?: string | null;
+  osVersion?: string | null;
+  deviceIdentifier?: string | null;
+  lastIp?: string | null;
+  lastLocation?: LoginSessionPayload['location'] | null;
   loginCount?: number;
-  connectionType?: string;
+  connectionType?: string | null;
 };
 
 /** نافذة الاشتباه بتغيّر الدولة بين تسجيلي دخول متتاليين */
@@ -95,14 +95,14 @@ function mergeRegisteredDevice(
     name: payload.deviceName?.trim() || prev?.name || 'جهاز',
     platform: payload.platform?.trim() || prev?.platform || 'unknown',
     lastActiveAt: now,
-    brand: payload.brand ?? prev?.brand,
-    model: payload.model ?? prev?.model,
-    osVersion: payload.osVersion ?? prev?.osVersion,
-    deviceIdentifier: payload.deviceIdentifier ?? prev?.deviceIdentifier,
-    lastIp: ip || prev?.lastIp,
-    lastLocation: payload.location ?? prev?.lastLocation,
+    brand: payload.brand ?? prev?.brand ?? null,
+    model: payload.model ?? prev?.model ?? null,
+    osVersion: payload.osVersion ?? prev?.osVersion ?? null,
+    deviceIdentifier: payload.deviceIdentifier ?? prev?.deviceIdentifier ?? null,
+    lastIp: ip || (prev?.lastIp ?? null),
+    lastLocation: payload.location ?? prev?.lastLocation ?? null,
     loginCount: (Number(prev?.loginCount) || 0) + 1,
-    connectionType: payload.connectionType ?? prev?.connectionType,
+    connectionType: payload.connectionType ?? prev?.connectionType ?? null,
   };
   return [entry, ...others].slice(0, 20);
 }
