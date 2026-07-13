@@ -56,8 +56,9 @@ async function assertCanManageStaff(
   }
 
   const perms = (adminData.permissions ?? {}) as Record<string, boolean>;
-  if (perms.users !== true) {
-    throw new HttpsError('permission-denied', 'لا تملك صلاحية إدارة المستخدمين');
+  // Check granular staff:manage key first, then fall back to old page-level keys for backward compat
+  if (perms['staff:manage'] !== true && perms.staff !== true && perms.users !== true) {
+    throw new HttpsError('permission-denied', 'لا تملك صلاحية إدارة موظفي التطبيق');
   }
 
   const allowed = ((adminData.countries as string[]) ?? []).map(normalizeCountry);
@@ -391,7 +392,6 @@ export const adminUpdateStaffUser = onCall(async (request) => {
 export const adminRemoveStaffUser = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
-  await assertSuperAdmin(adminUid);
 
   const { uid } = request.data as { uid?: string };
   if (!uid?.trim()) throw new HttpsError('invalid-argument', 'uid مطلوب');
@@ -401,6 +401,12 @@ export const adminRemoveStaffUser = onCall(async (request) => {
   if (!snap.exists) throw new HttpsError('not-found', 'المستخدم غير موجود');
 
   const data = snap.data()!;
+  // Allow both super-admins and admins with staff:manage permission to remove staff in their scope
+  await assertCanManageStaff(
+    adminUid,
+    ((data.staffRole as string) ?? 'admin') as StaffRole,
+    (data.staffCountries as string[]) ?? [],
+  );
   if (data.staffAgencyId && data.staffRole === 'super_admin') {
     await syncCountryOfficialAgency(
       String(data.staffAgencyId),

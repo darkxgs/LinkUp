@@ -13,7 +13,7 @@
 
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentUpdated, onDocumentWritten, onDocumentDeleted } from 'firebase-functions/v2/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import * as admin from 'firebase-admin';
 import type { DocumentReference } from 'firebase-admin/firestore';
@@ -211,7 +211,7 @@ async function getHostShareRatio(): Promise<number> {
     const s = await db.collection('config').doc('settings').get();
     if (s.exists) {
       const commission = typeof s.data()?.giftCommission === 'number' ? s.data()!.giftCommission : 90;
-      return Math.max(0, Math.min(1, (100 - commission) / 100));
+      return Math.max(0, Math.min(1, commission / 100));
     }
   } catch {}
   return 0.1;
@@ -1909,13 +1909,18 @@ async function assertSuperAdmin(uid: string) {
 }
 
 /**
- * يتطلب صلاحية صفحة محددة (key == routePath في navConfig.ts في لوحة التحكم).
- * مدير النظام يمر دائماً. تُستخدم إضافة لـ assertAdmin/assertAdminCountryScope وليس بديلاً عنها.
+ * يتطلب صلاحية دقيقة (sub-permission key مثل 'users:add') أو صلاحية صفحة (routePath).
+ * مدير النظام يمر دائماً.
+ * إذا فشل التحقق من المفتاح الدقيق، يُحاول المفتاح العام (الجزء قبل ':') للتوافق مع
+ * الحسابات القديمة التي لا تحمل بعد المفاتيح الدقيقة.
  */
 async function assertHasPermission(uid: string, key: string): Promise<void> {
   const data = await assertAdmin(uid);
   if (data.role === 'super') return;
-  if ((data.permissions as Record<string, boolean> | undefined)?.[key] !== true) {
+  const perms = (data.permissions as Record<string, boolean> | undefined) ?? {};
+  // Check granular key first, then fall back to page-level key for backward compatibility
+  const pageKey = key.includes(':') ? key.split(':')[0] : key;
+  if (perms[key] !== true && perms[pageKey] !== true) {
     throw new HttpsError('permission-denied', `صلاحية "${key}" مطلوبة`);
   }
 }
@@ -1924,10 +1929,11 @@ async function assertHasPermission(uid: string, key: string): Promise<void> {
 
 /** مدير النظام ينشئ حساب مشرف جديد بصلاحيات دول محددة */
 /**
- * مفاتيح الصلاحيات الصالحة — يجب أن تطابق routePath في navConfig.ts (لوحة التحكم) تماماً.
+ * مفاتيح الصلاحيات الصالحة — تشمل مفاتيح الصفحات (routePath) والمفاتيح الدقيقة (sub-permissions).
  * أي مفتاح خارج هذه القائمة يُرفض هنا حتى لو استُدعيت الدالة مباشرة (تجاوز الواجهة).
  */
 const VALID_PERMISSION_KEYS = new Set([
+  // ── Page-level keys (routePath) ──
   'analytics', 'call-usage',
   'users', 'staff', 'kyc-requests',
   'rooms', 'room-decor', 'room-reactions',
@@ -1938,8 +1944,47 @@ const VALID_PERMISSION_KEYS = new Set([
   'posts', 'games', 'relationships', 'chat-backgrounds', 'notifications',
   'about-pages', 'support', 'reports',
   'settings', 'app-release',
+  // ── Granular sub-permission keys ──
+  // Analytics
+  'analytics:widgets', 'analytics:charts',
+  // Users
+  'users:view', 'users:add', 'users:edit', 'users:delete', 'users:ban', 'users:export',
+  // Staff
+  'staff:view', 'staff:manage',
+  // KYC
+  'kyc-requests:view', 'kyc:approve', 'kyc:reject',
+  // Agencies
+  'agencies:view', 'agencies:edit', 'agencies:delete',
+  // Agency Applications
+  'agency-apps:view', 'agency-apps:process',
+  // Withdrawals
+  'withdrawals:view', 'withdraw:approve', 'withdraw:reject',
+  // Wallet
+  'wallet:view', 'wallet:adjust',
+  // Notifications
+  'notify:individual', 'notify:broadcast', 'notify:send',
+  // Gifts
+  'gifts:view', 'gifts:add', 'gifts:edit', 'gifts:delete', 'gifts:seed', 'gifts:categories',
+  // Store
+  'store:view', 'store:add', 'store:edit', 'store:delete',
+  // Posts
+  'posts:view', 'posts:delete', 'posts:moderate',
+  // Games
+  'games:view', 'games:manage',
+  // Settings
+  'settings:economy', 'settings:commission', 'settings:moderation', 'settings:app',
+  // Aristocracy
+  'aristocracy:view', 'aristocracy:edit',
+  // Chat backgrounds
+  'chat-bg:manage',
+  // Rooms
+  'rooms:view', 'rooms:manage',
 ]);
 
+/**
+ * حفظ الصلاحيات — يُجرّد الصلاحيات غير الصالحة ويحتفظ بصلاحيات true فقط.
+ * يقبل كلاً من مفاتيح الصفحات (routePath) والمفاتيح الدقيقة (sub-permissions).
+ */
 function sanitizePermissions(raw: Record<string, boolean>): Record<string, boolean> {
   const out: Record<string, boolean> = {};
   for (const [key, value] of Object.entries(raw ?? {})) {
@@ -2052,6 +2097,7 @@ function userCountryFromDoc(data: FirebaseFirestore.DocumentData): string {
 async function assertCanManageAppUsers(
   adminUid: string,
   targetCountry?: string,
+  permKey: string = 'users',
 ): Promise<FirebaseFirestore.DocumentData> {
   const adminSnap = await db.collection('admins').doc(adminUid).get();
   if (!adminSnap.exists) {
@@ -2059,8 +2105,11 @@ async function assertCanManageAppUsers(
   }
   const adminData = adminSnap.data()!;
   if (adminData.role === 'super') return adminData;
-  if (adminData.permissions?.users !== true) {
-    throw new HttpsError('permission-denied', 'صلاحية إدارة المستخدمين مطلوبة');
+  const perms = (adminData.permissions as Record<string, boolean> | undefined) ?? {};
+  // Check the granular key first; fall back to page-level 'users' key for backward compat
+  const pageKey = permKey.includes(':') ? permKey.split(':')[0] : permKey;
+  if (perms[permKey] !== true && perms[pageKey] !== true) {
+    throw new HttpsError('permission-denied', `صلاحية "${permKey}" مطلوبة`);
   }
   if (targetCountry) {
     const countries = (adminData.countries as string[]) ?? [];
@@ -2118,7 +2167,7 @@ export const adminCreateAppUser = onCall(async (request) => {
   }
 
   const countryCode = String(country).trim().toUpperCase();
-  await assertCanManageAppUsers(adminUid, countryCode);
+  await assertCanManageAppUsers(adminUid, countryCode, 'users:add');
 
   let newUid: string;
   try {
@@ -2213,7 +2262,9 @@ export const adminUpdateAppUser = onCall(async (request) => {
   if (!userSnap.exists) throw new HttpsError('not-found', 'المستخدم غير موجود');
 
   const userData = userSnap.data()!;
-  await assertCanManageAppUsers(adminUid, userCountryFromDoc(userData));
+  const hasBanUpdate = 'isBanned' in (patch ?? {}) || 'banReason' in (patch ?? {});
+  const updatePermKey = hasBanUpdate ? 'users:ban' : 'users:edit';
+  await assertCanManageAppUsers(adminUid, userCountryFromDoc(userData), updatePermKey);
 
   const allowed = new Set([
     'displayName',
@@ -2341,7 +2392,7 @@ export const adminSetAppUserPassword = onCall(async (request) => {
   const userSnap = await userRef.get();
   if (!userSnap.exists) throw new HttpsError('not-found', 'المستخدم غير موجود');
 
-  await assertCanManageAppUsers(adminUid, userCountryFromDoc(userSnap.data()!));
+  await assertCanManageAppUsers(adminUid, userCountryFromDoc(userSnap.data()!), 'users:edit');
 
   try {
     await admin.auth().updateUser(uid.trim(), { password });
@@ -2371,7 +2422,7 @@ export const adminDeleteAppUsers = onCall({ memory: '512MiB', timeoutSeconds: 54
 
   if (!mode) throw new HttpsError('invalid-argument', 'mode مطلوب');
 
-  const adminData = await assertCanManageAppUsers(adminUid);
+  const adminData = await assertCanManageAppUsers(adminUid, undefined, 'users:delete');
   const adminCountries = ((adminData.countries as string[]) ?? []).map((c) => c.toUpperCase());
   const isSuper = adminData.role === 'super';
 
@@ -2701,7 +2752,7 @@ async function sendPushForNotificationDoc(
 }
 
 export const pushOnNotificationCreated = onDocumentCreated(
-  { document: 'notifications/{notifId}', maxInstances: 10 },
+  { document: 'notifications/{notifId}', maxInstances: 40 },
   async (event) => {
     const snap = event.data;
     if (!snap) return;
@@ -2940,7 +2991,7 @@ export const reconcileProfileVisitors = onCall(async (request) => {
 
 /** Push + رنين عند مكالمة واردة (التطبيق مغلق/خلفية) */
 export const pushOnIncomingCallCreated = onDocumentCreated(
-  'incomingCalls/{targetUid}/calls/{callId}',
+  { document: 'incomingCalls/{targetUid}/calls/{callId}', maxInstances: 40 },
   async (event) => {
     const snap = event.data;
     if (!snap) return;
@@ -2961,21 +3012,24 @@ export const pushOnIncomingCallCreated = onDocumentCreated(
 
       // اسم المتصل من بروفايل التطبيق لا من هوية Auth — وثيقة المكالمة تُكتب
       // أولاً باسم حساب جوجل الحقيقي (للسرعة) والإشعار ينطلق قبل إثرائها
-      let fromName = (call.fromName as string) || 'مستخدم';
-      try {
-        const callerUid = String(call.from ?? '');
-        if (callerUid) {
-          const callerSnap = await db.collection('users').doc(callerUid).get();
-          const callerData = callerSnap.data() ?? {};
-          const profileName = String(
-            (callerData.profile as Record<string, unknown> | undefined)?.displayName ??
-              callerData.displayName ??
-              '',
-          ).trim();
-          if (profileName) fromName = profileName;
+      let fromName = String(call.fromName ?? '').trim();
+      if (!fromName) {
+        fromName = 'مستخدم';
+        try {
+          const callerUid = String(call.from ?? '');
+          if (callerUid) {
+            const callerSnap = await db.collection('users').doc(callerUid).get();
+            const callerData = callerSnap.data() ?? {};
+            const profileName = String(
+              (callerData.profile as Record<string, unknown> | undefined)?.displayName ??
+                callerData.displayName ??
+                '',
+            ).trim();
+            if (profileName) fromName = profileName;
+          }
+        } catch {
+          // نكتفي بالاسم المكتوب في الوثيقة
         }
-      } catch {
-        // نكتفي بالاسم المكتوب في الوثيقة
       }
       const callType = call.type === 'video' ? 'video' : 'voice';
       const title = fromName;
@@ -3333,7 +3387,7 @@ export const reviewAgencyApplication = onCall(async (request) => {
   if (!appSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
   const app = appSnap.data()!;
   await assertAdminCountryScope(adminUid, app.countryCode as string | undefined);
-  await assertHasPermission(adminUid, 'agency-applications');
+  await assertHasPermission(adminUid, 'agency-apps:process');
 
   if (action === 'reject') {
     await appRef.update({
@@ -3469,7 +3523,7 @@ export const adminVerifyAgencyHost = onCall(async (request) => {
   if (!appSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
   const app = appSnap.data()!;
   await assertAdminCountryScope(adminUid, app.countryCode as string | undefined);
-  await assertHasPermission(adminUid, 'users');
+  await assertHasPermission(adminUid, 'users:edit');
 
   if (!['awaiting_hosts', 'ready'].includes(app.status)) {
     throw new HttpsError('failed-precondition', 'مرحلة الطلب لا تسمح بالتوثيق');
@@ -3571,7 +3625,7 @@ export const activateAgencyApplication = onCall(async (request) => {
   if (!appSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
   const app = appSnap.data()!;
   await assertAdminCountryScope(adminUid, app.countryCode as string | undefined);
-  await assertHasPermission(adminUid, 'agency-applications');
+  await assertHasPermission(adminUid, 'agency-apps:process');
 
   if (!['awaiting_hosts', 'ready'].includes(app.status)) {
     throw new HttpsError('failed-precondition', 'الطلب غير جاهز للتفعيل');
@@ -3948,7 +4002,7 @@ export const adminCreateAgencyDirect = onCall(async (request) => {
     countryCode?.trim().toUpperCase() || userCountryFromDoc(ownerData)
   );
   await assertAdminCountryScope(adminUid, agencyCountry);
-  await assertHasPermission(adminUid, 'agencies');
+  await assertHasPermission(adminUid, 'agencies:edit');
 
   const hosts: HostRow[] = [];
   const rawHosts = [...new Set((hostUids ?? []).map((u) => u.trim()).filter(Boolean))];
@@ -4006,7 +4060,7 @@ export const adminExpressActivateApplication = onCall(async (request) => {
   if (!appSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
   const app = appSnap.data()!;
   await assertAdminCountryScope(adminUid, app.countryCode as string | undefined);
-  await assertHasPermission(adminUid, 'agency-applications');
+  await assertHasPermission(adminUid, 'agency-apps:process');
 
   if (app.status === 'active') {
     throw new HttpsError('already-exists', 'الطلب مفعّل مسبقاً');
@@ -4666,7 +4720,7 @@ export const adminSendUserNotification = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
-  await assertHasPermission(adminUid, 'notifications');
+  await assertHasPermission(adminUid, 'notify:broadcast');
 
   const {
     identifier,
@@ -4773,7 +4827,7 @@ export const adminGrantCoins = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
-  await assertHasPermission(adminUid, 'wallet');
+  await assertHasPermission(adminUid, 'wallet:adjust');
 
   const { accountId, coins, note } = request.data as {
     accountId?: string;
@@ -4933,7 +4987,7 @@ export const adminSendBroadcast = onCall({ memory: '1GiB', timeoutSeconds: 300 }
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
-  await assertHasPermission(adminUid, 'notifications');
+  await assertHasPermission(adminUid, 'notify:individual');
 
   const {
     title,
@@ -6117,7 +6171,7 @@ export const getAgencyAdminAnalytics = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
-  await assertHasPermission(adminUid, 'analytics');
+  await assertHasPermission(adminUid, 'analytics:widgets');
 
   const {
     agencyId,
@@ -6750,18 +6804,7 @@ export const removeAgencyMember = onCall(async (request) => {
     }).catch(() => {});
   }
 
-  await notifyUser(
-    removedUid,
-    `تم إنهاء عضويتك في وكالة «${agencyName}» ولا يمكنك الانضمام مجدداً`,
-    { type: 'agency_member_removed', agencyId: aid, fromUid: callerUid },
-  );
-  if (ownerUid && ownerUid !== removedUid) {
-    await notifyUser(
-      ownerUid,
-      `تم إزالة «${memberName}» من وكالتك «${agencyName}»`,
-      { type: 'agency_member_removed', agencyId: aid, fromUid: removedUid },
-    );
-  }
+  // الإشعارات تُرسل تلقائياً عبر Firestore trigger (onAgencyMemberDeleted) لتجنب الازدواجية
 
   return { ok: true, agencyId: aid, removedUid };
 });
@@ -6807,7 +6850,7 @@ export const adminDeleteAgency = onCall(async (request) => {
 
     const agency = agencySnap.data()!;
     await assertAdminCountryScope(adminUid, agency.country as string | undefined);
-    await assertHasPermission(adminUid, 'agencies');
+    await assertHasPermission(adminUid, 'agencies:delete');
 
     const result = await purgeAgencyCascade(aid);
     if (!result.deleted) return { ok: true, deleted: false };
@@ -6863,7 +6906,7 @@ export const adminPurgeAgencyOrphans = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
-  await assertHasPermission(adminUid, 'agencies');
+  await assertHasPermission(adminUid, 'agencies:delete');
 
   const { agencyId } = request.data as { agencyId?: string };
   if (!agencyId?.trim()) throw new HttpsError('invalid-argument', 'agencyId مطلوب');
@@ -6877,7 +6920,7 @@ export const adminPurgeUserOrphans = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
-  await assertHasPermission(adminUid, 'users');
+  await assertHasPermission(adminUid, 'users:delete');
 
   const { uid } = request.data as { uid?: string };
   if (!uid?.trim()) throw new HttpsError('invalid-argument', 'uid مطلوب');
@@ -6891,7 +6934,7 @@ export const adminDeletePost = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
-  await assertHasPermission(adminUid, 'posts');
+  await assertHasPermission(adminUid, 'posts:delete');
 
   const { postId } = request.data as { postId?: string };
   if (!postId?.trim()) throw new HttpsError('invalid-argument', 'postId مطلوب');
@@ -7564,7 +7607,7 @@ export const adminRunWeeklyLotteryDraw = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
-  await assertHasPermission(adminUid, 'games');
+  await assertHasPermission(adminUid, 'games:manage');
 
   const { weekId } = request.data as { weekId?: string };
   const draw = await executeWeeklyLotteryDraw(db, weekId?.trim() || undefined);
@@ -7780,9 +7823,18 @@ export const creditAgencyPearlsOnGift = onDocumentCreated(
           updatedAt: Date.now(),
         });
       }
-      await batch.commit();
 
       const memberAgencyId = String(memberDoc.data().agencyId ?? '');
+      if (memberAgencyId) {
+        const agencyRef = db.collection('agencies').doc(memberAgencyId);
+        batch.update(agencyRef, {
+          memberCollection: admin.firestore.FieldValue.increment(pearls),
+          updatedAt: Date.now(),
+        });
+      }
+
+      await batch.commit();
+
       if (memberAgencyId) {
         await creditBdReferralCommission(memberAgencyId, pearls);
         await bumpAgencyEarningsDaily(memberAgencyId, hostUid, pearls, String(tx.type ?? ''));
@@ -8105,7 +8157,7 @@ export const adminDiscoverAristocracyUploads = onCall(async (request) => {
   const adminUid = request.auth?.uid;
   if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
   await assertAdmin(adminUid);
-  await assertHasPermission(adminUid, 'aristocracy');
+  await assertHasPermission(adminUid, 'aristocracy:edit');
 
   const bucket = admin.storage().bucket();
   const [files] = await bucket.getFiles({ prefix: 'config/aristocracy/' });
@@ -8201,3 +8253,136 @@ export {
   adminUpdateStaffUser,
   adminRemoveStaffUser,
 } from './platformStaff';
+
+// ==================== FCM DIRECT SYNCHRONOUS PUSH HELPER ====================
+async function sendPushDirectly(
+  targetUid: string,
+  title: string,
+  body: string,
+  data: Record<string, string>,
+): Promise<void> {
+  try {
+    const userSnap = await db.collection('users').doc(targetUid).get();
+    const userData = userSnap.data() ?? {};
+    const prefs = userData.notificationSettings as NotificationPrefs | undefined;
+    if (prefs?.pushEnabled === false || prefs?.enabled === false) return;
+
+    const fcmToken = userData.fcmToken as string | undefined;
+    if (!fcmToken) return;
+
+    await admin.messaging().send({
+      token: fcmToken,
+      notification: { title, body },
+      data,
+      apns: { payload: { aps: { sound: 'default' } } },
+      android: { priority: 'high' },
+    });
+  } catch (err) {
+    console.error('sendPushDirectly failed:', targetUid, err);
+  }
+}
+
+// ==================== AGENCY MEMBERSHIP FIRESTORE TRIGGERS ====================
+export const onAgencyMemberCreated = onDocumentCreated(
+  { document: 'agencyMembers/{memberId}', maxInstances: 40 },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const member = snap.data();
+    const memberUid = String(member.uid ?? '');
+    const agencyId = String(member.agencyId ?? '');
+    const memberName = String(member.uidName ?? 'مضيفة');
+
+    if (!memberUid || !agencyId) return;
+
+    try {
+      const agencySnap = await db.collection('agencies').doc(agencyId).get();
+      if (!agencySnap.exists) return;
+      const agency = agencySnap.data()!;
+      const ownerUid = String(agency.ownerUid ?? '');
+      const agencyName = String(agency.name ?? member.agencyName ?? 'الوكالة');
+
+      // 1. إشعار لمالك الوكالة
+      if (ownerUid) {
+        const ownerMsg = `انضم مضيف جديد إلى وكالتك: ${memberName}`;
+        await notifyUser(ownerUid, ownerMsg, {
+          type: 'agency_host_joined',
+          memberUid,
+          agencyId,
+        });
+        await sendPushDirectly(ownerUid, 'عضو جديد في الوكالة', ownerMsg, {
+          type: 'agency_host_joined',
+          notifType: 'agency_host_joined',
+          agencyId,
+          memberUid,
+        });
+      }
+
+      // 2. إشعار للمضيف المنضم
+      const memberMsg = `تم انضمامك بنجاح إلى وكالة «${agencyName}»`;
+      await notifyUser(memberUid, memberMsg, {
+        type: 'agency_host_joined',
+        agencyId,
+      });
+      await sendPushDirectly(memberUid, 'الانضمام للوكالة', memberMsg, {
+        type: 'agency_host_joined',
+        notifType: 'agency_host_joined',
+        agencyId,
+      });
+    } catch (e) {
+      console.error('onAgencyMemberCreated error:', e);
+    }
+  },
+);
+
+export const onAgencyMemberDeleted = onDocumentDeleted(
+  { document: 'agencyMembers/{memberId}', maxInstances: 40 },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const member = snap.data();
+    const memberUid = String(member.uid ?? '');
+    const agencyId = String(member.agencyId ?? '');
+    const memberName = String(member.uidName ?? 'عضو');
+
+    if (!memberUid || !agencyId) return;
+
+    try {
+      const agencySnap = await db.collection('agencies').doc(agencyId).get();
+      const agencyName = agencySnap.exists
+        ? String(agencySnap.data()?.name ?? '')
+        : String(member.agencyName ?? 'الوكالة');
+      const ownerUid = agencySnap.exists ? String(agencySnap.data()?.ownerUid ?? '') : '';
+
+      // 1. إشعار للمضيف المُنضم/المُغادر
+      const memberMsg = `تم إنهاء عضويتك في وكالة «${agencyName}»`;
+      await notifyUser(memberUid, memberMsg, {
+        type: 'agency_member_removed',
+        agencyId,
+      });
+      await sendPushDirectly(memberUid, 'إنهاء العضوية', memberMsg, {
+        type: 'agency_member_removed',
+        notifType: 'agency_member_removed',
+        agencyId,
+      });
+
+      // 2. إشعار لمالك الوكالة
+      if (ownerUid && ownerUid !== memberUid) {
+        const ownerMsg = `غادر العضو «${memberName}» وكالتك «${agencyName}»`;
+        await notifyUser(ownerUid, ownerMsg, {
+          type: 'agency_member_removed',
+          agencyId,
+          fromUid: memberUid,
+        });
+        await sendPushDirectly(ownerUid, 'خروج عضو من الوكالة', ownerMsg, {
+          type: 'agency_member_removed',
+          notifType: 'agency_member_removed',
+          agencyId,
+          fromUid: memberUid,
+        });
+      }
+    } catch (e) {
+      console.error('onAgencyMemberDeleted error:', e);
+    }
+  },
+);
