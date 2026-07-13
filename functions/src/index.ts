@@ -2495,6 +2495,10 @@ function resolveNotificationPrefKey(
   if (type === 'moderation') return 'enabled';
   if (dataType === 'broadcast') return 'promotions';
   if (type === 'system' && data.broadcastId) return 'promotions';
+  // إشعارات الوكالة مهمة (دعوة / إزالة / مغادرة) — لا تُصنَّف كـ promotions
+  if (dataType.startsWith('agency_') || String(type).startsWith('agency_')) {
+    return 'enabled';
+  }
   if (['follow', 'like', 'comment', 'mention', 'room_invite', 'game_challenge'].includes(type)) {
     return 'social';
   }
@@ -2586,6 +2590,8 @@ function computePushRoute(
   }
   if (dataType === 'agency_host_invite') return '/agency/my-invites';
   if (dataType === 'agency_host_joined') return '/agency/members';
+  if (dataType === 'agency_member_removed') return '/agency/hub';
+  if (dataType === 'agency_member_left') return '/agency/members';
   if (dataType === 'agency_needs_verification') return '/agency/confirm-host';
   if (dataType === 'agency_application_expired' || dataType === 'agency_application_rejected') {
     return '/agency/center';
@@ -6753,17 +6759,121 @@ export const removeAgencyMember = onCall(async (request) => {
   await notifyUser(
     removedUid,
     `تم إنهاء عضويتك في وكالة «${agencyName}» ولا يمكنك الانضمام مجدداً`,
-    { type: 'agency_member_removed', agencyId: aid, fromUid: callerUid },
+    {
+      type: 'agency_member_removed',
+      agencyId: aid,
+      fromUid: callerUid,
+      title: 'إنهاء عضوية الوكالة',
+      body: `تم إنهاء عضويتك في وكالة «${agencyName}» ولا يمكنك الانضمام مجدداً من دون دعوة جديدة.`,
+      route: '/agency/hub',
+    },
   );
-  if (ownerUid && ownerUid !== removedUid) {
+  // لا تُشعر الوكيل إن كان هو من نفّذ الإزالة
+  if (ownerUid && ownerUid !== removedUid && ownerUid !== callerUid) {
     await notifyUser(
       ownerUid,
       `تم إزالة «${memberName}» من وكالتك «${agencyName}»`,
-      { type: 'agency_member_removed', agencyId: aid, fromUid: removedUid },
+      {
+        type: 'agency_member_removed',
+        agencyId: aid,
+        fromUid: removedUid,
+        title: 'إزالة عضو من الوكالة',
+        body: `تم إزالة «${memberName}» من وكالتك «${agencyName}».`,
+        route: '/agency/members',
+      },
     );
   }
 
   return { ok: true, agencyId: aid, removedUid };
+});
+
+/**
+ * مغادرة المضيف لوكالته طوعاً — لا يمكن لمالك الوكالة استخدامها.
+ */
+export const leaveAgency = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+
+  const memberSnap = await db
+    .collection('agencyMembers')
+    .where('uid', '==', uid)
+    .limit(5)
+    .get();
+  if (memberSnap.empty) {
+    throw new HttpsError('failed-precondition', 'لست عضواً في أي وكالة');
+  }
+
+  const memberDoc = memberSnap.docs[0];
+  const memberData = memberDoc.data();
+  const aid = String(memberData.agencyId ?? '').trim();
+  if (!aid) throw new HttpsError('failed-precondition', 'بيانات العضوية غير كاملة');
+
+  const agencySnap = await db.collection('agencies').doc(aid).get();
+  if (!agencySnap.exists) throw new HttpsError('not-found', 'الوكالة غير موجودة');
+  const agency = agencySnap.data()!;
+  const ownerUid = String(agency.ownerUid ?? '');
+  const agencyName = String(agency.name ?? 'الوكالة');
+
+  if (uid === ownerUid) {
+    throw new HttpsError('failed-precondition', 'لا يمكن لمالك الوكالة مغادرتها بهذه الطريقة');
+  }
+
+  const wasFemaleHost = memberData.isFemaleHost === true;
+  let memberName = String(memberData.uidName ?? '').trim();
+  if (!memberName) {
+    const userSnap = await db.collection('users').doc(uid).get();
+    memberName = String(userSnap.data()?.profile?.displayName ?? 'عضو');
+  }
+  const now = Date.now();
+
+  await memberDoc.ref.delete();
+  await db.collection('users').doc(uid).update(USER_AGENCY_UNLINK_PATCH).catch(() => {});
+  await removeUidFromAgencyChat(aid, uid);
+  await cancelPendingAgencyInvites(aid, uid);
+
+  await db.collection('agencies').doc(aid).collection('removedMembers').doc(uid).set({
+    uid,
+    removedAt: now,
+    removedBy: uid,
+    leftVoluntarily: true,
+    memberName,
+  });
+
+  await db.collection('agencies').doc(aid).update({
+    memberCount: admin.firestore.FieldValue.increment(-1),
+    ...(wasFemaleHost ? { femaleHostCount: admin.firestore.FieldValue.increment(-1) } : {}),
+    updatedAt: now,
+  }).catch(() => {});
+
+  const chatSnap = await db.collection('agencyChats').doc(aid).get();
+  if (chatSnap.exists) {
+    await db.collection('agencyChatMessages').add({
+      chatId: aid,
+      fromUid: 'system',
+      fromName: 'النظام',
+      fromAvatar: '',
+      text: `غادر ${memberName} الوكالة`,
+      type: 'text',
+      createdAt: now,
+    }).catch(() => {});
+  }
+
+  if (ownerUid) {
+    await notifyUser(
+      ownerUid,
+      `غادر «${memberName}» وكالتك «${agencyName}»`,
+      {
+        type: 'agency_member_left',
+        agencyId: aid,
+        fromUid: uid,
+        title: 'مغادرة عضو من الوكالة',
+        body: `غادر «${memberName}» وكالتك «${agencyName}».`,
+        route: '/agency/members',
+      },
+    );
+  }
+
+  return { ok: true, agencyId: aid, agencyName, ownerUid };
 });
 
 /** مزامنة ملف المستخدم — يصحّح agencyId القديم دون المساس بدردشة الوكالة أو رسائلها */
