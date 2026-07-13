@@ -433,7 +433,9 @@ export default function ProfileScreen() {
                     {s.n}
                   </Text>
                   <View style={[styles.statLabelRow, { flexDirection: ROW }]}>
-                    <s.Icon size={11} color={isDark ? pal.red : s.color} />
+                    <View style={styles.statIconBox}>
+                      <s.Icon size={11} color={isDark ? pal.red : s.color} />
+                    </View>
                     <Text style={[styles.statLabel, { color: isDark ? pal.ink2 : '#5E5E68' }]} numberOfLines={1}>
                       {s.label}
                     </Text>
@@ -732,7 +734,8 @@ const styles = StyleSheet.create({
   statsRow: { alignItems: 'stretch', justifyContent: 'space-between' },
   statN: { fontSize: 16, fontWeight: '900', fontFamily: DISPLAY, maxWidth: '100%' },
   statLabelRow: { alignItems: 'center', gap: 3, maxWidth: '100%' },
-  statLabel: { fontSize: 9.5, fontWeight: '600', fontFamily: SEMI, flexShrink: 1, includeFontPadding: false, lineHeight: 12 },
+  statIconBox: { height: 12, width: 12, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: -1.5 }] },
+  statLabel: { fontSize: 9.5, fontWeight: '600', fontFamily: SEMI, flexShrink: 1, includeFontPadding: false, lineHeight: 12, textAlignVertical: 'center' },
 
   walletHead: { alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   walletTitle: { fontSize: 16, fontWeight: '800', fontFamily: HEAVY },
