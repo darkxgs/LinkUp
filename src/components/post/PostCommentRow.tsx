@@ -24,6 +24,7 @@ export const PostCommentRow = React.memo(function PostCommentRow({
   onLikeChange,
   onReply,
   onImagePress,
+  onAuthorPress,
   frameUri,
   canInteract,
 }: {
@@ -34,6 +35,7 @@ export const PostCommentRow = React.memo(function PostCommentRow({
   onLikeChange: (commentId: string, liked: boolean, revert?: boolean) => void;
   onReply?: (comment: PostComment) => void;
   onImagePress?: (uri: string) => void;
+  onAuthorPress?: (uid: string) => void;
   frameUri?: string;
   canInteract?: boolean;
 }) {
@@ -87,10 +89,15 @@ export const PostCommentRow = React.memo(function PostCommentRow({
 
   return (
     <View style={[styles.commentRow, isReply && styles.commentRowReply, isGift && styles.giftCommentRow]}>
-      {avatarNode}
+      {/* الضغط على الصورة أو الاسم يفتح ملف صاحب التعليق */}
+      <Pressable onPress={() => item.uid && onAuthorPress?.(item.uid)}>
+        {avatarNode}
+      </Pressable>
       <View style={styles.commentBody}>
         <View style={[styles.commentBubble, isGift && styles.giftBubble]}>
-          <Text style={styles.commentAuthor}>{item.authorName}</Text>
+          <Pressable onPress={() => item.uid && onAuthorPress?.(item.uid)}>
+            <Text style={styles.commentAuthor}>{item.authorName}</Text>
+          </Pressable>
           {isReply && item.replyToName ? (
             <Text style={styles.replyToLabel}>
               <Text style={styles.replyToName}>@{item.replyToName}</Text>

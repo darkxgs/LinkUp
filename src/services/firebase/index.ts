@@ -62,7 +62,13 @@ if (getApps().length === 0) {
 /** تجاهل أخطاء الصلاحيات بعد تسجيل الخروج — تمنع LogBox الأحمر */
 function isExpectedLogoutFirestoreError(err: unknown): boolean {
   const code = (err as { code?: string })?.code;
-  return code === 'permission-denied' || code === 'unauthenticated';
+  // نتجاهل الخطأ فقط عند عدم وجود جلسة (خروج فعلي). مع وجود مستخدم، الخطأ
+  // حقيقي (قاعدة قديمة/غير منشورة مثلاً) — نمرّره بدل ابتلاعه، وإلا يبقى
+  // مستمع مثل شاشة الإشعارات بلا نجاح ولا خطأ فتعلق الدوّارة للأبد.
+  return (
+    (code === 'permission-denied' || code === 'unauthenticated') &&
+    !auth.currentUser
+  );
 }
 
 function wrapFirestoreListenerError(onError?: (error: Error) => void): (error: Error) => void {

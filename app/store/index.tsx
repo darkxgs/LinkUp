@@ -823,6 +823,10 @@ const StoreCard = memo(function StoreCard({
   const IconComp = (LucideIcons as any)[item.iconName] ?? Star;
   // ⚡ مصغّرة البطاقة = الصورة الثابتة الخفيفة (وليس الأنيميشن الثقيل) — الأنيميشن للمعاينة/الشراء فقط
   const mediaUrl = storeItemThumbUrl(item);
+  // fallback عند فشل تحميل صورة المتجر (روابط الكتالوج الثابتة معطّلة/غير
+  // عامة → 403/404 للجميع) — نعرض أيقونة العنصر الملوّنة بدل المربع الرمادي
+  const [thumbFailed, setThumbFailed] = React.useState(false);
+  React.useEffect(() => setThumbFailed(false), [mediaUrl]);
   const isRoomFrame = item.isRoomFrame === true;
   const showFrameActions = owned && isRoomFrame;
 
@@ -830,7 +834,7 @@ const StoreCard = memo(function StoreCard({
     <View style={[styles.card, { width }]}>
       <Pressable onPress={() => onPress(item)}>
         <View style={[styles.cardHero, { backgroundColor: '#FCFAFA' }]}>
-          {mediaUrl ? (
+          {mediaUrl && !thumbFailed ? (
             <View style={styles.cardImageWrap}>
               <Image
                 source={{ uri: mediaUrl }}
@@ -840,6 +844,7 @@ const StoreCard = memo(function StoreCard({
                 placeholder={{ blurhash: STORE_THUMB_BLURHASH }}
                 transition={150}
                 recyclingKey={mediaUrl}
+                onError={() => setThumbFailed(true)}
               />
             </View>
           ) : (

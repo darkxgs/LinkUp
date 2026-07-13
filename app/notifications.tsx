@@ -172,12 +172,18 @@ export default function NotificationsScreen() {
 
   useEffect(() => {
     setLoading(true);
+    // أمان: لو لم يصل أي snapshot (خطأ مُبتلَع/شبكة) لا نُبقِ الدوّارة للأبد
+    const fallback = setTimeout(() => setLoading(false), 8000);
     const unsub = subscribeToNotifications((data) => {
+      clearTimeout(fallback);
       setNotifications(data);
       setLoading(false);
     });
     void syncMessageNotificationsWithInbox();
-    return unsub;
+    return () => {
+      clearTimeout(fallback);
+      unsub();
+    };
   }, []);
 
   useEffect(() => {

@@ -1248,12 +1248,17 @@ export async function quickClearOldChatMessages(olderThanDays: QuickClearDays): 
     batchCount = 0;
   };
 
-  for (const convDoc of convSnap.docs) {
-    const convId = convDoc.id;
-    const msgSnap = await getDocs(
-      query(collection(firestore, 'messages'), where('conversationId', '==', convId), limit(500)),
-    );
+  // نقرأ رسائل كل المحادثات بالتوازي بدل انتظار كل واحدة على حدة (كان N ذهاب/إياب متتالية)
+  const perConv = await Promise.all(
+    convSnap.docs.map(async (convDoc) => ({
+      convDoc,
+      msgSnap: await getDocs(
+        query(collection(firestore, 'messages'), where('conversationId', '==', convDoc.id), limit(500)),
+      ),
+    })),
+  );
 
+  for (const { convDoc, msgSnap } of perConv) {
     let clearedHere = 0;
     let visibleLeft = 0;
     for (const msgDoc of msgSnap.docs) {

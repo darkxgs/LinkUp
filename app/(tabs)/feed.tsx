@@ -208,7 +208,7 @@ export default function FeedScreen() {
         data={posts}
         keyExtractor={(p) => p.id}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: insets.top + 4, paddingBottom: insets.bottom + 110 }}
+        contentContainerStyle={{ paddingTop: insets.top + 4, paddingBottom: insets.bottom + 172 }}
         ItemSeparatorComponent={SEP}
         initialNumToRender={5}
         maxToRenderPerBatch={6}

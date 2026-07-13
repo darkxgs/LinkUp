@@ -152,15 +152,17 @@ export function RoomInformationModal({
     return subscribeToAgencyById(agencyId, setAgencyDoc);
   }, [visible, agencyId]);
 
+  // نحمّل الأعضاء لأي مُشاهد (وليس المدير فقط) كي يكون agencyMembers.length
+  // عدّاداً حياً بديلاً عن الحقل المخزَّن — قواعد Firestore تسمح بالقراءة لأي مسجَّل دخول
   useEffect(() => {
-    if (!visible || !agencyId || !canManage) return;
+    if (!visible || !agencyId) return;
     setLoadingMembers(true);
     const unsub = subscribeToAgencyMembers(agencyId, (list) => {
       setAgencyMembers(list);
       setLoadingMembers(false);
     });
     return unsub;
-  }, [visible, agencyId, canManage]);
+  }, [visible, agencyId]);
 
   useEffect(() => {
     if (!visible || !roomId) return;

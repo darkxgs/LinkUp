@@ -235,7 +235,7 @@ function startUserDocListener(
           return g === 'female' ? 'female' : 'male';
         })(),
         birthYear: Number(data.birthYear ?? current.profile?.birthYear ?? 1995),
-        country: String(data.country ?? current.profile?.country ?? 'PS'),
+        country: String(data.country ?? current.profile?.country ?? ''),
         email: String(data.email ?? current.profile?.email ?? ''),
         photos: (data.photos as string[]) ?? current.profile?.photos ?? [],
         residence: data.residence != null ? String(data.residence) : current.profile?.residence,
@@ -809,7 +809,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               return g === 'female' ? 'female' : 'male';
             })(),
             birthYear: data.birthYear ?? 1995,
-            country: data.country ?? 'PS',
+            country: data.country ?? '',
             email: data.email ?? '',
             photos: data.photos ?? [],
             residence: data.residence,

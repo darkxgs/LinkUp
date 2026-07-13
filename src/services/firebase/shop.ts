@@ -635,7 +635,12 @@ export const buyAndSendGift = async (
 ): Promise<BuyAndSendGiftResult> => {
   const user = auth.currentUser;
   if (!user) throw new Error('يجب تسجيل الدخول');
-  // يُسمح بإهداء النفس (دعم ذاتي)
+  // منع الإهداء/الدعم الذاتي: كان يسمح برفع المستوى مجاناً (كوينز تخرج وتعود
+  // فتتعادل) وللمضيفة بسكّ ماسة قابلة للسحب 1:1 من الكوينز بلا عمولة — ثغرة
+  // خسارة مالية على الوكيل. المنع هنا يغطّي كل مسارات الإهداء (روم/خاص/منشور).
+  if (toUid === user.uid) {
+    throw new Error('لا يمكنك إهداء أو دعم نفسك');
+  }
 
   return enqueueGiftSend(user.uid, () =>
     executeBuyAndSendGift(user, gift, toUid, toName, roomId, quantity, context),

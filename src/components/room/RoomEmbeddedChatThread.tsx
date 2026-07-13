@@ -664,7 +664,7 @@ export function RoomEmbeddedChatThread({
           : ImagePicker.launchImageLibraryAsync({
               mediaTypes: ImagePicker.MediaTypeOptions.Images,
               quality: 0.7,
-              allowsEditing: false,
+              allowsEditing: true,
             }),
       );
       if (result.canceled || !result.assets?.[0]) return;

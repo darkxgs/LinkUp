@@ -290,7 +290,9 @@ export default function SearchScreen() {
               placeholderTextColor="#9CA3AF"
               autoFocus
               returnKeyType="search"
-              keyboardType={activeTab === 'id' ? 'number-pad' : 'default'}
+              // معرّفات الغرف أبجدية-رقمية (مثل a6452x) — لوحة الأرقام كانت
+              // تمنع كتابة الأحرف فيرجع البحث بالـID «لا نتائج»
+              keyboardType="default"
             />
             {query.length > 0 && (
               <Pressable onPress={() => setQuery('')} hitSlop={8}>

@@ -31,6 +31,9 @@ import { getDisplayAccountId } from '@/services/userIdentifier';
 import { resolveUserDocAvatar } from '@/utils/userAvatar';
 import { useThemeMode } from '@/stores/themeStore';
 
+// وضع داكن محلي لهذه الشاشة فقط — يُمرَّر للصفوف عبر Context دون لمس شاشات أخرى
+const SettingsDarkContext = React.createContext(false);
+
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -151,8 +154,17 @@ export default function SettingsScreen() {
     }
   };
 
+  // ألوان مشتقة من الوضع الداكن (محصورة بهذه الشاشة)
+  const c = {
+    bg: isDark ? '#0E0E12' : '#F7F7F9',
+    card: isDark ? '#1C1C22' : '#FFFFFF',
+    text: isDark ? '#F5F5F7' : '#15151A',
+    text2: isDark ? '#9CA3AF' : '#6B7280',
+  };
+
   return (
-    <View style={styles.container}>
+    <SettingsDarkContext.Provider value={isDark}>
+    <View style={[styles.container, { backgroundColor: c.bg }]}>
       <LinearGradient
         colors={['rgba(225, 20, 20, 0.1)', 'rgba(249, 250, 252, 0)']}
         style={styles.headerBg}
@@ -167,10 +179,13 @@ export default function SettingsScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <BackChevron size={24} color="#1A0A0C" strokeWidth={2.5} />
+          <Pressable
+            onPress={() => router.back()}
+            style={[styles.backButton, isDark && { backgroundColor: '#1C1C22', borderColor: '#2A2A32' }]}
+          >
+            <BackChevron size={24} color={isDark ? '#F5F5F7' : '#1A0A0C'} strokeWidth={2.5} />
           </Pressable>
-          <Text variant="h2" weight="bold" color="#15151A" style={{ lineHeight: 36, paddingTop: 4 }}>
+          <Text variant="h2" weight="bold" color={c.text} style={{ lineHeight: 36, paddingTop: 4 }}>
             {t('settings.title')}
           </Text>
           <View style={{ width: 40 }} />
@@ -178,7 +193,7 @@ export default function SettingsScreen() {
 
         {/* Account info */}
         <Pressable onPress={() => router.push('/profile/edit' as any)}>
-          <View style={styles.vipCard}>
+          <View style={[styles.vipCard, { backgroundColor: c.card }]}>
             <View style={styles.accountRow}>
               <View style={styles.accountIconWrapper}>
                 {avatarUri ? (
@@ -202,14 +217,14 @@ export default function SettingsScreen() {
                 )}
               </View>
               <View style={{ flex: 1, justifyContent: 'center' }}>
-                <Text variant="h3" weight="bold" color="#15151A" style={{ lineHeight: 32 }}>
+                <Text variant="h3" weight="bold" color={c.text} style={{ lineHeight: 32 }}>
                   {user?.profile.displayName ?? t('settings.account')}
                 </Text>
-                <Text variant="body" color="#6B7280" style={{ marginTop: 2 }}>
+                <Text variant="body" color={c.text2} style={{ marginTop: 2 }}>
                   ID: {profileAccountId}
                 </Text>
               </View>
-              <View style={styles.vipChevronWrap}>
+              <View style={[styles.vipChevronWrap, isDark && { backgroundColor: '#2A2A32' }]}>
                 <ChevronRight size={22} color="#9CA3AF" />
               </View>
             </View>
@@ -394,11 +409,11 @@ export default function SettingsScreen() {
             onPress={() => router.push('/settings/security' as any)}
           />
           <Divider />
-          <Pressable style={styles.row} onPress={handleSignOut}>
+          <Pressable style={[styles.row, { backgroundColor: c.card }]} onPress={handleSignOut}>
             <View style={[styles.iconWrapper, { backgroundColor: '#FEF3C7' }]}>
               <LogOut size={20} color="#F59E0B" />
             </View>
-            <Text variant="body" style={{ flex: 1, marginStart: spacing.md }}>
+            <Text variant="body" color={c.text} style={{ flex: 1, marginStart: spacing.md }}>
               {t('settings.logout')}
             </Text>
             <ChevronRight size={18} color={colors.text.tertiary} />
@@ -418,6 +433,7 @@ export default function SettingsScreen() {
 
       <LanguagePickerSheet visible={showLangSheet} onClose={() => setShowLangSheet(false)} />
     </View>
+    </SettingsDarkContext.Provider>
   );
 }
 
@@ -440,23 +456,26 @@ const ToggleRow: React.FC<{
   value: boolean;
   disabled?: boolean;
   onValueChange: (v: boolean) => void;
-}> = ({ icon: Icon, iconColor, label, value, disabled, onValueChange }) => (
-  <View style={[styles.row, disabled && { opacity: 0.45 }]}>
+}> = ({ icon: Icon, iconColor, label, value, disabled, onValueChange }) => {
+  const isDark = React.useContext(SettingsDarkContext);
+  return (
+  <View style={[styles.row, { backgroundColor: isDark ? '#1C1C22' : '#FFFFFF' }, disabled && { opacity: 0.45 }]}>
     <View style={[styles.iconWrapper, { backgroundColor: `${iconColor}15` }]}>
       <Icon size={22} color={iconColor} strokeWidth={2.5} />
     </View>
-    <Text variant="body" weight="semibold" color="#374151" style={{ flex: 1, marginStart: 16 }}>
+    <Text variant="body" weight="semibold" color={isDark ? '#E5E7EB' : '#374151'} style={{ flex: 1, marginStart: 16 }}>
       {label}
     </Text>
     <Switch
       value={value}
       onValueChange={onValueChange}
       disabled={disabled}
-      trackColor={{ false: '#E5E7EB', true: '#E11414' }}
+      trackColor={{ false: isDark ? '#3A3A42' : '#E5E7EB', true: '#E11414' }}
       thumbColor="#FFF"
     />
   </View>
-);
+  );
+};
 
 const NavRow: React.FC<{
   icon: any;
@@ -464,15 +483,21 @@ const NavRow: React.FC<{
   label: string;
   value?: string;
   onPress?: () => void;
-}> = ({ icon: Icon, iconColor, label, value, onPress }) => (
+}> = ({ icon: Icon, iconColor, label, value, onPress }) => {
+  const isDark = React.useContext(SettingsDarkContext);
+  return (
   <Pressable
-    style={({ pressed }) => [styles.row, pressed && { backgroundColor: '#F9FAFC', transform: [{ scale: 0.98 }] }]}
+    style={({ pressed }) => [
+      styles.row,
+      { backgroundColor: isDark ? '#1C1C22' : '#FFFFFF' },
+      pressed && { backgroundColor: isDark ? '#26262E' : '#F9FAFC', transform: [{ scale: 0.98 }] },
+    ]}
     onPress={onPress}
   >
     <View style={[styles.iconWrapper, { backgroundColor: `${iconColor}15` }]}>
       <Icon size={22} color={iconColor} strokeWidth={2.5} />
     </View>
-    <Text variant="body" weight="semibold" color="#374151" style={{ flex: 1, marginStart: 16 }}>
+    <Text variant="body" weight="semibold" color={isDark ? '#E5E7EB' : '#374151'} style={{ flex: 1, marginStart: 16 }}>
       {label}
     </Text>
     {value && (
@@ -480,9 +505,10 @@ const NavRow: React.FC<{
         {value}
       </Text>
     )}
-    <ChevronRight size={20} color="#D1D5DB" />
+    <ChevronRight size={20} color={isDark ? '#4B5563' : '#D1D5DB'} />
   </Pressable>
-);
+  );
+};
 
 const Divider = () => null;
 

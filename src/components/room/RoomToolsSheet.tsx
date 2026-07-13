@@ -155,7 +155,9 @@ export function RoomToolsSheet({
     // منتقي الصور والمودال ما زال معروضاً كان يترك نافذته «شبحاً» عالقاً فوق
     // الشاشات التالية على أندرويد بلا استجابة للمس.
     onClose();
-    setTimeout(() => onAction(action, payload), 60);
+    // 300ms ≈ زمن انزلاق خروج المودال على أندرويد — أقل من ذلك يجعل هذا المودال
+    // المُغلَق يتراكب فوق المودال التالي (VideoAddModal) ويبتلع لمسات إلغاء/إرسال
+    setTimeout(() => onAction(action, payload), 300);
   };
 
   const basicTools = showSettings

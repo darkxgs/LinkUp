@@ -3605,10 +3605,11 @@ export const acceptInvitedMicSeat = async (
   if (!user) throw new Error('يجب تسجيل الدخول');
 
   // قراءات متوازية — كانت متسلسلة فيطول قبول الدعوة كثيراً على الشبكات البطيئة
-  const [roomSnap, roleSnap, userSnap] = await Promise.all([
+  const [roomSnap, roleSnap, userSnap, invitesSnap] = await Promise.all([
     get(ref(realtimeDb, `rooms/${roomId}`)),
     get(ref(realtimeDb, `rooms/${roomId}/memberRoles/${user.uid}`)),
     getDoc(doc(firestore, 'users', user.uid)),
+    get(ref(realtimeDb, `roomMicInvites/${user.uid}`)),
   ]);
   if (!roomSnap.exists()) throw new Error('الغرفة غير موجودة');
   const roomData = roomSnap.val() as Record<string, unknown>;
@@ -3621,6 +3622,18 @@ export const acceptInvitedMicSeat = async (
       if (!Number.isNaN(idx)) return idx;
     }
   }
+
+  // تحصين: لا نمنح مقعداً مجانياً + عضوية إلا بوجود دعوة مايك معلّقة سارية فعلاً لهذه الغرفة
+  // (كانت الدالة تثق بالمُستدعي فقط) — نبحث في دعوات هذا المستخدم عن واحدة لم تنتهِ صلاحيتها
+  const invites = (invitesSnap.val() ?? {}) as Record<
+    string,
+    { roomId?: string; status?: string; expiresAt?: number }
+  >;
+  const nowMs = Date.now();
+  const hasValidInvite = Object.values(invites).some(
+    (inv) => inv?.roomId === roomId && inv?.status === 'pending' && Number(inv?.expiresAt) > nowMs,
+  );
+  if (!hasValidInvite) throw new Error('لا توجد دعوة مايك صالحة');
 
   const includeMembership = options?.includeMembership === true;
   const existingRole = roleSnap.val();

@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ActivityIndicator, Animated, Alert,
-  useWindowDimensions,
+  useWindowDimensions, Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -92,6 +92,14 @@ export default function MatchScreen() {
   const [myMatchGender, setMyMatchGender] = useState<'male' | 'female'>('male');
   const [showSchedule, setShowSchedule] = useState(false);
   const [dueSchedule, setDueSchedule] = useState<MatchSchedule | null>(null);
+  // بطاقة تأكيد المطابقة — لا نرنّ الطرف الآخر إلا بعد قبول المبادِر
+  const [pendingMatch, setPendingMatch] = useState<{
+    partnerUid: string;
+    channelName: string;
+    asInitiator: boolean;
+    displayName?: string;
+    avatar?: string;
+  } | null>(null);
 
   // Video preferences
   const [ageRanges, setAgeRanges] = useState({
@@ -103,6 +111,9 @@ export default function MatchScreen() {
   const pollMatchRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const matchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const matchListenerRef = useRef<(() => void) | null>(null);
+  // حارس ضد القبول المزدوج + مرآة حديثة لمعاينة الطابور (لبطاقة التأكيد)
+  const acceptingRef = useRef(false);
+  const queuePreviewRef = useRef<QueuePreviewUser[]>([]);
   const ringAnim1 = useRef(new Animated.Value(0)).current;
   const ringAnim2 = useRef(new Animated.Value(0)).current;
   const ringAnim3 = useRef(new Animated.Value(0)).current;
@@ -183,7 +194,10 @@ export default function MatchScreen() {
       if (mounted) setQueueCount(n);
     });
     const unsubPreview = subscribeToQueuePreview(matchType, myMatchGender, (users) => {
-      if (mounted) setQueuePreview(users);
+      if (mounted) {
+        setQueuePreview(users);
+        queuePreviewRef.current = users;
+      }
     });
     if (mounted) setLoading(false);
     return () => {
@@ -239,6 +253,54 @@ export default function MatchScreen() {
         ? (`/call/video/${partnerUid}?channel=${ch}&source=match${sessionQuery}` as any)
         : (`/call/${partnerUid}?channel=${ch}&source=match${sessionQuery}` as any),
     );
+  };
+
+  // يعرض بطاقة التأكيد بدل الاتصال الفوري — الطرف الآخر لا يُرنّ إلا بعد القبول
+  const presentMatchConfirm = (
+    partnerUid: string,
+    channelName: string,
+    asInitiator: boolean,
+  ) => {
+    const preview = queuePreviewRef.current.find((p) => p.uid === partnerUid);
+    setPendingMatch({
+      partnerUid,
+      channelName,
+      asInitiator,
+      displayName: preview?.displayName,
+      avatar: preview?.avatar,
+    });
+  };
+
+  // قبول → نُكمل التدفّق الأصلي (ringUser + startCall + تنقّل) كما كان
+  const handleAcceptMatch = async () => {
+    const m = pendingMatch;
+    if (!m || acceptingRef.current) return; // حارس ضد الضغط المزدوج
+    acceptingRef.current = true;
+    setPendingMatch(null);
+    try {
+      await navigateToMatchedCall(m.partnerUid, m.channelName, m.asInitiator);
+    } finally {
+      acceptingRef.current = false;
+    }
+  };
+
+  // رفض → لا رنين ولا بدء مكالمة؛ ننظّف وثيقة الطابور/المطابقة ونعود لوضع البحث
+  const handleRejectMatch = () => {
+    if (!pendingMatch) return;
+    setPendingMatch(null);
+    acceptingRef.current = false;
+    if (matchTimeoutRef.current) {
+      clearTimeout(matchTimeoutRef.current);
+      matchTimeoutRef.current = null;
+    }
+    if (matchListenerRef.current) {
+      matchListenerRef.current();
+      matchListenerRef.current = null;
+    }
+    setSearching(false);
+    // cancelMatch يحذف كل وثائق الطابور الخاصة بي لهذا النوع (matched/waiting)
+    // فلا تبقى مطابقة معلّقة من جهتي؛ والرنين لم يُرسل أصلاً (يُرسل عند القبول فقط)
+    cancelMatch(matchType).catch(() => {});
   };
 
   const handleStartMatching = async () => {
@@ -303,7 +365,8 @@ export default function MatchScreen() {
           return;
         }
         setSearching(false);
-        await navigateToMatchedCall(partnerUid, result.channelName, true);
+        // بدل الاتصال الفوري: اعرض بطاقة تأكيد للمبادِر أولاً
+        presentMatchConfirm(partnerUid, result.channelName, true);
         return;
       }
 
@@ -324,7 +387,8 @@ export default function MatchScreen() {
           Alert.alert(t('common.error'), t('profile.cannotCallSelf'));
           return;
         }
-        void navigateToMatchedCall(result.partnerUid, result.channelName, false);
+        // بدل الاتصال الفوري: اعرض بطاقة تأكيد أولاً
+        presentMatchConfirm(result.partnerUid, result.channelName, false);
       });
 
       // مهلة 60 ثانية — إن لم يُوجد شريك
@@ -716,6 +780,77 @@ export default function MatchScreen() {
         )}
       </View>
 
+      {/* ===== بطاقة تأكيد المطابقة (قبول/رفض قبل الرنين) ===== */}
+      <Modal
+        visible={!!pendingMatch}
+        transparent
+        animationType="fade"
+        onRequestClose={handleRejectMatch}
+      >
+        <View style={styles.matchBackdrop}>
+          <View style={styles.matchCard}>
+            <LinearGradient
+              colors={[...theme.preview]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.matchAvatarRing}
+            >
+              {pendingMatch?.avatar ? (
+                <Image
+                  source={{ uri: pendingMatch.avatar }}
+                  style={styles.matchAvatar}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={[styles.matchAvatar, styles.matchAvatarFallback]}>
+                  <Text style={styles.matchAvatarLetter}>
+                    {(pendingMatch?.displayName ?? '؟').charAt(0)}
+                  </Text>
+                </View>
+              )}
+            </LinearGradient>
+
+            <Text style={styles.matchFoundLabel}>تم العثور على شريك</Text>
+            <Text style={styles.matchName} numberOfLines={1}>
+              {pendingMatch?.displayName ?? 'شريك متاح'}
+            </Text>
+            <Text style={styles.matchHint}>
+              {isVideo
+                ? 'هل تريد بدء مكالمة فيديو الآن؟'
+                : 'هل تريد بدء مكالمة صوتية الآن؟'}
+            </Text>
+
+            <View style={styles.matchActions}>
+              <Pressable
+                onPress={handleRejectMatch}
+                style={({ pressed }) => [styles.matchReject, pressed && { opacity: 0.85 }]}
+              >
+                <X size={20} color={lu.colors.ink2} strokeWidth={2.6} />
+                <Text style={styles.matchRejectText}>تجاهل</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleAcceptMatch}
+                style={({ pressed }) => [{ flex: 1 }, pressed && { opacity: 0.92 }]}
+              >
+                <LinearGradient
+                  colors={[...theme.cta]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.matchAccept}
+                >
+                  {isVideo ? (
+                    <Video size={18} color="#fff" strokeWidth={2.5} />
+                  ) : (
+                    <Mic size={18} color="#fff" strokeWidth={2.5} />
+                  )}
+                  <Text style={styles.matchAcceptText}>بدء المكالمة</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <ScheduleMatchSheet
         visible={showSchedule}
         type={matchType}
@@ -1021,6 +1156,110 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontFamily: lu.fonts.bodyBold,
+    includeFontPadding: false,
+  },
+  // ===== بطاقة تأكيد المطابقة =====
+  matchBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  matchCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: lu.colors.card,
+    borderRadius: lu.radius.xl,
+    paddingHorizontal: 22,
+    paddingTop: 26,
+    paddingBottom: 20,
+    alignItems: 'center',
+    ...lu.shadows.card,
+  },
+  matchAvatarRing: {
+    width: 108,
+    height: 108,
+    borderRadius: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...lu.shadows.grad,
+  },
+  matchAvatar: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  matchAvatarFallback: {
+    backgroundColor: 'rgba(0,0,0,0.15)',
+  },
+  matchAvatarLetter: {
+    color: '#fff',
+    fontSize: 40,
+    fontFamily: lu.fonts.displayHeavy,
+    includeFontPadding: false,
+  },
+  matchFoundLabel: {
+    color: lu.colors.muted,
+    fontSize: 13,
+    fontFamily: lu.fonts.bodySemi,
+    marginTop: 16,
+    includeFontPadding: false,
+  },
+  matchName: {
+    color: lu.colors.ink,
+    fontSize: 22,
+    fontFamily: lu.fonts.displayHeavy,
+    marginTop: 4,
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  matchHint: {
+    color: lu.colors.ink2,
+    fontSize: 14,
+    fontFamily: lu.fonts.body,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  matchActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 22,
+    width: '100%',
+  },
+  matchReject: {
+    height: 52,
+    paddingHorizontal: 20,
+    borderRadius: lu.radius.pill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.10)',
+  },
+  matchRejectText: {
+    color: lu.colors.ink2,
+    fontSize: 15,
+    fontFamily: lu.fonts.bodyBold,
+    includeFontPadding: false,
+  },
+  matchAccept: {
+    height: 52,
+    borderRadius: lu.radius.pill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  matchAcceptText: {
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: lu.fonts.displayHeavy,
     includeFontPadding: false,
   },
 });

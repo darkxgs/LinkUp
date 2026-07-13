@@ -17,5 +17,9 @@ export function shouldShowPushBanner(
   if (type === 'incoming_call' || dataType === 'incoming_call') return true;
   if (type === 'moderation' || dataType === 'moderation') return true;
   if (type === 'system' || dataType === 'system') return true;
+  // الرسائل المباشرة + التفاعلات الاجتماعية تُظهر Push أيضاً (قرار المالك) —
+  // الكتم لكل نوع يبقى محكوماً بتفضيلات المستخدم على السيرفر
+  const social = ['message', 'gift', 'like', 'comment', 'mention', 'follow', 'room_invite'];
+  if (social.includes(type) || social.includes(dataType)) return true;
   return false;
 }

@@ -23,7 +23,7 @@
  */
 import { ref as rtdbRef, onValue, off, type DataSnapshot } from 'firebase/database';
 
-import { requestCallPermissions } from '@/services/permissions';
+import { hasCallPermissions, requestCallPermissions } from '@/services/permissions';
 import { stopRoomForegroundService } from '@/services/roomForegroundService';
 import { agoraEngine, type AgoraRtcEvent, type AgoraSpeakerInfo } from './agoraEngine';
 import { joinWithTransportLadder } from './agoraConnect';
@@ -475,10 +475,15 @@ class AgoraRoomSessionManager {
     try {
       if (canPublish) {
         if (Date.now() - micPermissionDeniedAt < 15_000) {
-          this.error =
-            'يجب السماح بالميكروفون للتحدّث — فعِّله من إعدادات الجهاز ثم أعد المحاولة';
-          this.emit();
-          return;
+          // ربما مُنح الإذن من الإعدادات خلال المهلة — أعِد الفحص وألغِ التهدئة
+          if (await hasCallPermissions('audio')) {
+            micPermissionDeniedAt = 0;
+          } else {
+            this.error =
+              'يجب السماح بالميكروفون للتحدّث — فعِّله من إعدادات الجهاز ثم أعد المحاولة';
+            this.emit();
+            return;
+          }
         }
         const granted = await requestCallPermissions('audio');
         if (gen !== this.connectGeneration || this.roomName !== roomName) return;
@@ -538,11 +543,16 @@ class AgoraRoomSessionManager {
 
       // تهدئة طلب إذن الميكروفون — نفس حماية المرجع من وميض التنبيه
       if (canPublish && Date.now() - micPermissionDeniedAt < 15_000) {
-        this.error =
-          'يجب السماح بالميكروفون للتحدّث — فعِّله من إعدادات الجهاز ثم أعد المحاولة';
-        this.connectionState = 'error';
-        this.emit();
-        return;
+        // ربما مُنح الإذن من الإعدادات خلال المهلة — أعِد الفحص وألغِ التهدئة
+        if (await hasCallPermissions('audio')) {
+          micPermissionDeniedAt = 0;
+        } else {
+          this.error =
+            'يجب السماح بالميكروفون للتحدّث — فعِّله من إعدادات الجهاز ثم أعد المحاولة';
+          this.connectionState = 'error';
+          this.emit();
+          return;
+        }
       }
 
       const tokenPromise = getAgoraTokenCached(roomName, canPublish, peerUid);
@@ -709,6 +719,11 @@ class AgoraRoomSessionManager {
     const gen = this.connectGeneration;
     this.stopSeatMuteWatch();
     this.detachEngine();
+    // أوقف علم جلسة الصوت فوراً قبل await leaveChannel — لو انتقل التطبيق
+    // للخلفية أثناء الانتظار، لا يرى RoomBackgroundKeepAlive جلسة حيّة فيُعيد
+    // إحياء الروم المغادَر (خدمة أمامية + مقعد/جمهور شبح + إشعار «يعمل بالخلفية»).
+    // نداء الموضع أدناه يبقى (غير ضارّ؛ اتصال جديد قد يعيد ضبط العلم).
+    setRoomVoiceSessionActive(false);
     agoraEngine.setMicMuted(true);
     agoraEngine.setAllRemoteMuted(true);
     await agoraEngine.leaveChannel().catch(() => {});
@@ -742,6 +757,14 @@ class AgoraRoomSessionManager {
   /** تطبيق حالة المايك فعلياً — بدون فحص الكتم الإداري (للمزامنة الداخلية من RTDB) */
   private async applyMicMuted(muted: boolean): Promise<void> {
     this.micMutedPreference = muted;
+    // اكتم فوراً في المحرك حتى قبل اكتمال الاتصال — كان الكتم أثناء إعادة
+    // الاتصال يُحدّث البادج فقط ولا يصل للمحرك أبداً فيبقى المسار ناشراً
+    // (المحرك يخزّن الرغبة ويعيد تطبيقها عند الانضمام)
+    if (muted) {
+      agoraEngine.setMicMuted(true);
+      this.isMuted = true;
+      this.localLevel = 0;
+    }
     await this.waitForConnected(6000);
     if (this.connectionState !== 'connected') {
       this.isMuted = muted;

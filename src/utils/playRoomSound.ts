@@ -204,7 +204,9 @@ function rememberInPreloadCache(key: string, sound: Sound): void {
 function attachFinishHandler(sound: Sound, key: string): void {
   sound.setOnPlaybackStatusUpdate((status) => {
     if (status.isLoaded && status.didJustFinish) {
-      sound.setPositionAsync(0).catch(() => {});
+      // أوقف ثم أعد الموضع — الاكتفاء بـsetPositionAsync(0) يُبقي shouldPlay=true
+      // فيُعيد التشغيل بلا نهاية (didJustFinish يتكرر). نفس نمط VoiceMessagePlayer.
+      sound.stopAsync().then(() => sound.setPositionAsync(0)).catch(() => {});
       if (activeSound === sound) {
         activeSound = null;
         activeGiftSoundUrl = null;
@@ -457,7 +459,9 @@ async function playRoomSoundSourceInner(
       activeAssetKey = key;
       cached.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
-          cached.setPositionAsync(0).catch(() => {});
+          // أوقف ثم صفّر الموضع — بدون stop يبقى shouldPlay=true فيُعاد
+          // التشغيل بلا نهاية (وهذا سبب تكرار المؤثرات حتى مغادرة الروم)
+          cached.stopAsync().then(() => cached.setPositionAsync(0)).catch(() => {});
           preloadedAssetSounds.set(key, cached);
           if (activeSound === cached) {
             activeSound = null;

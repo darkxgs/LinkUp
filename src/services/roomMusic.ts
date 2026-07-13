@@ -150,7 +150,9 @@ export const addMusicToRoom = async (
     addedAt: Date.now(),
     currentTime: 0,
     isPlaying: true,
-    volume: 1,
+    // مستوى خلفي افتراضي: الموسيقى ثانوية والمايك أساسي — كانت 1 (100%)
+    // تُنشر بنفس قوة المايك فتطمس الكلام؛ الـDJ يرفعها بالسلايدر إن أراد
+    volume: 0.4,
     lastUpdateBy: user.uid,
     // طابع سيرفر — حتى لا يتأثر التزامن بساعة جهاز الـDJ
     lastUpdatedAt: serverTimestamp(),

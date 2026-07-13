@@ -349,7 +349,7 @@ class RoomMusicPlaybackManager {
       c.playing = music.isPlaying;
       this.emit();
     }
-    const vol = clamp01(music.volume ?? 1);
+    const vol = clamp01(music.volume ?? 0.4);
     if (vol !== this.publishVolume01) {
       this.publishVolume01 = vol;
       agoraEngine.adjustAudioMixingPublishVolume(vol * 100);
@@ -418,7 +418,7 @@ class RoomMusicPlaybackManager {
       positionMs: startPosMs,
       durationMs: Math.max(0, Math.round((music.duration ?? 0) * 1000)),
     };
-    this.publishVolume01 = clamp01(music.volume ?? 1);
+    this.publishVolume01 = clamp01(music.volume ?? 0.4);
     agoraEngine.adjustAudioMixingPublishVolume(this.publishVolume01 * 100);
     this.applyPlayoutVolume();
     if (music.isPlaying === false) agoraEngine.pauseAudioMixing();

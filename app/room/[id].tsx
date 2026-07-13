@@ -2610,6 +2610,10 @@ export default function RoomScreen() {
   const stageMaxHeight = windowH * 0.42;
   const hostSeatReserve = secondHostEnabled ? 128 : 100;
   const seatsAreaMaxHeight = Math.max(140, stageMaxHeight - hostSeatReserve);
+  // E4: في PK تُقسَم المقاعد إلى لوحتين داخل ScrollView محدود الارتفاع → المقاعد السفلية تُقصّ.
+  // نرفع السقف أثناء PK الحي فقط (الوضع العادي يبقى كما هو) كي تظهر اللوحتان كاملتين بلا قصّ.
+  const pkStageMaxHeight = windowH * 0.58;
+  const pkSeatsAreaMaxHeight = Math.max(seatsAreaMaxHeight, pkStageMaxHeight - hostSeatReserve);
   // تباعد رأسي يتقلّص كلما زاد عدد المقاعد → يبقى الشات واضحاً
   const stageRowGap = seatNumbers.length >= 18 ? 2 : seatNumbers.length >= 14 ? 3 : seatNumbers.length >= 10 ? 5 : 10;
   // كلما كثُرت الصفوف نرفع المنصّة للأعلى قليلاً ونقلّص الحشو السفلي لإفساح الشات
@@ -2933,6 +2937,18 @@ export default function RoomScreen() {
     [enrichedAudienceMembers],
   );
 
+  // G9: تحميل المستخدمين على دفعات (≤10 معاً) بدل Promise.all لـ60-80 دفعةً واحدة —
+  // البثّ المتزامن الكبير كان يتجاوز حدّ Firestore فيرجع resource-exhausted على الكاش البارد
+  async function fetchUsersLimited(ids: string[], limit = 10) {
+    const out: any[] = [];
+    for (let i = 0; i < ids.length; i += limit) {
+      out.push(
+        ...(await Promise.all(ids.slice(i, i + limit).map((u) => getUser(u).catch(() => null)))),
+      );
+    }
+    return out;
+  }
+
   useEffect(() => {
     const uids = [...new Set(audienceMembers.map((m) => m.uid).filter(Boolean))].slice(0, 80);
     if (!uids.length) return;
@@ -2940,7 +2956,7 @@ export default function RoomScreen() {
     if (!missing.length) return;
 
     let cancelled = false;
-    Promise.all(missing.map((uid) => getUser(uid).catch(() => null)))
+    fetchUsersLimited(missing)
       .then((results) => {
         if (cancelled) return;
         setConnectedProfiles((prev) => {
@@ -2960,13 +2976,19 @@ export default function RoomScreen() {
     if (!showAudienceModal) return;
     const uids = audienceMembers.map((m) => m.uid).slice(0, 60);
     if (!uids.length) return;
+    // G9: نجلب فقط غير المخزّنين وعلى دفعات — يمنع resource-exhausted عند فتح قائمة المتصلين
+    const missing = uids.filter((uid) => !(uid in connectedProfiles));
+    if (!missing.length) {
+      setProfilesLoading(false);
+      return;
+    }
     let cancelled = false;
     setProfilesLoading(true);
-    Promise.all(uids.map((uid) => getUser(uid).catch(() => null)))
+    fetchUsersLimited(missing)
       .then((results) => {
         if (cancelled) return;
         const map: Record<string, UserDoc | null> = {};
-        uids.forEach((uid, i) => {
+        missing.forEach((uid, i) => {
           map[uid] = results[i] ?? null;
         });
         setConnectedProfiles((prev) => ({ ...prev, ...map }));
@@ -3412,6 +3434,13 @@ export default function RoomScreen() {
     });
   }, []);
 
+  // F12: تبديل الغرفة يعيد استخدام نفس مسار room/[id] (تتغيّر الـparams بلا remount) —
+  // نفرّغ نصّ الشات المكتوب عند تغيّر roomId كي لا ينتقل النص إلى الغرفة التالية
+  useEffect(() => {
+    setChatText('');
+    setChatInputResetKey((k) => k + 1);
+  }, [roomId]);
+
   const handleSendMessage = async (messageText?: string) => {
     const text = sanitizeMentionTextForSend((messageText ?? chatText).trim());
     if (!text || !user) return;
@@ -3478,8 +3507,10 @@ export default function RoomScreen() {
   }, [roomId, isHost, mySeat, room?.permissions, myUid, myChatMuted, showSeatEmoji, showAlert, t]);
 
   const giftRecipients: GiftPickerRecipient[] = useMemo(() => {
-    const list = audienceMembers
-      .filter((m) => m.uid)
+    // لا يُسمح بإهداء/دعم النفس (يُمنع في buyAndSendGift) — نستبعد النفس من
+    // قائمة المستلمين حتى لا يظهر كخيار ثم يفشل الإرسال
+    return audienceMembers
+      .filter((m) => m.uid && m.uid !== myUid)
       .map((m) => ({
         uid: m.uid,
         name: resolveDisplayName({ displayName: m.name }, t('rooms.userFallback')),
@@ -3489,26 +3520,9 @@ export default function RoomScreen() {
             ? '★'
             : m.seatIndex
           : undefined,
-        isMe: m.uid === myUid,
+        isMe: false,
       }));
-
-    // السماح بإهداء النفس حتى لو لم يظهر بعد في قائمة الحضور
-    if (myUid && !list.some((r) => r.uid === myUid)) {
-      list.unshift({
-        uid: myUid,
-        name: roomGamePlayerName,
-        avatar: mySeatAvatar || undefined,
-        seatLabel: mySeat
-          ? mySeat.seatIndex === 0
-            ? '★'
-            : mySeat.seatIndex
-          : undefined,
-        isMe: true,
-      });
-    }
-
-    return list;
-  }, [audienceMembers, myUid, mySeat, mySeatAvatar, roomGamePlayerName, t]);
+  }, [audienceMembers, myUid, t]);
 
   const playRoomGiftAnimation = useCallback(
     (
@@ -5127,7 +5141,8 @@ export default function RoomScreen() {
           marginTop: stageMarginTop,
           zIndex: 1,
           paddingBottom: stagePaddingBottom,
-          maxHeight: stageMaxHeight,
+          // E4: نوسّع سقف المنصّة في PK الحي فقط كي تتّسع لوحتا الفريقين (الوضع العادي بلا تغيير)
+          maxHeight: pkLive ? pkStageMaxHeight : stageMaxHeight,
         }}
       >
         {renderHostSeat()}
@@ -5144,7 +5159,7 @@ export default function RoomScreen() {
 
       {pkLive && roomPk.mode === 'in_room' ? (
         <ScrollView
-          style={{ maxHeight: seatsAreaMaxHeight }}
+          style={{ maxHeight: pkSeatsAreaMaxHeight }}
           contentContainerStyle={{ flexGrow: 0 }}
           nestedScrollEnabled
           bounces={false}
@@ -6996,14 +7011,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.base,
     marginHorizontal: spacing.sm,
     borderRadius: radius.lg,
-    overflow: 'hidden',
+    // E4: كان overflow:'hidden' يقصّ المقاعد السفلية للوحتين — نسمح بظهورها كاملة
+    overflow: 'visible',
   },
   pkTeamPanel: {
     flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    alignContent: 'center',
+    // E4: flex-start بدل center كي تُرصّ الصفوف من الأعلى فلا تُقصّ المقاعد الأخيرة
+    alignContent: 'flex-start',
     paddingVertical: 14,
     gap: 6,
   },
