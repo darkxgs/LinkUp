@@ -10,6 +10,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { useRouter } from 'expo-router';
 
 import { MusicPulseWidget } from '@/components/room/MusicPulseWidget';
 import { useRoomMusicUiStore } from '@/stores/roomMusicUiStore';
@@ -27,6 +28,7 @@ interface Props {
 
 export function FloatingMusicBubble({ roomId, music }: Props) {
   const { t } = useTranslation();
+  const router = useRouter();
   const { user } = useAuth();
   const localDismissed = useRoomMusicUiStore((s) => s.localDismissed);
   const dismissLocally = useRoomMusicUiStore((s) => s.dismissLocally);
@@ -84,6 +86,11 @@ export function FloatingMusicBubble({ roomId, music }: Props) {
     dismissLocally();
   };
 
+  // الضغط على الفقاعة يعيد فتح الروم (لا يوقف الموسيقى) — كما تفعل فقاعة الروم العائمة
+  const reopenRoom = () => {
+    router.navigate(`/room/${roomId}` as any);
+  };
+
   if (localDismissed) return null;
 
   return (
@@ -96,8 +103,8 @@ export function FloatingMusicBubble({ roomId, music }: Props) {
         <MusicPulseWidget
           size={PULSE}
           playing={localPlaying}
-          onPress={() => void handleStopAudio()}
-          accessibilityLabel={t('room.musicStopListening', 'إيقاف موسيقى الروم')}
+          onPress={reopenRoom}
+          accessibilityLabel={t('room.floatingTapReturn')}
         />
       </Animated.View>
     </View>

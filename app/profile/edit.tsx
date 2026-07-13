@@ -48,6 +48,7 @@ import { uploadAvatar, uploadAlbumImage, uploadVoiceBio } from '@/services/fireb
 import { requestMediaLibraryAccess, requestCameraAccess } from '@/services/permissions';
 import { VoiceRecorder } from '@/components/ui/VoiceRecorder';
 import { VoiceMessagePlayer, stopVoicePlayback } from '@/components/ui/VoiceMessagePlayer';
+import { ProfileImagePreview } from '@/components/profile/ProfileImagePreview';
 import {
   updateUser,
   calculateProfileCompleteness,
@@ -142,7 +143,7 @@ export default function EditProfileScreen() {
   const [gender, setGender] = useState<'male' | 'female'>(
     user?.profile.gender ?? 'male',
   );
-  const [country, setCountry] = useState(user?.profile.country ?? 'PS');
+  const [country, setCountry] = useState(user?.profile.country ?? '');
   const [residence, setResidence] = useState(user?.profile.residence ?? '');
   const [birthYear, setBirthYear] = useState<number>(
     user?.profile.birthYear ?? 1995,
@@ -151,6 +152,8 @@ export default function EditProfileScreen() {
   // الأفاتار والألبوم
   const [avatarUrl, setAvatarUrl] = useState(user?.profile.avatar ?? '');
   const [albums, setAlbums] = useState<string[]>(user?.profile.photos ?? []);
+  // معاينة صورة الألبوم بالحجم الكامل عند الضغط
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
 
   // الوسوم
   const [tags, setTags] = useState<string[]>(user?.profile.tags ?? []);
@@ -732,6 +735,7 @@ export default function EditProfileScreen() {
               <Pressable
                 key={`${url}-${idx}`}
                 style={styles.albumThumb}
+                onPress={() => setPreviewUri(url)}
                 onLongPress={() => handleDeletePhoto(url)}
               >
                 <Image source={{ uri: url }} style={styles.albumThumbImg} contentFit="cover" cachePolicy="memory-disk" />
@@ -1266,6 +1270,9 @@ export default function EditProfileScreen() {
         onCamera={() => void handlePickPhoto(true)}
         onGallery={() => void handlePickPhoto(false)}
       />
+
+      {/* معاينة صورة الألبوم بالحجم الكامل */}
+      <ProfileImagePreview uri={previewUri} onClose={() => setPreviewUri(null)} />
 
     </View>
   );

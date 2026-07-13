@@ -298,7 +298,8 @@ export default function UserProfileScreen() {
       return;
     }
     try {
-      const channelName = `call_${myUser.uid}_${userId}_${Date.now()}`;
+      // اسم قناة Agora ≤ 64 بايت (كان ~76 بايت فيفشل بخطأ 102) — انظر chat/[userId]
+      const channelName = `call_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       const ringPromise = ringUser(userId, type, channelName);
       const sessionPromise = startCall(userId, type, channelName, 'chat');
       const [, session] = await Promise.all([ringPromise, sessionPromise]);

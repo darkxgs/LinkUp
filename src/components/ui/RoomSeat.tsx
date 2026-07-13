@@ -120,6 +120,16 @@ export const RoomSeat = memo(
       medium: { avatar: 46, pulse: 58, mic: 16, micIcon: 9 },
       large: { avatar: 62, pulse: 78, mic: 18, micIcon: 10 },
     };
+    // ارتفاع ثابت للمقعد — يتّسع لأطول محتوى (حلقة النبض + الأفاتار + سطر الاسم +
+    // شارة LV/عملات الدعم) حتى لا تتراقص الصفوف عند التبديل مشغول↔فارغ أو تغيّر الشارة
+    const seatHeights = {
+      tiny: 76,
+      xsmall: 88,
+      small: 96,
+      medium: 106,
+      large: 128,
+    };
+    const seatHeight = seatHeights[size];
     const supportChip = {
       tiny: { h: 12, minW: 18, px: 2.5, font: 6.5, radius: 6, mt: 1 },
       xsmall: { h: 14, minW: 20, px: 3, font: 7, radius: 7, mt: 2 },
@@ -138,7 +148,7 @@ export const RoomSeat = memo(
       // نفس المربّع الموحّد للمقاعد المشغولة + صندوق «+» بنفس قياس الأفاتار المؤطَّر/العادي
       const emptyBoxSize = s.avatar + 4;
       return (
-        <Pressable onPress={onPress} style={[styles.seatWrap, { width: s.pulse }]}>
+        <Pressable onPress={onPress} style={[styles.seatWrap, { width: s.pulse, height: seatHeight }]}>
           <View style={{ width: s.pulse, height: s.pulse, alignItems: 'center', justifyContent: 'center' }}>
             <View
               style={[
@@ -289,7 +299,7 @@ export const RoomSeat = memo(
     ) : null;
 
     return (
-      <Pressable onPress={onPress} style={[styles.seatWrap, { width: wrapWidth }]}>
+      <Pressable onPress={onPress} style={[styles.seatWrap, { width: wrapWidth, height: seatHeight }]}>
         {soundActive ? (
           <SeatSoundAura size={auraSize} variant={auraVariant} audioLevel={audioLevel} />
         ) : null}

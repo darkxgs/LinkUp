@@ -13,6 +13,7 @@ export type GenderAccessUser = AgencyParticipant & {
   profile?: { gender?: string };
   gender?: string;
   isVerified?: boolean;
+  // verificationStatus يأتي من AgencyParticipant (string | null | undefined)
 };
 
 export function readUserGender(
@@ -54,7 +55,12 @@ export function canUserMakeCalls(
   user: GenderAccessUser | null | undefined,
 ): boolean {
   const gender = readUserGender(user);
-  if (gender === 'female') return user?.isVerified === true;
+  if (gender === 'female') {
+    // موثّقة = علم isVerified أو حالة التحقق «approved» — بعض المستخدمين
+    // القدامى لديهم verificationStatus:'approved' دون رفع علم isVerified،
+    // والسيرفر (isUserFullyVerified) يقبل الحالتين، فنطابقه هنا
+    return user?.isVerified === true || user?.verificationStatus === 'approved';
+  }
   return true;
 }
 

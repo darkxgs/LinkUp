@@ -46,6 +46,16 @@ export function translateCallableError(err: unknown): string {
     }
     return 'تحقق من اتصال الإنترنت وحاول مرة أخرى';
   }
+  // خطأ سيرفري غير معالَج (INTERNAL) — لا نعرض للمستخدم الكلمة الحرفية
+  // «internal» (كانت تظهر في مطابقة الفيديو وغيرها كرسالة خطأ خام)
+  if (
+    code === 'functions/internal' ||
+    code === 'internal' ||
+    msg === 'internal' ||
+    msg === 'INTERNAL'
+  ) {
+    return 'حدث خطأ في الخادم — حاول مرة أخرى لاحقاً';
+  }
   return msg || 'حدث خطأ غير متوقع';
 }
 

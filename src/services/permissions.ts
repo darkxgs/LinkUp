@@ -91,12 +91,21 @@ export const requestCallPermissions = async (type: PermissionType): Promise<bool
 
       const results = (await PermissionsAndroid.requestMultiple(missing as any)) as Record<string, string>;
 
-      const blocked = needed.some(
+      // بلوتوث «الأجهزة القريبة» ليس إلزامياً للمايك — رفضه يجب ألا يمنع
+      // البث (كان يُحسب ضمن allGranted فيظهر «الميكروفون مرفوض» رغم منحه).
+      // وأي صلاحية ممنوحة مسبقاً (checks) تُعدّ ممنوحة حتى لو لم تظهر في
+      // results (التي تحوي فقط ما طُلب فعلاً في missing).
+      const mandatory = needed.filter(
+        (p) => p !== PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+      );
+      const isGranted = (p: string) => {
+        const idx = needed.indexOf(p);
+        return checks[idx] === true || results[p] === PermissionsAndroid.RESULTS.GRANTED;
+      };
+      const blocked = mandatory.some(
         (p) => results[p] === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN,
       );
-      const allGranted = needed.every(
-        (p) => results[p] === PermissionsAndroid.RESULTS.GRANTED,
-      );
+      const allGranted = mandatory.every(isGranted);
 
       if (!allGranted && blocked) {
         const needsCam = type === 'video' || type === 'both';

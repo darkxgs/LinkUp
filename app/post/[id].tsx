@@ -417,6 +417,7 @@ export default function PostDetailScreen() {
               onLikeChange={handleCommentLikeChange}
               onReply={setReplyingTo}
               onImagePress={setCommentZoomUri}
+              onAuthorPress={(uid) => router.push(`/profile/${uid}` as any)}
               frameUri={commentFrameByUid[row.item.uid]}
               canInteract={Boolean(user)}
             />

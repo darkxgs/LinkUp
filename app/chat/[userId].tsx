@@ -682,7 +682,8 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         : await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             quality: 0.7,
-            allowsEditing: false,
+            // قص/تعديل للمعرض أيضاً (كان بالكاميرا فقط) — توحيد سلوك الإرسال
+            allowsEditing: true,
           });
 
       if (result.canceled || !result.assets?.[0]) return;
@@ -894,7 +895,10 @@ function PersonalChatScreen({ userId }: { userId: string }) {
       return;
     }
     try {
-      const channelName = `call_${user.uid}_${userId}_${Date.now()}`;
+      // اسم قناة Agora يجب أن يكون ≤ 64 بايت — كان call_<uid>_<uid>_<ts> ≈ 76
+      // بايت فيرفضه المحرك بخطأ 102 (ERR_INVALID_CHANNEL_NAME) فتفشل كل مكالمة
+      // 1:1. القناة معرّف مبهم (المتصل/المتلقّي محفوظان كحقلين منفصلين في المستند).
+      const channelName = `call_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       // ⚡ رنّ الطرف الآخر فوراً — لا ننتظر startCall (Cloud Function بطيئة)
       const ringPromise = ringUser(userId, type, channelName);
       const sessionPromise = startCall(userId, type, channelName, 'chat');

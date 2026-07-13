@@ -48,10 +48,8 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [gender, setGender] = useState<'male' | 'female' | null>(null);
-  const [country, setCountry] = useState<{ code: string; name?: string; nameKey?: string } | null>({
-    code: 'PS',
-    nameKey: 'countries.PS',
-  });
+  // لا نضع دولة افتراضية — يجب على المستخدم الاختيار (كان 'PS' يظهر فلسطين للجميع)
+  const [country, setCountry] = useState<{ code: string; name?: string; nameKey?: string } | null>(null);
   const [birthDay, setBirthDay] = useState('');
   const [birthMonth, setBirthMonth] = useState('');
   const [birthYear, setBirthYear] = useState('');

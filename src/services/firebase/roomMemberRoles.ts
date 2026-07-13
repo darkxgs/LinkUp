@@ -540,6 +540,9 @@ export function getAgencyManageTargetDenial(
   },
 ): string | null {
   const { roomData, actorUid, targetUid, action } = params;
+  // صاحب الغرفة غير قابل للكتم/الإدارة من أحد سواه — في كل أنواع الغرف
+  // (يجب أن يسبق فحص غرف الوكالة وإلا صار المشرف يكتم المالك في الغرف الشخصية)
+  if (String(roomData.hostUid ?? '') === targetUid && actorUid !== targetUid) return 'لا يمكن كتم أو إدارة صاحب الغرفة';
   if (!isAgencyManagedRoom(roomData)) return null;
   if (!actorUid || !targetUid || actorUid === targetUid) {
     return 'لا يمكن تنفيذ هذا الإجراء على نفسك';
