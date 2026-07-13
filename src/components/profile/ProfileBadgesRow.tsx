@@ -70,6 +70,8 @@ export function ProfileImageBadge({ uri, onPress, wide }: ImageBadgeProps) {
 type Props = {
   horizontalPad?: number;
   style?: StyleProp<ViewStyle>;
+  /** سمة داكنة — أقراص زجاجية نبيذية موحّدة بدل التدرجات */
+  night?: boolean;
 };
 
 type StatBadgeProps = {
@@ -79,23 +81,26 @@ type StatBadgeProps = {
   onPress: () => void;
   ltr?: boolean;
   dark?: boolean;
+  night?: boolean;
 };
 
-function StatBadge({ colors, value, icon, onPress, ltr, dark }: StatBadgeProps) {
+function StatBadge({ colors, value, icon, onPress, ltr, dark, night }: StatBadgeProps) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.badge, pressed && { opacity: 0.9 }]}
+      style={({ pressed }) => [styles.badge, night && styles.badgeNight, pressed && { opacity: 0.9 }]}
     >
-      <LinearGradient
-        colors={colors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
+      {night ? null : (
+        <LinearGradient
+          colors={colors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
       <Text
         weight="bold"
-        style={[styles.badgeNum, dark && styles.badgeNumDark, ltr && styles.ltr]}
+        style={[styles.badgeNum, dark && !night && styles.badgeNumDark, ltr && styles.ltr]}
         numberOfLines={1}
       >
         {value}
@@ -105,7 +110,7 @@ function StatBadge({ colors, value, icon, onPress, ltr, dark }: StatBadgeProps) 
   );
 }
 
-export function ProfileBadgesRow({ horizontalPad = 20, style }: Props) {
+export function ProfileBadgesRow({ horizontalPad = 20, style, night }: Props) {
   const { t } = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
@@ -162,7 +167,10 @@ export function ProfileBadgesRow({ horizontalPad = 20, style }: Props) {
     aristocracy,
   );
 
-  const titleText = relTitle ?? t('profile.badgeDefaultTitle');
+  // عنوان العلاقة مخزّن بالعربية في الخدمة — الترجمة بمفتاح المستوى عند العرض.
+  const titleText = relLevel > 0
+    ? t(`relationshipLevels.${relLevel}`, { defaultValue: relTitle ?? '' })
+    : t('profile.badgeDefaultTitle');
   const hasAny = titleText || relLevel > 0 || wealthLevel > 0 || isVipBadgeUnlocked
     || !!princeBadgeUrl || !!aristocracyBadgeUrl || (user?.isVerified && user?.profile?.gender === 'female');
   if (!hasAny) return null;
@@ -185,6 +193,7 @@ export function ProfileBadgesRow({ horizontalPad = 20, style }: Props) {
         <TravelerTitleBadge
           title={titleText}
           size="sm"
+          night={night}
           onPress={() => router.push('/collection' as any)}
         />
       ) : null}
@@ -195,6 +204,7 @@ export function ProfileBadgesRow({ horizontalPad = 20, style }: Props) {
           value={String(relLevel)}
           icon={<InfinityIcon size={12} color="#fff" strokeWidth={2.6} />}
           onPress={() => router.push('/relationships' as any)}
+          night={night}
         />
       ) : null}
 
@@ -202,8 +212,9 @@ export function ProfileBadgesRow({ horizontalPad = 20, style }: Props) {
         <StatBadge
           colors={['#F16D6D', '#EB3030', '#D61E1E']}
           value={String(wealthLevel)}
-          icon={<Gem size={12} color="#fff" strokeWidth={2.2} />}
+          icon={<Gem size={12} color={night ? '#FF5C6C' : '#fff'} strokeWidth={2.2} />}
           onPress={() => router.push('/wealth-level' as any)}
+          night={night}
         />
       ) : null}
 
@@ -214,10 +225,11 @@ export function ProfileBadgesRow({ horizontalPad = 20, style }: Props) {
           <StatBadge
             colors={['#FFD86F', '#F5B721', '#E0930B']}
             value={vipLabel}
-            icon={<Crown size={12} color="#7A4E00" fill="#7A4E00" strokeWidth={1.4} />}
+            icon={<Crown size={12} color={night ? '#F5BE37' : '#7A4E00'} fill={night ? '#F5BE37' : '#7A4E00'} strokeWidth={1.4} />}
             onPress={() => router.push('/vip' as any)}
             ltr
             dark
+            night={night}
           />
         )
       ) : null}
@@ -256,6 +268,13 @@ const styles = StyleSheet.create({
     borderRadius: 99,
     overflow: 'hidden',
     ...lu.shadows.card,
+  },
+  badgeNight: {
+    backgroundColor: 'rgba(255,60,75,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,90,105,0.28)',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   badgeNum: {
     fontSize: 11.5,
