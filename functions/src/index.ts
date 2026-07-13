@@ -2515,6 +2515,11 @@ function shouldDeliverPushBanner(type: string, data: Record<string, unknown>): b
   if (type === 'incoming_call' || dataType === 'incoming_call') return true;
   if (type === 'moderation' || dataType === 'moderation') return true;
   if (type === 'system' || dataType === 'system') return true;
+  // رسائل مباشرة + تفاعلات اجتماعية تُسلَّم كـPush خارج التطبيق أيضاً (قرار
+  // المالك) — التصفية النهائية لكل نوع تبقى في shouldSendPushForNotification
+  // حسب تفضيلات المستخدم (messages / social)، فيبقى إيقاف كل نوع ممكناً
+  const social = ['message', 'gift', 'like', 'comment', 'mention', 'follow', 'room_invite'];
+  if (social.includes(type) || social.includes(dataType)) return true;
   return false;
 }
 
