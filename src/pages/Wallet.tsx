@@ -13,7 +13,7 @@ import {
 import { useAdminProfile } from '@/contexts/AdminProfileContext';
 
 export default function WalletPage() {
-  const { isSuper, profile } = useAdminProfile();
+  const { isSuper, can, profile } = useAdminProfile();
   const [txs, setTxs] = useState<AdminTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'all' | 'recharge' | 'withdraw' | 'pending'>('pending');
@@ -168,8 +168,10 @@ export default function WalletPage() {
           المعاملات والشحن هنا لمستخدمي دولتك فقط: {(profile?.countries ?? []).join('، ') || '—'}
         </div>
       )}
-      <div className="grant-card">
-        <h3><Zap size={20} style={{ display: 'inline', verticalAlign: 'middle', marginLeft: 6 }} /> شحن سريع بالمعرّف</h3>
+      {/* Quick Recharge */}
+      {(isSuper || can('wallet:adjust')) && (
+        <div className="grant-card">
+          <h3><Zap size={20} style={{ display: 'inline', verticalAlign: 'middle', marginLeft: 6 }} /> شحن سريع بالمعرّف</h3>
         <p>
           أدخل معرّف الحساب (8 أرقام من التطبيق) أو Firebase UID. يُضاف الرصيد مباشرة في Firestore
           ويظهر فوراً في تطبيق المستخدم.
@@ -231,8 +233,9 @@ export default function WalletPage() {
         </div>
         {grantMsg ? (
           <div className={`grant-result ${grantMsg.ok ? '' : 'error'}`}>{grantMsg.text}</div>
-        ) : null}
-      </div>
+          ) : null}
+        </div>
+      )}
 
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="stat-card">
@@ -327,18 +330,22 @@ export default function WalletPage() {
                     </td>
                     <td>
                       {t.status === 'pending' ? (
-                        <div className="action-btns">
-                          <button
-                            className="action-icon ok"
-                            onClick={() => handleStatus(t.id, 'completed')}
-                            title="موافقة وإضافة الرصيد"
-                          >
-                            <Check size={16} />
-                          </button>
-                          <button className="action-icon ban" onClick={() => handleStatus(t.id, 'rejected')} title="رفض">
-                            <X size={16} />
-                          </button>
-                        </div>
+                        (isSuper || can('wallet:adjust')) ? (
+                          <div className="action-btns">
+                            <button
+                              className="action-icon ok"
+                              onClick={() => handleStatus(t.id, 'completed')}
+                              title="موافقة وإضافة الرصيد"
+                            >
+                              <Check size={16} />
+                            </button>
+                            <button className="action-icon ban" onClick={() => handleStatus(t.id, 'rejected')} title="رفض">
+                              <X size={16} />
+                            </button>
+                          </div>
+                        ) : (
+                          <Badge variant="gold">معلّق</Badge>
+                        )
                       ) : (
                         <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>—</span>
                       )}

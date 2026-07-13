@@ -20,6 +20,7 @@ import {
   type GiftMediaType,
 } from '@/services/admin';
 import { uploadGiftAsset } from '@/lib/storage';
+import { useAdminProfile } from '@/contexts/AdminProfileContext';
 
 /** لغات التطبيق — يمكن إضافة المزيد من لوحة التصنيفات */
 const APP_LANGUAGES = [
@@ -97,6 +98,7 @@ function GiftPreview({ gift, size = 36 }: { gift: ConfigGift; size?: number }) {
 }
 
 export default function GiftsPage() {
+  const { isSuper, can } = useAdminProfile();
   const [gifts, setGifts] = useState<ConfigGift[]>([]);
   const [categories, setCategories] = useState<ConfigGiftCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -245,19 +247,27 @@ export default function GiftsPage() {
           <Cloud size={16} /> مرتبط بالتطبيق — أي تعديل يظهر فوراً
         </div>
         <div style={{ display: 'flex', gap: 8, marginRight: 'auto', flexWrap: 'wrap' }}>
-          <button className="btn btn-secondary" onClick={() => setShowCategories(true)}>
-            <FolderOpen size={16} /> إدارة التصنيفات ({categories.length})
-          </button>
-          <button className="btn btn-secondary" onClick={handleSeedSamples} disabled={seeding} title="17 هدية: 6 ثابتة · 6 متحركة · 5 صوتية">
-            {seeding ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
-            عينات واقعية ({SAMPLE_CONFIG_GIFTS.length})
-          </button>
-          <button className="btn btn-danger" onClick={handleDeleteAllGifts} disabled={!gifts.length} title="حذف كل الهدايا — لن ترجع">
-            <Trash2 size={16} /> حذف الكل
-          </button>
-          <button className="btn btn-primary" onClick={openNewGift} disabled={!categories.length}>
-            <Plus size={18} /> إضافة هدية
-          </button>
+          {(isSuper || can('gifts:edit')) && (
+            <button className="btn btn-secondary" onClick={() => setShowCategories(true)}>
+              <FolderOpen size={16} /> إدارة التصنيفات ({categories.length})
+            </button>
+          )}
+          {(isSuper || can('gifts:add')) && (
+            <button className="btn btn-secondary" onClick={handleSeedSamples} disabled={seeding} title="17 هدية: 6 ثابتة · 6 متحركة · 5 صوتية">
+              {seeding ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+              عينات واقعية ({SAMPLE_CONFIG_GIFTS.length})
+            </button>
+          )}
+          {(isSuper || can('gifts:delete')) && (
+            <button className="btn btn-danger" onClick={handleDeleteAllGifts} disabled={!gifts.length} title="حذف كل الهدايا — لن ترجع">
+              <Trash2 size={16} /> حذف الكل
+            </button>
+          )}
+          {(isSuper || can('gifts:add')) && (
+            <button className="btn btn-primary" onClick={openNewGift} disabled={!categories.length}>
+              <Plus size={18} /> إضافة هدية
+            </button>
+          )}
         </div>
       </div>
 
@@ -306,12 +316,16 @@ export default function GiftsPage() {
           {filtered.map((g) => (
             <div key={g.id} className="card" style={{ padding: 16, position: 'relative' }}>
               <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', gap: 4 }}>
-                <button className="action-icon edit" onClick={() => { setEditing(g); setIsNew(false); }}>
-                  <Pencil size={14} />
-                </button>
-                <button className="action-icon ban" onClick={() => handleDeleteGift(g)}>
-                  <Trash2 size={14} />
-                </button>
+                {(isSuper || can('gifts:edit')) && (
+                  <button className="action-icon edit" onClick={() => { setEditing(g); setIsNew(false); }}>
+                    <Pencil size={14} />
+                  </button>
+                )}
+                {(isSuper || can('gifts:delete')) && (
+                  <button className="action-icon ban" onClick={() => handleDeleteGift(g)}>
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
               {g.giftMediaType === 'animated_sound' && (
                 <span style={{

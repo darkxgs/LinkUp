@@ -28,7 +28,7 @@ const METHOD_LABEL: Record<string, string> = {
 };
 
 export default function WithdrawalsPage() {
-  const { isSuper, profile } = useAdminProfile();
+  const { isSuper, can, profile } = useAdminProfile();
   const [items, setItems] = useState<AdminWithdrawal[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<FilterType>('all');
@@ -220,14 +220,18 @@ export default function WithdrawalsPage() {
                     <td>
                       {w.status === 'pending' && w.type === 'self' ? (
                         <div className="action-btns">
-                          <button className="action-icon ok" disabled={processing === w.id}
-                            onClick={() => approveSelf(w)} title="اعتماد">
-                            <Check size={16} />
-                          </button>
-                          <button className="action-icon ban" disabled={processing === w.id}
-                            onClick={() => rejectAny(w)} title="رفض">
-                            <X size={16} />
-                          </button>
+                          {(isSuper || can('withdraw:approve')) && (
+                            <button className="action-icon ok" disabled={processing === w.id}
+                              onClick={() => approveSelf(w)} title="اعتماد">
+                              <Check size={16} />
+                            </button>
+                          )}
+                          {(isSuper || can('withdraw:reject')) && (
+                            <button className="action-icon ban" disabled={processing === w.id}
+                              onClick={() => rejectAny(w)} title="رفض">
+                              <X size={16} />
+                            </button>
+                          )}
                         </div>
                       ) : w.status === 'pending' && w.type === 'via_agent' ? (
                         <span style={{ fontSize: 12, color: 'var(--gold-dark)' }}>بانتظار الوكيل</span>

@@ -8,6 +8,7 @@ import {
   type ConfigSettings, type ConfigChatFilter,
 } from '@/services/admin';
 import { SHARE_LINK_BASE, SHARE_LINK_EXAMPLE } from '@/lib/shareLinks';
+import { useAdminProfile } from '@/contexts/AdminProfileContext';
 
 const DEFAULTS: ConfigSettings = {
   coinRate: 10000,
@@ -45,6 +46,7 @@ const DEFAULTS: ConfigSettings = {
 };
 
 export default function SettingsPage() {
+  const { isSuper, can } = useAdminProfile();
   const [settings, setSettings] = useState<ConfigSettings>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
@@ -105,7 +107,8 @@ export default function SettingsPage() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
-        <div className="card">
+        {/* الاقتصاد */}
+        {(isSuper || can('settings:general')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Coins size={18} color="#F59E0B" /> الاقتصاد</h3>
           </div>
@@ -144,9 +147,10 @@ export default function SettingsPage() {
               />
             </div>
           </div>
-        </div>
+        </div>)}
 
-        <div className="card">
+        {/* العمولات */}
+        {(isSuper || can('settings:commissions')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Percent size={18} color="#d21e2a" /> العمولات</h3>
           </div>
@@ -210,10 +214,10 @@ export default function SettingsPage() {
                 onChange={(e) => setSettings({ ...settings, lockedMessageCommission: +e.target.value })} />
             </div>
           </div>
-        </div>
+        </div>)}
 
-        {/* === قسم معدّلات التحويل الداخلي بين العملات === */}
-        <div className="card">
+        {/* === معدّلات التحويل === */}
+        {(isSuper || can('settings:exchange')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Coins size={18} color="#F59E0B" /> معدّلات التحويل بين العملات
@@ -266,9 +270,10 @@ export default function SettingsPage() {
               التحويل العكسي ممنوع: ماسة→كوينز، كوينز→كازينو، كازينو→ماسة. السحب بالماسة فقط.
             </p>
           </div>
-        </div>
+        </div>)}
 
-        <div className="card">
+        {/* قواعد السحب */}
+        {(isSuper || can('settings:withdraw')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Coins size={18} color="#e11212" /> قواعد السحب (ماسة فقط)
@@ -337,9 +342,10 @@ export default function SettingsPage() {
               checked={settings.hostSelfWithdrawAnytime !== false}
               onChange={(v) => setSettings({ ...settings, hostSelfWithdrawAnytime: v })} />
           </div>
-        </div>
+        </div>)}
 
-        <div className="card">
+        {/* عمولات السحب */}
+        {(isSuper || can('settings:withdraw')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Percent size={18} color="#10B981" /> عمولات السحب
@@ -375,9 +381,10 @@ export default function SettingsPage() {
               <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>ثابت 2% من إعداد agentWithdrawCommission — للمضيف/ة في وكالة</p>
             </div>
           </div>
-        </div>
+        </div>)}
 
-        <div className="card">
+        {/* النظام */}
+        {(isSuper || can('settings:system')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Shield size={18} color="#e11212" /> النظام</h3>
           </div>
@@ -398,9 +405,10 @@ export default function SettingsPage() {
               عند الإيقاف: الشحن يتم فقط من «المحفظة ← شحن سريع بالمعرّف» في لوحة التحكم.
             </p>
           </div>
-        </div>
+        </div>)}
 
-        <div className="card">
+        {/* الروابط القانونية */}
+        {(isSuper || can('settings:general')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Link2 size={18} color="#e11212" /> الروابط القانونية والتطبيق</h3>
           </div>
@@ -441,11 +449,11 @@ export default function SettingsPage() {
                 onChange={(e) => setSettings({ ...settings, returnUrl: e.target.value })} />
             </div>
           </div>
-        </div>
+        </div>)}
       </div>
 
-      {/* ===== إصلاح #9 — فلتر محتوى الدردشة ===== */}
-      <div className="card" style={{ marginTop: 20, border: '1px solid #F59E0B55' }}>
+      {/* ===== فلتر محتوى الدردشة ===== */}
+      {(isSuper || can('settings:moderation')) && (<div className="card" style={{ marginTop: 20, border: '1px solid #F59E0B55' }}>
         <div className="card-header">
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <AlertTriangle size={18} color="#F59E0B" /> فلتر محتوى الدردشة الخاصة
@@ -500,10 +508,10 @@ export default function SettingsPage() {
             <Save size={16} /> {filterSaved ? 'تم الحفظ ✓' : 'حفظ فلتر الدردشة'}
           </button>
         </div>
-      </div>
+      </div>)}
 
-      {/* ===== إصلاحات #30-38 — توليف الأداء والمزامنة ===== */}
-      <div className="card" style={{ marginTop: 20, border: '1px solid #8B5CF655' }}>
+      {/* ===== توليف الأداء ===== */}
+      {(isSuper || can('settings:performance')) && (<div className="card" style={{ marginTop: 20, border: '1px solid #8B5CF655' }}>
         <div className="card-header">
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Timer size={18} color="#8B5CF6" /> توليف الأداء والمزامنة
@@ -561,7 +569,7 @@ export default function SettingsPage() {
             checked={settings.roomMusicSyncEnabled !== false}
             onChange={(v) => setSettings({ ...settings, roomMusicSyncEnabled: v })} />
         </div>
-      </div>
+      </div>)}
 
       <div className="card" style={{ marginTop: 20 }}>
         <div className="card-header">
