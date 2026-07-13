@@ -9,7 +9,12 @@ import type { RoomMusic } from '@/services/roomMusic';
 
 type Props = {
   roomId: string;
-  music: RoomMusic;
+  /**
+   * قد تكون null حين لا موسيقى نشطة — يبقى المضيف مركّباً دائماً كي لا
+   * تُعاد صفحة الموسيقى (Modal) تركيباً عند بدء/إيقاف التشغيل (كانت تومض
+   * تفتح وتقفل لأن الفرع الشرطي في شاشة الروم كان يفكّها ويركّب أخرى).
+   */
+  music: RoomMusic | null;
   userUid?: string | null;
   canManageMusic?: boolean;
   children?: ReactNode;
@@ -23,15 +28,15 @@ export function RoomMusicPlaybackHost({
   children,
 }: Props) {
   const localDismissed = useRoomMusicUiStore((s) => s.localDismissed);
+  // enabled=false حين لا موسيقى أو ألغى المستمع الاستماع — الـhook يعطّل
+  // كل تأثيراته حينها فلا محرك يعمل، لكن السياق يظل متاحاً للأبناء الثابتين.
   const playback = useRoomMusicPlayback(
     roomId,
     music,
     userUid,
-    !localDismissed,
+    !localDismissed && !!music,
     canManageMusic,
   );
-
-  if (localDismissed) return null;
 
   return (
     <RoomMusicPlaybackProvider value={playback}>{children ?? null}</RoomMusicPlaybackProvider>

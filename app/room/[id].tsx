@@ -5367,10 +5367,12 @@ export default function RoomScreen() {
         effectsActive={roomEffectsSettings.animations || roomEffectsSettings.soundEffects}
       />
 
-      {roomId && roomMusic && !musicUiDismissed ? (
+      {roomId ? (
+        // مضيف واحد ثابت يلفّ صفحة الموسيقى دائماً — لا يُعاد تركيب الـModal
+        // عند بدء/إيقاف الموسيقى (music قد تكون null)، فلا وميض فتح/قفل.
         <RoomMusicPlaybackHost
           roomId={roomId}
-          music={roomMusic}
+          music={roomMusic ?? null}
           userUid={user?.uid}
           canManageMusic={canManageRoomMusic}
         >
@@ -5384,16 +5386,6 @@ export default function RoomScreen() {
             canManageMusic={canManageRoomMusic}
           />
         </RoomMusicPlaybackHost>
-      ) : roomId ? (
-        <RoomMusicSheet
-          visible={showMusicSheet}
-          onClose={() => setShowMusicSheet(false)}
-          onReopen={() => setShowMusicSheet(true)}
-          roomId={roomId}
-          roomMusic={roomMusic}
-          canControl={canDjRoomMusic}
-          canManageMusic={canManageRoomMusic}
-        />
       ) : null}
 
       <RoomFreeGameStartSheet
