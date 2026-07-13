@@ -601,7 +601,8 @@ export const isUidAgencyMember = async (agencyId: string, uid: string): Promise<
 };
 
 /**
- * إنهاء عضوية في الوكالة (يفعلها الوكيل أو الأدمن)
+ * إنهاء عضوية في الوكالة (يفعلها الوكيل أو الأدمن).
+ * إشعار المُزال يكتبه الـCF عبر notifyUser — لا تكرار من العميل.
  */
 export const removeAgencyMember = async (memberId: string): Promise<void> => {
   // #10: httpsCallable وحده غير موثوق على React Native (Gen2) —
@@ -614,6 +615,28 @@ export const removeAgencyMember = async (memberId: string): Promise<void> => {
       { memberDocId: memberId },
       token,
     );
+  } catch (e) {
+    throw new Error(translateCallableError(e));
+  }
+};
+
+/**
+ * مغادرة المضيف لوكالته طوعاً — leaveAgency CF يُخطر الوكيل.
+ */
+export const leaveMyAgency = async (): Promise<void> => {
+  try {
+    const { suppressNextAgencyRemovalAlert } = await import(
+      '@/components/AgencyMembershipWatcher'
+    );
+    suppressNextAgencyRemovalAlert();
+
+    const user = await ensureCallableAuth();
+    const token = await user.getIdToken();
+
+    await callCallableWithAuth<
+      Record<string, never>,
+      { ok: boolean; agencyId?: string; agencyName?: string; ownerUid?: string }
+    >('leaveAgency', {}, token);
   } catch (e) {
     throw new Error(translateCallableError(e));
   }

@@ -631,7 +631,7 @@ export const buyAndSendGift = async (
   toName: string,
   roomId?: string,
   quantity = 1,
-  context?: { postId?: string },
+  context?: { postId?: string; agencyId?: string },
 ): Promise<BuyAndSendGiftResult> => {
   const user = auth.currentUser;
   if (!user) throw new Error('يجب تسجيل الدخول');
@@ -654,7 +654,7 @@ async function executeBuyAndSendGift(
   toName: string,
   roomId?: string,
   quantity = 1,
-  context?: { postId?: string },
+  context?: { postId?: string; agencyId?: string },
 ): Promise<BuyAndSendGiftResult> {
   const qty = Math.max(1, Math.min(99, quantity));
   const totalPrice = gift.price * qty;
@@ -738,6 +738,8 @@ async function executeBuyAndSendGift(
     const sentTxRef = doc(collection(firestore, 'transactions'));
     const recvTxRef = doc(collection(firestore, 'transactions'));
 
+    const agencyId = String(context?.agencyId ?? '').trim();
+
     transaction.set(sentTxRef, {
     uid: user.uid,
     type: 'gift_sent',
@@ -751,6 +753,7 @@ async function executeBuyAndSendGift(
     status: 'completed',
       createdAt: now,
       ...(roomId ? { roomId } : {}),
+      ...(agencyId ? { agencyId, agencySupportRecordedByClient: true } : {}),
       ...(context?.postId ? { postId: context.postId } : {}),
   });
 
@@ -766,7 +769,10 @@ async function executeBuyAndSendGift(
       fromName: user.displayName ?? 'مستخدم',
     status: 'completed',
       createdAt: now,
+      // يمنع ازدواج pearlsEarned مع creditAgencyPearlsOnGift على السيرفر
+      ...(recipientIsHostess ? { agencyEarningRecordedByClient: true } : {}),
       ...(roomId ? { roomId } : {}),
+      ...(agencyId ? { agencyId } : {}),
       ...(context?.postId ? { postId: context.postId } : {}),
     });
   });
@@ -774,6 +780,24 @@ async function executeBuyAndSendGift(
   void import('./aristocracySystem')
     .then(({ addAristocracyHonorPoints }) => addAristocracyHonorPoints(totalPrice))
     .catch(() => {});
+
+  // #20: دعم فترة الوكالة + تحصيل العضو — كانا معرّفين دون استدعاء من مسار الهدايا
+  // عند وجود agencyId يُعلَّم gift_sent بـ agencySupportRecordedByClient ليتخطّى الـCF الازدواج
+  const agencyIdForSupport = String(context?.agencyId ?? '').trim();
+  if (agencyIdForSupport && totalPrice > 0) {
+    void import('@/services/agencyService')
+      .then(({ bumpAgencyPeriodSupport }) =>
+        bumpAgencyPeriodSupport(agencyIdForSupport, totalPrice),
+      )
+      .catch(() => {});
+  }
+  if (recipientIsHostess && recipientAmount > 0) {
+    void import('@/services/agencyService')
+      .then(({ recordAgencyMemberEarning }) =>
+        recordAgencyMemberEarning(toUid, recipientAmount),
+      )
+      .catch(() => {});
+  }
 
   // إرسال إشعار للمستلم — في الخلفية (لا يحجب اكتمال الهدية / لا يبطّئ الإرسال)
   const giftBody = `أرسل لك ${gift.name}${qty > 1 ? ` ×${qty}` : ''} (${totalPrice} عملة)`;

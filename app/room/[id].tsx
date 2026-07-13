@@ -3615,7 +3615,8 @@ export default function RoomScreen() {
       return;
     }
 
-    setSendingGift(true);
+    // الكومبو لا يرفع sendingGift — كان يعطّل زر الإعادة على أجهزة بطيئة
+    if (!opts?.isCombo) setSendingGift(true);
     const isGroupGift = uids.length > 1;
 
     if (!isGroupGift && uids.length === 1) {
@@ -3725,7 +3726,14 @@ export default function RoomScreen() {
         await runWithConcurrency(uids, GIFT_SEND_CONCURRENCY, async (recipientUid, i) => {
           const recipientName = recipientNames[i]!;
 
-          const giftResult = await buyAndSendGift(gift, recipientUid, recipientName, roomId, quantity);
+          const giftResult = await buyAndSendGift(
+            gift,
+            recipientUid,
+            recipientName,
+            roomId,
+            quantity,
+            room?.agencyId ? { agencyId: String(room.agencyId) } : undefined,
+          );
           const supportCoins = giftResult.coinsForRecipient;
 
           if (!isGroupGift) {

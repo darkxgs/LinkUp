@@ -153,6 +153,8 @@ export function RoomGiftPickerModal({
   const comboTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const comboGlow = useRef(new Animated.Value(0)).current;
   const comboScale = useRef(new Animated.Value(1)).current;
+  /** يمنع ضغطات مزدوجة دون الاعتماد على prop `sending` (كان يعطّل الزر على أجهزة بطيئة) */
+  const comboTapLockUntilRef = useRef(0);
 
   const pulseComboGlow = useCallback(() => {
     comboGlow.setValue(0);
@@ -355,7 +357,13 @@ export function RoomGiftPickerModal({
   };
 
   const handleComboSend = () => {
-    if (!selectedGift || recipientCount === 0 || sending || !comboActive) return;
+    if (!selectedGift || recipientCount === 0 || !comboActive) return;
+    const now = Date.now();
+    // قفل لمس قصير (~120ms) بدل disabled={sending} — على أجهزة ضعيفة كان
+    // sending=true يجمّد زر الكومبو بالكامل فيفوت النافذة الزمنية
+    if (now < comboTapLockUntilRef.current) return;
+    comboTapLockUntilRef.current = now + 120;
+
     const singleBatchPrice = selectedGift.price * quantity * recipientCount;
     if (displayedBalance < singleBatchPrice) {
       resetCombo();
@@ -588,11 +596,8 @@ export function RoomGiftPickerModal({
             {comboActive ? (
               <View style={styles.comboContainer}>
                 <RNText style={styles.comboCountText}>x {comboCount}</RNText>
-                <Animated.View
-                  style={{
-                    transform: [{ scale: comboScale }],
-                  }}
-                >
+                {/* منطقة لمس ثابتة — لا تُحرَّك بالـ transform (كان يكسّر اللمس على أندرويد) */}
+                <View style={styles.comboHitBox} collapsable={false}>
                   <Animated.View
                     pointerEvents="none"
                     style={[
@@ -603,6 +608,7 @@ export function RoomGiftPickerModal({
                           outputRange: [0, 1],
                         }),
                         transform: [
+                          { scale: comboScale },
                           {
                             scale: comboGlow.interpolate({
                               inputRange: [0, 1],
@@ -613,59 +619,55 @@ export function RoomGiftPickerModal({
                       },
                     ]}
                   />
-                  {/* onPressIn بدل onPress: يعمل لحظة اللمس — على الأجهزة الضعيفة كانت
-                      إعادة الرسم كل 100ms وأنيميشن التكبير يلغيان إيماءة onPress فلا يستجيب الزر */}
+                  {/* onPressIn: لحظة اللمس — لا يعتمد على انتهاء الأنيميشن/إعادة الرسم */}
                   <Pressable
                     onPressIn={handleComboSend}
-                    disabled={sending}
-                    hitSlop={14}
-                    pressRetentionOffset={24}
-                    style={[styles.comboCircleBtn, sending && styles.comboCircleBtnDisabled]}
+                    hitSlop={28}
+                    pressRetentionOffset={40}
+                    android_disableSound
+                    style={styles.comboCircleBtn}
                   >
-                  <LinearGradient
-                    colors={['#FF4D8D', '#E11414', '#C026D3']}
-                    start={{ x: 0.15, y: 0 }}
-                    end={{ x: 0.85, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <View style={styles.comboRingLayer} pointerEvents="none">
-                    <Svg width={72} height={72} viewBox="0 0 72 72">
-                      <Defs>
-                        <SvgLinearGradient id="comboRingGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-                          <Stop offset="0%" stopColor="#FBBF24" />
-                          <Stop offset="45%" stopColor="#F472B6" />
-                          <Stop offset="100%" stopColor="#A855F7" />
-                        </SvgLinearGradient>
-                      </Defs>
-                      <Circle
-                        cx="36"
-                        cy="36"
-                        r={COMBO_RING_R}
-                        stroke="rgba(255,255,255,0.18)"
-                        strokeWidth="4"
-                        fill="transparent"
-                      />
-                      <Circle
-                        cx="36"
-                        cy="36"
-                        r={COMBO_RING_R}
-                        stroke="url(#comboRingGrad)"
-                        strokeWidth="4.5"
-                        fill="transparent"
-                        strokeDasharray={COMBO_RING_C}
-                        strokeDashoffset={COMBO_RING_C * (1 - comboTimeLeft / COMBO_DURATION_SEC)}
-                        strokeLinecap="round"
-                        transform="rotate(-90 36 36)"
-                      />
-                    </Svg>
-                  </View>
-                  {sending ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
+                    <LinearGradient
+                      colors={['#FF4D8D', '#E11414', '#C026D3']}
+                      start={{ x: 0.15, y: 0 }}
+                      end={{ x: 0.85, y: 1 }}
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
+                    />
+                    <View style={styles.comboRingLayer} pointerEvents="none">
+                      <Svg width={72} height={72} viewBox="0 0 72 72">
+                        <Defs>
+                          <SvgLinearGradient id="comboRingGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                            <Stop offset="0%" stopColor="#FBBF24" />
+                            <Stop offset="45%" stopColor="#F472B6" />
+                            <Stop offset="100%" stopColor="#A855F7" />
+                          </SvgLinearGradient>
+                        </Defs>
+                        <Circle
+                          cx="36"
+                          cy="36"
+                          r={COMBO_RING_R}
+                          stroke="rgba(255,255,255,0.18)"
+                          strokeWidth="4"
+                          fill="transparent"
+                        />
+                        <Circle
+                          cx="36"
+                          cy="36"
+                          r={COMBO_RING_R}
+                          stroke="url(#comboRingGrad)"
+                          strokeWidth="4.5"
+                          fill="transparent"
+                          strokeDasharray={COMBO_RING_C}
+                          strokeDashoffset={COMBO_RING_C * (1 - comboTimeLeft / COMBO_DURATION_SEC)}
+                          strokeLinecap="round"
+                          transform="rotate(-90 36 36)"
+                        />
+                      </Svg>
+                    </View>
                     <RNText style={styles.comboTimeText}>{comboTimeLeft.toFixed(1)}s</RNText>
-                  )}
-                </Pressable>
-                </Animated.View>
+                  </Pressable>
+                </View>
               </View>
             ) : (
               <Pressable
@@ -1083,6 +1085,13 @@ const styles = StyleSheet.create({
     textShadowRadius: 14,
     includeFontPadding: false,
   },
+  comboHitBox: {
+    width: 72,
+    height: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: -8,
+  },
   comboCircleBtn: {
     width: 68,
     height: 68,
@@ -1097,7 +1106,6 @@ const styles = StyleSheet.create({
     elevation: 12,
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.45)',
-    marginTop: -8,
   },
   comboGlowRing: {
     position: 'absolute',
@@ -1112,9 +1120,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
     shadowRadius: 18,
     elevation: 14,
-  },
-  comboCircleBtnDisabled: {
-    opacity: 0.85,
   },
   comboRingLayer: {
     ...StyleSheet.absoluteFillObject,

@@ -34,6 +34,7 @@ import {
   Building2,
   Crown,
   Search,
+  Lock,
 } from 'lucide-react-native';
 import i18n from '@/localization/i18n';
 
@@ -393,13 +394,10 @@ export default function RoomsScreen() {
     return list;
   }, [filteredAgencies, agencyRoomMap]);
 
-  // #2: الغرف الشخصية العامة تظهر مع الوكالات في تبويب «الغرف» —
-  // المقفلة/الخاصة لا تُعرض (دخولها بالدعوة أو المفضلة فقط)
+  // #29: الغرف الشخصية (عامة + مقفلة) تظهر مع الوكالات — الدخول للمقفلة عبر بوابة كلمة المرور
   const publicPersonalRooms = useMemo(() => {
     const visible = rooms.filter((r) => {
       if (!isPersonalHostRoom(r)) return false;
-      const mode = r.mode ?? (r.isPrivate ? 'locked' : 'public');
-      if (mode === 'locked') return false;
       if (country !== 'WW' && r.country !== country) return false;
       return true;
     });
@@ -818,6 +816,7 @@ const PersonalRoomCard = React.memo(function PersonalRoomCard({
   const live = isRoomLive(room);
   const audience = toSafeInt(room.audienceCount);
   const hostInitial = (room.hostName?.trim()?.[0] ?? '?').toUpperCase();
+  const isLocked = (room.mode ?? (room.isPrivate ? 'locked' : 'public')) === 'locked';
   return (
     <Pressable
       onPress={onPress}
@@ -858,6 +857,11 @@ const PersonalRoomCard = React.memo(function PersonalRoomCard({
             <RNText style={styles.gridLiveText}>{t('rooms.liveBadge')}</RNText>
           </View>
         ) : null}
+        {isLocked ? (
+          <View style={styles.gridLockPill}>
+            <Lock size={10} color="#fff" strokeWidth={2.5} />
+          </View>
+        ) : null}
         <View style={styles.gridAudiencePill}>
           <Users size={10} color="#fff" strokeWidth={2.5} />
           <RNText style={styles.gridAudienceText}>{audience}</RNText>
@@ -891,7 +895,11 @@ const PersonalRoomCard = React.memo(function PersonalRoomCard({
         <View style={styles.gridFooter}>
           <View style={[styles.roomKindBadge, dark && styles.roomKindBadgeDark]}>
             <Mic2 size={10} color={dark ? '#FF6B7A' : lu.colors.purple} strokeWidth={2.5} />
-            <RNText style={[styles.roomKindBadgeText, dark && { color: '#FF6B7A' }]}>{t('rooms.badgeRoom')}</RNText>
+            <RNText style={[styles.roomKindBadgeText, dark && { color: '#FF6B7A' }]}>
+              {isLocked
+                ? t('rooms.badgePrivateRoom', 'غرفة خاصة')
+                : t('rooms.badgeRoom')}
+            </RNText>
           </View>
         </View>
       </View>
@@ -1670,6 +1678,19 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.5,
     fontFamily: lu.fonts.bodyHeavy,
+  },
+  gridLockPill: {
+    position: 'absolute',
+    top: 10,
+    end: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(10, 4, 5,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   gridCatPill: {
     position: 'absolute',
