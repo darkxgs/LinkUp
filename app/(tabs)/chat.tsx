@@ -17,7 +17,6 @@ import {
   ActivityIndicator,
   useWindowDimensions,
   TextInput,
-  I18nManager,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -41,16 +40,12 @@ import {
   HeaderIconButton,
   useTabHeaderMetrics,
 } from '@/components/layout/TabScreenHeader';
-import { Pin, Heart, ChevronRight, ChevronLeft } from 'lucide-react-native';
+import { Pin } from 'lucide-react-native';
 import i18n from '@/localization/i18n';
 
 import { lu } from '@/theme/lu-brand';
 import { useThemeMode } from '@/stores/themeStore';
-import { getCasinoGames } from '@/constants/casinoGames';
 
-const LUCKY_777_ROUTE =
-  getCasinoGames().find((g) => g.id === 'lucky-777')?.route ??
-  '/games/webview?url=https://linkup-dc45f.web.app/games/lucky-777/&name=Lucky%20777';
 import {
   subscribeToConversations,
   togglePinConversation,
@@ -76,7 +71,7 @@ import { resolveDisplayName } from '@/utils/displayName';
 import { resolveUserDocAvatar, resolveConversationPeerAvatar } from '@/utils/userAvatar';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useAgencyRoomTracking } from '@/hooks/useAgencyRoomTracking';
-import { useGamePresenceCounts } from '@/hooks/useGamePresence';
+import { HomeGamesHub } from '@/components/home/HomeGamesHub';
 import { AgencyRoomTrackingAvatar } from '@/components/chat/AgencyRoomTrackingAvatar';
 import { QuickClearChatsModal } from '@/components/chat/QuickClearChatsModal';
 import { isTrackableAgencyPresence } from '@/services/roomFeatures';
@@ -644,18 +639,6 @@ export default function ChatListScreen() {
     });
   }, [filteredConvs, friends, peerProfiles, currentUser?.uid, t]);
 
-  const luckyGameAvatars = useMemo(
-    () =>
-      friends
-        .map((f) => resolveUserDocAvatar(f as unknown as Record<string, unknown>, f.uid))
-        .filter((a): a is string => !!a)
-        .slice(0, 3),
-    [friends],
-  );
-
-  const gamePresence = useGamePresenceCounts();
-  const luckyGamePlayerCount = gamePresence.casino;
-
   const shortcutGap = isSmall ? 8 : 10;
   const shortcutW =
     (W - pad * 2 - shortcutGap * (CHAT_SHORTCUTS.length - 1)) / CHAT_SHORTCUTS.length;
@@ -821,13 +804,13 @@ export default function ChatListScreen() {
             />
 
             {filterMode !== 'archived' ? (
-              <LuckyGameBanner
-                pad={pad}
-                dark={isDark}
-                avatars={luckyGameAvatars}
-                playerCount={luckyGamePlayerCount}
-                onPress={() => router.push(LUCKY_777_ROUTE as any)}
-              />
+              <View style={styles.gamesHubWrap}>
+                <HomeGamesHub
+                  pad={pad}
+                  dark={isDark}
+                  onNavigate={(route) => router.push(route as any)}
+                />
+              </View>
             ) : null}
 
             {/* ورقة بيضاء: الأصدقاء */}
@@ -1408,82 +1391,6 @@ const ConversationRow = memo(function ConversationRow({
   );
 });
 
-function LuckyGameBanner({
-  pad,
-  dark,
-  avatars,
-  playerCount,
-  onPress,
-}: {
-  pad: number;
-  dark?: boolean;
-  avatars: string[];
-  playerCount: number;
-  onPress: () => void;
-}) {
-  const { t } = useTranslation();
-  const Chevron = I18nManager.isRTL ? ChevronLeft : ChevronRight;
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.luckyGameBanner,
-        dark ? styles.luckyGameBannerDark : styles.luckyGameBannerLight,
-        { marginHorizontal: pad, transform: [{ scale: pressed ? 0.97 : 1 }] },
-      ]}
-    >
-      <LinearGradient
-        colors={dark ? ['#33101A', '#1B0B0F'] : ['#FFFFFF', '#FBF1F1']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
-      <Image
-        source={require('../../assets/images/lucky_game_icon.png')}
-        style={styles.luckyGameIcon}
-        contentFit="contain"
-        cachePolicy="memory-disk"
-      />
-
-      <View style={styles.luckyGameBody}>
-        <View style={styles.luckyGameTitleRow}>
-          <Heart size={17} color="#FF2D55" fill="#FF2D55" />
-          <Text
-            style={[styles.luckyGameTitle, { color: dark ? '#fff' : '#15151A' }]}
-            numberOfLines={1}
-          >
-            {t('chat.luckyGameTitle')}
-          </Text>
-        </View>
-        <Text
-          style={[styles.luckyGameSub, { color: dark ? 'rgba(255,255,255,0.55)' : '#6B7280' }]}
-          numberOfLines={2}
-        >
-          {t('chat.luckyGameSubtitle')}
-        </Text>
-        <View style={styles.luckyGameLiveRow}>
-          <View style={styles.luckyGameLiveDot} />
-          <Text style={[styles.luckyGameLiveText, !dark && { color: '#0FA36B' }]}>
-            {t('chat.luckyGameOnline', { count: playerCount })}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.luckyGamePlayBtn}>
-        <LinearGradient
-          colors={['#FF4D5E', '#C40E2E']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <Text style={styles.luckyGamePlayText}>{t('home.gameOpen')}</Text>
-        <Chevron size={15} color="#fff" strokeWidth={2.8} />
-      </View>
-    </Pressable>
-  );
-}
-
 function AgencyChatRow({ chat, dark, onPress }: { chat: AgencyChatMeta; dark?: boolean; onPress: () => void }) {
   const { t } = useTranslation();
   const { width: W } = useWindowDimensions();
@@ -1703,6 +1610,10 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderBottomRightRadius: 10,
     zIndex: 2,
+  },
+  gamesHubWrap: {
+    marginTop: -10,
+    marginBottom: 10,
   },
   shortcutPromoText: {
     color: '#fff',
@@ -2112,100 +2023,4 @@ const styles = StyleSheet.create({
     fontFamily: lu.fonts.body,
   },
 
-  luckyGameBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    borderRadius: 26,
-    paddingStart: 12,
-    paddingEnd: 14,
-    paddingVertical: 14,
-    marginTop: 12,
-    marginBottom: 8,
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  luckyGameBannerDark: {
-    borderColor: 'rgba(255,77,94,0.55)',
-    shadowColor: '#FF1E30',
-  },
-  luckyGameBannerLight: {
-    borderColor: 'rgba(225,20,20,0.3)',
-    shadowColor: '#9A1414',
-    shadowOpacity: 0.15,
-  },
-  luckyGameIcon: {
-    width: 104,
-    height: 104,
-  },
-  luckyGameBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  luckyGameTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-  },
-  luckyGameTitle: {
-    fontSize: 19,
-    fontWeight: '800',
-    fontFamily: lu.fonts.bodyHeavy,
-    includeFontPadding: false,
-    flexShrink: 1,
-  },
-  luckyGameSub: {
-    fontSize: 12.5,
-    marginTop: 5,
-    lineHeight: 17,
-    fontFamily: lu.fonts.body,
-    includeFontPadding: false,
-  },
-  luckyGameLiveRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
-  },
-  luckyGameLiveDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: '#2BD9A8',
-  },
-  luckyGameLiveText: {
-    color: '#EAF7F0',
-    fontSize: 12,
-    fontWeight: '700',
-    fontFamily: lu.fonts.bodyHeavy,
-    includeFontPadding: false,
-  },
-  luckyGamePlayBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    alignSelf: 'flex-end',
-    paddingVertical: 10,
-    paddingStart: 20,
-    paddingEnd: 14,
-    borderRadius: 99,
-    overflow: 'hidden',
-    shadowColor: '#FF1E30',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  luckyGamePlayText: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: '#fff',
-    fontFamily: lu.fonts.bodyHeavy,
-    includeFontPadding: false,
-  },
 });
