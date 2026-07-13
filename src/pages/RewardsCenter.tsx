@@ -163,8 +163,9 @@ export default function RewardsCenterPage() {
                 <label className="form-label">يوم {d.day}
                   <select className="form-input" value={d.rewardType}
                     onChange={(e) => updateCheckInDay('freeCheckInDays', idx, { rewardType: e.target.value as ConfigCheckInDay['rewardType'] })}>
-                    <option value="coins">كوينز</option>
-                    <option value="message_cards">بطاقة رسائل</option>
+                    <option value="coins">كوينز 🪙</option>
+                    <option value="pearls">ماسة (Pearls) 💎</option>
+                    <option value="message_cards">بطاقة رسائل 💌</option>
                     <option value="frame">إطار</option>
                     <option value="gift">هدية</option>
                   </select>
@@ -229,10 +230,12 @@ export default function RewardsCenterPage() {
                 </div>
                 <div className="form-row">
                   <label className="form-label">المكافأة
+                    {/* إصلاح #21 — أضفنا pearls (ماسة) خياراً صريحاً */}
                     <select className="form-input" value={task.rewardType}
-                      onChange={(e) => updateTask(tab === 'daily' ? 'dailyTasks' : 'newUserTasks', idx, { rewardType: e.target.value as 'coins' | 'message_cards' })}>
-                      <option value="coins">كوينز</option>
-                      <option value="message_cards">بطاقات رسائل</option>
+                      onChange={(e) => updateTask(tab === 'daily' ? 'dailyTasks' : 'newUserTasks', idx, { rewardType: e.target.value as 'coins' | 'message_cards' | 'pearls' })}>
+                      <option value="coins">كوينز 🪙</option>
+                      <option value="pearls">ماسة (Pearls) 💎</option>
+                      <option value="message_cards">بطاقات رسائل 💌</option>
                     </select>
                   </label>
                   <label className="form-label">الكمية

@@ -12,11 +12,18 @@ interface Props {
 
 /** يحجب الوصول المباشر عبر الرابط لصفحة لا يملك المشرف صلاحيتها — وليس فقط إخفاءها من القائمة. */
 export function PermissionRoute({ perm, superOnly, children }: Props) {
-  const { isSuper, can, loading } = useAdminProfile();
+  const { isSuper, can, loading, profile } = useAdminProfile();
 
   if (loading) return <div className="page-container"><Loading /></div>;
   if (superOnly && !isSuper) return <Navigate to={adminPath('/')} replace />;
-  if (perm && !isSuper && !can(perm)) return <Navigate to={adminPath('/')} replace />;
+  if (perm && !isSuper) {
+    const hasAnySubPerm = Object.keys(profile?.permissions ?? {}).some(
+      (k) => k.startsWith(`${perm}:`) && profile?.permissions[k] === true
+    );
+    if (!can(perm) && !hasAnySubPerm) {
+      return <Navigate to={adminPath('/')} replace />;
+    }
+  }
 
   return <>{children}</>;
 }

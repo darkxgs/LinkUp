@@ -419,28 +419,32 @@ export default function KycRequestsPage() {
                           <ExternalLink size={16} />
                         </Link>
 
-                        {can('users') && req.status === 'pending' && (
+                        {req.status === 'pending' && (
                           <>
-                            <button
-                              className="action-icon ok"
-                              disabled={processing === req.uid}
-                              onClick={() => handleApprove(req)}
-                              title="قبول وتوثيق"
-                            >
-                              <Check size={16} />
-                            </button>
-                            <button
-                              className="action-icon ban"
-                              disabled={processing === req.uid}
-                              onClick={() => handleReject(req)}
-                              title="رفض الطلب"
-                            >
-                              <X size={16} />
-                            </button>
+                            {(isSuper || can('kyc:approve')) && (
+                              <button
+                                className="action-icon ok"
+                                disabled={processing === req.uid}
+                                onClick={() => handleApprove(req)}
+                                title="قبول وتوثيق"
+                              >
+                                <Check size={16} />
+                              </button>
+                            )}
+                            {(isSuper || can('kyc:reject')) && (
+                              <button
+                                className="action-icon ban"
+                                disabled={processing === req.uid}
+                                onClick={() => handleReject(req)}
+                                title="رفض الطلب"
+                              >
+                                <X size={16} />
+                              </button>
+                            )}
                           </>
                         )}
 
-                        {can('users') && req.status === 'approved' && (
+                        {(isSuper || can('kyc:reject')) && req.status === 'approved' && (
                           <button
                             className="action-icon ban"
                             disabled={processing === req.uid}
@@ -451,7 +455,7 @@ export default function KycRequestsPage() {
                           </button>
                         )}
 
-                        {can('users') && req.status === 'rejected' && (
+                        {(isSuper || can('kyc:approve')) && req.status === 'rejected' && (
                           <button
                             className="action-icon ok"
                             disabled={processing === req.uid}

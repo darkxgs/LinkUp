@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Save, Coins, Percent, Bell, Shield, Globe, Cloud, Gift, Database, Zap, Link2 } from 'lucide-react';
+import { Save, Coins, Percent, Bell, Shield, Globe, Cloud, Gift, Database, Zap, Link2, AlertTriangle, Timer } from 'lucide-react';
 import { Loading } from '@/components/Common';
 import {
   getConfigSettings, saveConfigSettings, logAdminAction,
   seedAllConfig,
-  type ConfigSettings,
+  getConfigChatFilter, saveConfigChatFilter,
+  type ConfigSettings, type ConfigChatFilter,
 } from '@/services/admin';
 import { SHARE_LINK_BASE, SHARE_LINK_EXAMPLE } from '@/lib/shareLinks';
+import { useAdminProfile } from '@/contexts/AdminProfileContext';
 
 const DEFAULTS: ConfigSettings = {
   coinRate: 10000,
@@ -44,15 +46,25 @@ const DEFAULTS: ConfigSettings = {
 };
 
 export default function SettingsPage() {
+  const { isSuper, can } = useAdminProfile();
   const [settings, setSettings] = useState<ConfigSettings>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState('');
+  // إصلاح #9 — فلتر المحتوى
+  const [chatFilter, setChatFilter] = useState<ConfigChatFilter>({
+    enabled: false, warnOnlyMode: false, blockedWords: [], blockedPatterns: [], blockedAppNames: [],
+  });
+  const [filterSaved, setFilterSaved] = useState(false);
 
   useEffect(() => {
-    getConfigSettings().then((s) => {
+    Promise.all([
+      getConfigSettings(),
+      getConfigChatFilter(),
+    ]).then(([s, f]) => {
       if (s) setSettings({ ...DEFAULTS, ...s });
+      setChatFilter(f);
       setLoading(false);
     });
   }, []);
@@ -62,6 +74,13 @@ export default function SettingsPage() {
     await logAdminAction('تعديل إعدادات النظام', 'الإعدادات العامة');
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleSaveChatFilter = async () => {
+    await saveConfigChatFilter(chatFilter);
+    await logAdminAction('تعديل فلتر محتوى الدردشة', 'config/chatFilter');
+    setFilterSaved(true);
+    setTimeout(() => setFilterSaved(false), 2000);
   };
 
   const handleSeed = async () => {
@@ -88,7 +107,8 @@ export default function SettingsPage() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
-        <div className="card">
+        {/* الاقتصاد */}
+        {(isSuper || can('settings:general')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Coins size={18} color="#F59E0B" /> الاقتصاد</h3>
           </div>
@@ -127,9 +147,10 @@ export default function SettingsPage() {
               />
             </div>
           </div>
-        </div>
+        </div>)}
 
-        <div className="card">
+        {/* العمولات */}
+        {(isSuper || can('settings:commissions')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Percent size={18} color="#d21e2a" /> العمولات</h3>
           </div>
@@ -193,10 +214,10 @@ export default function SettingsPage() {
                 onChange={(e) => setSettings({ ...settings, lockedMessageCommission: +e.target.value })} />
             </div>
           </div>
-        </div>
+        </div>)}
 
-        {/* === قسم معدّلات التحويل الداخلي بين العملات === */}
-        <div className="card">
+        {/* === معدّلات التحويل === */}
+        {(isSuper || can('settings:exchange')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Coins size={18} color="#F59E0B" /> معدّلات التحويل بين العملات
@@ -249,9 +270,10 @@ export default function SettingsPage() {
               التحويل العكسي ممنوع: ماسة→كوينز، كوينز→كازينو، كازينو→ماسة. السحب بالماسة فقط.
             </p>
           </div>
-        </div>
+        </div>)}
 
-        <div className="card">
+        {/* قواعد السحب */}
+        {(isSuper || can('settings:withdraw')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Coins size={18} color="#e11212" /> قواعد السحب (ماسة فقط)
@@ -320,9 +342,10 @@ export default function SettingsPage() {
               checked={settings.hostSelfWithdrawAnytime !== false}
               onChange={(v) => setSettings({ ...settings, hostSelfWithdrawAnytime: v })} />
           </div>
-        </div>
+        </div>)}
 
-        <div className="card">
+        {/* عمولات السحب */}
+        {(isSuper || can('settings:withdraw')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Percent size={18} color="#10B981" /> عمولات السحب
@@ -358,9 +381,10 @@ export default function SettingsPage() {
               <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>ثابت 2% من إعداد agentWithdrawCommission — للمضيف/ة في وكالة</p>
             </div>
           </div>
-        </div>
+        </div>)}
 
-        <div className="card">
+        {/* النظام */}
+        {(isSuper || can('settings:system')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Shield size={18} color="#e11212" /> النظام</h3>
           </div>
@@ -381,9 +405,10 @@ export default function SettingsPage() {
               عند الإيقاف: الشحن يتم فقط من «المحفظة ← شحن سريع بالمعرّف» في لوحة التحكم.
             </p>
           </div>
-        </div>
+        </div>)}
 
-        <div className="card">
+        {/* الروابط القانونية */}
+        {(isSuper || can('settings:general')) && (<div className="card">
           <div className="card-header">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Link2 size={18} color="#e11212" /> الروابط القانونية والتطبيق</h3>
           </div>
@@ -424,8 +449,127 @@ export default function SettingsPage() {
                 onChange={(e) => setSettings({ ...settings, returnUrl: e.target.value })} />
             </div>
           </div>
-        </div>
+        </div>)}
       </div>
+
+      {/* ===== فلتر محتوى الدردشة ===== */}
+      {(isSuper || can('settings:moderation')) && (<div className="card" style={{ marginTop: 20, border: '1px solid #F59E0B55' }}>
+        <div className="card-header">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertTriangle size={18} color="#F59E0B" /> فلتر محتوى الدردشة الخاصة
+          </h3>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+            التطبيق يقرأ هذا الإعداد من config/chatFilter ويطبقه على رسائل الدردشة الخاصة.
+            تأكد مع سيد أن التطبيق يدعم هذا المفتاح.
+          </p>
+        </div>
+        <div className="card-body">
+          <Toggle label="تفعيل الفلتر" icon={Shield}
+            checked={chatFilter.enabled}
+            onChange={(v) => setChatFilter({ ...chatFilter, enabled: v })} />
+          <Toggle label="وضع تحذير فقط (بدل الحجب التلقائي)" icon={Bell}
+            checked={chatFilter.warnOnlyMode}
+            onChange={(v) => setChatFilter({ ...chatFilter, warnOnlyMode: v })} />
+          <div className="form-group" style={{ marginTop: 16 }}>
+            <label className="form-label">كلمات/عبارات محجوبة (سطر واحد لكل كلمة)</label>
+            <textarea
+              className="form-input"
+              rows={5}
+              style={{ fontFamily: 'monospace', direction: 'ltr', fontSize: 13 }}
+              value={chatFilter.blockedWords.join('\n')}
+              onChange={(e) => setChatFilter({ ...chatFilter, blockedWords: e.target.value.split('\n') })}
+              placeholder={'telegram\ntele\nwhatsapp\n...'}
+            />
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>غير حساسة للحالة. سطر واحد = كلمة واحدة.</p>
+          </div>
+          <div className="form-group">
+            <label className="form-label">أسماء تطبيقات محجوبة (سطر واحد لكل اسم)</label>
+            <textarea
+              className="form-input"
+              rows={4}
+              style={{ fontFamily: 'monospace', direction: 'ltr', fontSize: 13 }}
+              value={chatFilter.blockedAppNames.join('\n')}
+              onChange={(e) => setChatFilter({ ...chatFilter, blockedAppNames: e.target.value.split('\n') })}
+              placeholder={'telegram\nتيليغرام\nwhatsapp\n...'}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">أنماط تعبيرية محجوبة (Regex) — سطر واحد لكل نمط</label>
+            <textarea
+              className="form-input"
+              rows={4}
+              style={{ fontFamily: 'monospace', direction: 'ltr', fontSize: 12 }}
+              value={chatFilter.blockedPatterns.join('\n')}
+              onChange={(e) => setChatFilter({ ...chatFilter, blockedPatterns: e.target.value.split('\n') })}
+            />
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>لفلترة أرقام الهواتف والروابط — مجال Regex. تأكد من البناء قبل الحفظ.</p>
+          </div>
+          <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={handleSaveChatFilter}>
+            <Save size={16} /> {filterSaved ? 'تم الحفظ ✓' : 'حفظ فلتر الدردشة'}
+          </button>
+        </div>
+      </div>)}
+
+      {/* ===== توليف الأداء ===== */}
+      {(isSuper || can('settings:performance')) && (<div className="card" style={{ marginTop: 20, border: '1px solid #8B5CF655' }}>
+        <div className="card-header">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Timer size={18} color="#8B5CF6" /> توليف الأداء والمزامنة
+          </h3>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+            يقرأها التطبيق من config/settings. تنسيق هذه القيم بالتطبيق طلب من سيد.
+          </p>
+        </div>
+        <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+          <div className="form-group">
+            <label className="form-label">مهلة تسليم الهدية (ملي ثانية) — إصلاح #11</label>
+            <input className="form-input" type="number" min="1000" step="1000"
+              value={settings.giftDeliveryTimeoutMs ?? 10000}
+              onChange={(e) => setSettings({ ...settings, giftDeliveryTimeoutMs: +e.target.value })} />
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>افتراضي: 10000 (10 ثواني)</p>
+          </div>
+          <div className="form-group">
+            <label className="form-label">حجم دفعة تحميل الرسائل — إصلاح #2</label>
+            <input className="form-input" type="number" min="10" max="200"
+              value={settings.chatLoadBatchSize ?? 30}
+              onChange={(e) => setSettings({ ...settings, chatLoadBatchSize: +e.target.value })} />
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>افتراضي: 30 رسالة</p>
+          </div>
+          <div className="form-group">
+            <label className="form-label">فاصل مزامنة المايكروفون (ملي ثانية) — إصلاح #30</label>
+            <input className="form-input" type="number" min="100" step="100"
+              value={settings.micSyncIntervalMs ?? 500}
+              onChange={(e) => setSettings({ ...settings, micSyncIntervalMs: +e.target.value })} />
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>افتراضي: 500 ملي ثانية</p>
+          </div>
+          <div className="form-group">
+            <label className="form-label">فاصل مزامنة الهدايا (ملي ثانية) — إصلاح #35</label>
+            <input className="form-input" type="number" min="1000" step="500"
+              value={settings.giftSyncIntervalMs ?? 3000}
+              onChange={(e) => setSettings({ ...settings, giftSyncIntervalMs: +e.target.value })} />
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>افتراضي: 3000 ملي ثانية</p>
+          </div>
+          <div className="form-group">
+            <label className="form-label">مهلة إشارة المكالمة (ملي ثانية) — إصلاح #37</label>
+            <input className="form-input" type="number" min="5000" step="1000"
+              value={settings.callSignalingTimeoutMs ?? 30000}
+              onChange={(e) => setSettings({ ...settings, callSignalingTimeoutMs: +e.target.value })} />
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>افتراضي: 30000 (30 ثانية)</p>
+          </div>
+          <div className="form-group">
+            <label className="form-label">فترة سماح بعد قطع الاتصال (ملي ثانية) — إصلاح #38</label>
+            <input className="form-input" type="number" min="1000" step="1000"
+              value={settings.reconnectGracePeriodMs ?? 15000}
+              onChange={(e) => setSettings({ ...settings, reconnectGracePeriodMs: +e.target.value })} />
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>افتراضي: 15000 (15 ثانية)</p>
+          </div>
+        </div>
+        <div className="card-body" style={{ paddingTop: 0 }}>
+          <Toggle label="تفعيل مزامنة موسيقى الغرفة (#36)" icon={Zap}
+            checked={settings.roomMusicSyncEnabled !== false}
+            onChange={(v) => setSettings({ ...settings, roomMusicSyncEnabled: v })} />
+        </div>
+      </div>)}
 
       <div className="card" style={{ marginTop: 20 }}>
         <div className="card-header">

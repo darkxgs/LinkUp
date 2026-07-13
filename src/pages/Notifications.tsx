@@ -14,6 +14,7 @@ import {
   type BroadcastNotification,
   type AdminNotifyScenario,
 } from '@/services/admin';
+import { useAdminProfile } from '@/contexts/AdminProfileContext';
 
 const BROADCAST_TYPES = [
   { id: 'info', label: 'معلومة', icon: Info, color: '#b00814' },
@@ -114,6 +115,7 @@ const USER_SCENARIOS: {
 type PageMode = 'broadcast' | 'user';
 
 export default function NotificationsPage() {
+  const { isSuper, can } = useAdminProfile();
   const [mode, setMode] = useState<PageMode>('user');
 
   // ——— Broadcast ———
@@ -421,9 +423,9 @@ export default function NotificationsPage() {
                 className="btn btn-primary"
                 style={{ width: '100%', justifyContent: 'center' }}
                 onClick={handleSendUser}
-                disabled={sending}
+                disabled={sending || !(isSuper || can('notify:send'))}
               >
-                <Send size={16} /> {sending ? 'جارٍ الإرسال...' : 'إرسال للمستخدم'}
+                <Send size={16} /> {!(isSuper || can('notify:send')) ? 'غير مصرح بالإرسال' : sending ? 'جارٍ الإرسال...' : 'إرسال للمستخدم'}
               </button>
             </div>
           </div>
@@ -535,9 +537,9 @@ export default function NotificationsPage() {
                 className="btn btn-primary"
                 style={{ width: '100%', justifyContent: 'center' }}
                 onClick={handleSendBroadcast}
-                disabled={sending}
+                disabled={sending || !(isSuper || can('notify:send'))}
               >
-                <Send size={16} /> {sending ? 'جارٍ الإرسال...' : 'إرسال الإشعار الجماعي'}
+                <Send size={16} /> {!(isSuper || can('notify:send')) ? 'غير مصرح بالإرسال' : sending ? 'جارٍ الإرسال...' : 'إرسال الإشعار الجماعي'}
               </button>
             </div>
           </div>

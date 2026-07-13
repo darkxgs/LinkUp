@@ -97,7 +97,7 @@ function buildDailySeries(
 }
 
 export default function Analytics() {
-  const { isSuper, profile } = useAdminProfile();
+  const { isSuper, can, profile } = useAdminProfile();
   const defaultRange = getAnalyticsPresetRange('last30');
   const [preset, setPreset] = useState<DatePreset>('last30');
   const [fromDate, setFromDate] = useState(toInputDate(defaultRange.fromMs));
@@ -222,36 +222,41 @@ export default function Analytics() {
         </div>
       </div>
 
-      <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
-        {adv.rangeFiltered ? 'نشاط الفترة' : 'نشاط المستخدمين'}
-      </h3>
-      <div className="stats-grid" style={{ marginBottom: 24 }}>
-        {activityCards.map((c) => (
-          <StatCard key={c.label} icon={c.icon} label={c.label} value={c.value} color={c.color} />
-        ))}
-      </div>
+      {(isSuper || can('analytics:widgets')) && (
+        <>
+          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
+            {adv.rangeFiltered ? 'نشاط الفترة' : 'نشاط المستخدمين'}
+          </h3>
+          <div className="stats-grid" style={{ marginBottom: 24 }}>
+            {activityCards.map((c) => (
+              <StatCard key={c.label} icon={c.icon} label={c.label} value={c.value} color={c.color} />
+            ))}
+          </div>
 
-      <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>مؤشرات الإيرادات</h3>
-      <div className="stats-grid" style={{ marginBottom: 24 }}>
-        <StatCard icon={DollarSign} label="إجمالي الشحن" value={formatNumber(adv.totalRevenue)} color="#10B981" />
-        <StatCard icon={DollarSign} label="ARPU (لكل مستخدم)" value={formatNumber(adv.arpu)} color="#059669" />
-        <StatCard icon={Crown} label="ARPPU (لكل دافع)" value={formatNumber(adv.arppu)} color="#F59E0B" />
-        <StatCard icon={Users} label="عدد الدافعين" value={formatNumber(adv.payingUsers)} color="#d21e2a" />
-        <StatCard icon={TrendingUp} label="معدّل التحويل" value={`${adv.conversionRate}%`} color="#e11212" />
-      </div>
+          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>مؤشرات الإيرادات</h3>
+          <div className="stats-grid" style={{ marginBottom: 24 }}>
+            <StatCard icon={DollarSign} label="إجمالي الشحن" value={formatNumber(adv.totalRevenue)} color="#10B981" />
+            <StatCard icon={DollarSign} label="ARPU (لكل مستخدم)" value={formatNumber(adv.arpu)} color="#059669" />
+            <StatCard icon={Crown} label="ARPPU (لكل دافع)" value={formatNumber(adv.arppu)} color="#F59E0B" />
+            <StatCard icon={Users} label="عدد الدافعين" value={formatNumber(adv.payingUsers)} color="#d21e2a" />
+            <StatCard icon={TrendingUp} label="معدّل التحويل" value={`${adv.conversionRate}%`} color="#e11212" />
+          </div>
 
-      <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>أرباح الألعاب</h3>
-      <div className="stats-grid" style={{ marginBottom: 24 }}>
-        <StatCard icon={Gamepad2} label="إجمالي الرهانات" value={formatNumber(adv.gameTotalBets)} color="#e11212" />
-        <StatCard icon={Coins} label="إجمالي الجوائز" value={formatNumber(adv.gameTotalWins)} color="#F59E0B" />
-        <StatCard
-          icon={TrendingUp}
-          label="صافي ربح المنصة"
-          value={formatNumber(adv.gameHouseProfit)}
-          color={adv.gameHouseProfit >= 0 ? '#10B981' : '#EF4444'}
-        />
-      </div>
+          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>أرباح الألعاب</h3>
+          <div className="stats-grid" style={{ marginBottom: 24 }}>
+            <StatCard icon={Gamepad2} label="إجمالي الرهانات" value={formatNumber(adv.gameTotalBets)} color="#e11212" />
+            <StatCard icon={Coins} label="إجمالي الجوائز" value={formatNumber(adv.gameTotalWins)} color="#F59E0B" />
+            <StatCard
+              icon={TrendingUp}
+              label="صافي ربح المنصة"
+              value={formatNumber(adv.gameHouseProfit)}
+              color={adv.gameHouseProfit >= 0 ? '#10B981' : '#EF4444'}
+            />
+          </div>
+        </>
+      )}
 
+      {(isSuper || can('analytics:charts')) && (<>
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <h3>الإيرادات والإنفاق {appliedRange ? 'حسب الفترة' : '(آخر 14 يوم)'}</h3>
@@ -311,6 +316,7 @@ export default function Analytics() {
           </table>
         )}
       </div>
+      </>)}
     </div>
   );
 }

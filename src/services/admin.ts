@@ -155,6 +155,8 @@ export interface AdminRoom {
   totalGifts?: number;
   isActive?: boolean;
   isLocked?: boolean;
+  /** غرفة خاصة — تظهر فقط لمن يملك رابطها */
+  isPrivate?: boolean;
   seatsCount?: number;
   maxSeatsCount?: number;
   agencyId?: string;
@@ -197,11 +199,12 @@ export const getUsers = async (limitCount = 100): Promise<AdminUser[]> => {
         email: data.email,
         phoneNumber: data.phoneNumber,
         gender: data.profile?.gender ?? data.gender ?? 'male',
-        country: data.profile?.country ?? data.country ?? 'PS',
+        country: countryFromUserDoc(data as Record<string, unknown>) || 'PS',
         coins: stats.coins ?? data.coins ?? 0,
         pearls: stats.pearls ?? data.pearls ?? 0,
         casinoCoins: stats.casinoCoins ?? data.casinoCoins ?? 0,
-        level: stats.level ?? data.level ?? 1,
+        // إصلاح #18 — ثلاثة مصادر للمستوى: stats.level → data.level → data.profile.level
+        level: stats.level ?? data.level ?? (data.profile as any)?.level ?? 1,
         followers: stats.followers ?? data.followers ?? 0,
         following: stats.following ?? data.following ?? 0,
         isVIP: data.isVIP,
@@ -986,7 +989,9 @@ export const getRooms = async (): Promise<AdminRoom[]> => {
       memberCount: room.memberCount ?? room.members?.length ?? 0,
       totalGifts: room.totalGifts ?? 0,
       isActive: room.isActive,
-      isLocked: room.isLocked,
+      isLocked: room.isLocked === true,
+      // إصلاح #29 — تتبع الغرف الخاصة
+      isPrivate: room.isPrivate === true,
       seatsCount: Number(room.seatsCount) || 9,
       maxSeatsCount: Number(room.maxSeatsCount) || undefined,
       agencyId: room.agencyId ? String(room.agencyId) : undefined,
@@ -1039,6 +1044,56 @@ export const deleteRoom = async (roomId: string): Promise<void> => {
     remove(ref(realtimeDb, `roomMessages/${roomId}`)),
     remove(ref(realtimeDb, `roomAudience/${roomId}`)),
   ]);
+};
+
+/**
+ * إصلاح #25 — تبديل حالة قفل الغرفة (مقفلة/مفتوحة)
+ * يكتب isLocked مباشرة في Realtime DB → التطبيق يمنع الدخول الجديد إذا كانت مقفلة
+ */
+export const setRoomLocked = async (roomId: string, locked: boolean): Promise<void> => {
+  const rooms = await getRooms();
+  const room = rooms.find((r) => r.id === roomId);
+  if (room) assertCountryAccess(room.country);
+  const { update } = await import('firebase/database');
+  await update(ref(realtimeDb, `rooms/${roomId}`), {
+    isLocked: locked,
+    lockedByAdmin: locked ? true : null,
+    lockedAt: locked ? Date.now() : null,
+  });
+};
+
+/**
+ * إصلاح #24 — بحث غرفة بمعرّفها مباشرةً من Realtime DB
+ * يتجاوز القائمة المحمّلة في الذاكرة — مفيد للبحث عن غرف غير محمّلة بعد
+ */
+export const getRoomById = async (roomId: string): Promise<AdminRoom | null> => {
+  try {
+    const snap = await rtdbGet(ref(realtimeDb, `rooms/${roomId}`));
+    if (!snap.exists()) return null;
+    const room = snap.val() as any;
+    return {
+      id: roomId,
+      name: room.name ?? 'غرفة',
+      hostUid: room.hostUid ?? '',
+      hostName: room.hostName,
+      country: normalizeCountryCode(room.country),
+      banner: room.banner,
+      category: room.category,
+      memberCount: room.memberCount ?? room.members?.length ?? 0,
+      totalGifts: room.totalGifts ?? 0,
+      isActive: room.isActive,
+      isLocked: room.isLocked === true,
+      isPrivate: room.isPrivate === true,
+      seatsCount: Number(room.seatsCount) || 9,
+      maxSeatsCount: Number(room.maxSeatsCount) || undefined,
+      agencyId: room.agencyId ? String(room.agencyId) : undefined,
+      isAgencyRoom: room.isAgencyRoom === true || !!room.agencyId,
+      createdAt: room.createdAt ?? Date.now(),
+    };
+  } catch (e) {
+    console.error('getRoomById:', e);
+    return null;
+  }
 };
 
 // ==================== AGENCIES ====================
@@ -1812,6 +1867,21 @@ export interface ConfigSettings {
   intellectualPropertyUrl?: string;
   returnUrl?: string;
   contactUrl?: string;
+  // ===== إصلاحات الأداء والمزامنة (#30–38) — يقرأها التطبيق من config/settings =====
+  /** مهلة تسليم الهدية بالملي ثانية (#11) — افتراضي 10000 */
+  giftDeliveryTimeoutMs?: number;
+  /** حجم دفعة تحميل الرسائل (#2) — افتراضي 30 */
+  chatLoadBatchSize?: number;
+  /** فاصل مزامنة المايكروفون بالملي ثانية (#30) — افتراضي 500 */
+  micSyncIntervalMs?: number;
+  /** فاصل مزامنة الهدايا بالملي ثانية (#35) — افتراضي 3000 */
+  giftSyncIntervalMs?: number;
+  /** مهلة إشارة المكالمة بالملي ثانية (#37) — افتراضي 30000 */
+  callSignalingTimeoutMs?: number;
+  /** فترة سماح قبل قطع الاتصال بالملي ثانية (#38) — افتراضي 15000 */
+  reconnectGracePeriodMs?: number;
+  /** تفعيل مزامنة موسيقى الغرفة (#36) */
+  roomMusicSyncEnabled?: boolean;
 }
 
 // ===== Gifts =====
@@ -2078,6 +2148,8 @@ export interface ConfigStoreItem {
   validityDays?: number;
   enabled?: boolean;
   sort?: number;
+  /** إصلاح #15 — هل يظهر زر «إهداء» بعد الشراء؟ (افتراضي true) */
+  allowGift?: boolean;
 }
 
 function normalizeConfigStoreCategory(raw: ConfigStoreCategory): ConfigStoreCategory {
@@ -2125,6 +2197,8 @@ function storeItemToFirestore(item: ConfigStoreItem): ConfigStoreItem {
   if (item.isLimited === true) out.isLimited = true;
   if (item.isNew === true) out.isNew = true;
   if (Number(item.validityDays) > 0) out.validityDays = Number(item.validityDays);
+  // إصلاح #15 — احتفظ بحقل allowGift عند الحفظ
+  if (item.allowGift === false) out.allowGift = false; // سالب فقط (true افتراضي في التطبيق)
   return out;
 }
 
@@ -3050,7 +3124,8 @@ export interface ConfigRewardTask {
   titleEn: string;
   metric: string;
   target: number;
-  rewardType: 'coins' | 'message_cards';
+  /** إصلاح #21 — pearls (ماسة) خيار صريح إلى جانب coins وبطاقات الرسائل */
+  rewardType: 'coins' | 'message_cards' | 'pearls';
   rewardAmount: number;
   route: string;
   iconKey: string;
@@ -5091,7 +5166,7 @@ export const PERMISSION_SECTIONS = [
   { key: 'kyc-requests', label: 'طلبات التحقق من الهوية' },
   { key: 'rooms', label: 'الغرف الصوتية' },
   { key: 'room-decor', label: 'تخصيص الروم (إطارات/خلفيات)' },
-  { key: 'room-reactions', label: 'رموز الروم (GIF/صور)' },
+  { key: 'room-reactions', label: 'الملصقات والتعبيرات (Stickers & Reactions)' },
   { key: 'agencies', label: 'الوكالات' },
   { key: 'agency-levels', label: 'مستويات الوكالة' },
   { key: 'agency-prince', label: 'أمير الوكلاء' },
@@ -5124,7 +5199,7 @@ export const PERMISSION_SECTIONS = [
   { key: 'app-release', label: 'إصدار التطبيق (APK)' },
 ] as const;
 
-export type PermissionKey = (typeof PERMISSION_SECTIONS)[number]['key'];
+export type PermissionKey = string;
 
 /** أقسام NAV_SECTIONS نفسها تُستخدم لتجميع مصفوفة الصلاحيات في واجهة Admins.tsx — راجع src/lib/navConfig.ts */
 
@@ -7125,6 +7200,10 @@ export interface AdminUserFull extends AdminUser {
   vipPoints: number;
   vipPointsMonth: number;
   visitors: number;
+  /** إصلاح #17 — عداد الزوار من stats.visitors */
+  visitorsStats?: number;
+  /** إصلاح #17 — عداد الزوار من data.visitors */
+  visitorsDirect?: number;
   agencyName?: string;
   agencyRole?: string;
   /** كلمة مرور محفوظة من لوحة التحكم فقط — ليست كلمة التسجيل الذاتي */
@@ -7244,12 +7323,20 @@ export const getUserFullProfile = async (uid: string): Promise<AdminUserFull | n
     const data = snap.data() as Record<string, unknown>;
     const stats = (data.stats as Record<string, unknown>) ?? {};
     const cred = credSnap.exists() ? (credSnap.data() as Record<string, unknown>) : null;
+    // إصلاح #17 — كلا حقلَي الزوار لمعرفة أيهما صحيح (stats.visitors vs data.visitors)
+    const statsVisitors = Number(stats.visitors ?? 0) || 0;
+    const dataVisitors = Number(data.visitors ?? 0) || 0;
+    // نختار الأكبر كقيمة عرض؛ الإدمن يرى كليهما في UserDetail
+    const visitors = Math.max(statsVisitors, dataVisitors);
     return {
       ...base,
       xp: Number(data.xp ?? stats.xp ?? 0) || 0,
       vipPoints: Number(data.vipPoints ?? 0) || 0,
       vipPointsMonth: Number(data.vipPointsMonth ?? 0) || 0,
-      visitors: Number(stats.visitors ?? data.visitors ?? 0) || 0,
+      visitors,
+      /** الحقلان الأصليان — مفيدان للتشخيص في UserDetail */
+      visitorsStats: statsVisitors,
+      visitorsDirect: dataVisitors,
       agencyName: data.agencyName != null ? String(data.agencyName) : undefined,
       agencyRole: data.agencyRole != null ? String(data.agencyRole) : undefined,
       adminManagedPassword: cred?.password != null ? String(cred.password) : undefined,
@@ -7602,3 +7689,61 @@ export const timeAgo = (ts: number): string => {
   const days = Math.floor(hrs / 24);
   return `قبل ${days} يوم`;
 };
+
+// ==================== CHAT CONTENT FILTER (#9) ====================
+/**
+ * إصلاح #9 — فلتر محتوى الدردشة: كلمات محجوبة، انماط، خطوات خارجية
+ * يقرأها التطبيق من config/chatFilter لتصفية الرسائل
+ */
+export interface ConfigChatFilter {
+  enabled: boolean;
+  /** وضع تحذير فقط بدل الحجب */
+  warnOnlyMode: boolean;
+  /** كلمات/عبارات تُحجب تلقائياً (حساسية غير مفرّقة للحالة) */
+  blockedWords: string[];
+  /** انماط يو ركس regex تُحجب منها (أرقام هواتف، روابط، ...) */
+  blockedPatterns: string[];
+  /** أسماء تطبيقات خارجية محجوبة (telegram, whatsapp, ...) */
+  blockedAppNames: string[];
+  /** تحديث آخر بواسطة الإدمن */
+  updatedAt?: number;
+}
+
+export const DEFAULT_CHAT_FILTER: ConfigChatFilter = {
+  enabled: false,
+  warnOnlyMode: false,
+  blockedWords: [],
+  blockedPatterns: [
+    '(?:\\+?\\d[\\s\\-.]?){7,14}\\d',   // أرقام هواتف
+    'https?:\/\/[^\\s]+',               // روابط HTTP
+    't\\.me\/[^\\s]+',                  // روابط Telegram
+    'wa\\.me\/[^\\s]+',                 // روابط WhatsApp
+  ],
+  blockedAppNames: ['telegram', 'تيليغرام', 'whatsapp', 'واتسآب', 'snapchat', 'instagram', 'سنابشات', 'tiktok'],
+};
+
+export const getConfigChatFilter = async (): Promise<ConfigChatFilter> => {
+  try {
+    const snap = await getDoc(doc(firestore, 'config', 'chatFilter'));
+    if (snap.exists()) {
+      return { ...DEFAULT_CHAT_FILTER, ...snap.data() } as ConfigChatFilter;
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_CHAT_FILTER;
+};
+
+export const saveConfigChatFilter = async (config: ConfigChatFilter): Promise<void> => {
+  await setDoc(
+    doc(firestore, 'config', 'chatFilter'),
+    {
+      ...config,
+      blockedWords: config.blockedWords.map((w) => w.trim()).filter(Boolean),
+      blockedPatterns: config.blockedPatterns.map((p) => p.trim()).filter(Boolean),
+      blockedAppNames: config.blockedAppNames.map((a) => a.trim().toLowerCase()).filter(Boolean),
+      updatedAt: Date.now(),
+      _permKey: 'settings',
+    },
+    { merge: true },
+  );
+};
+

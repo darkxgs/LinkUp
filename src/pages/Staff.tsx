@@ -50,7 +50,8 @@ export default function StaffPage() {
   const [editing, setEditing] = useState<PlatformStaffRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  const canManage = isSuper || can('users');
+  const canViewStaff = isSuper || can('staff:view');
+  const canEditStaff = isSuper || can('staff:manage');
 
   const load = () => {
     setLoading(true);
@@ -64,13 +65,13 @@ export default function StaffPage() {
 
   useEffect(load, []);
 
-  if (!canManage) {
+  if (!canViewStaff) {
     return (
       <div className="page-container">
         <div className="card" style={{ textAlign: 'center', padding: 40 }}>
           <Shield size={40} color="var(--text-muted)" />
           <h3 style={{ marginTop: 12 }}>غير مصرّح</h3>
-          <p style={{ color: 'var(--text-muted)' }}>إدارة موظفي التطبيق تتطلب صلاحية المستخدمين.</p>
+          <p style={{ color: 'var(--text-muted)' }}>عرض أو إدارة موظفي التطبيق تتطلب صلاحية الموظفين.</p>
         </div>
       </div>
     );
@@ -101,13 +102,15 @@ export default function StaffPage() {
             مانيجر / سوبر أدمن / أدمن إشراف — صلاحيات داخل التطبيق (منفصلة عن مشرفي اللوحة)
           </p>
         </div>
-        <button
-          className="btn-primary"
-          onClick={() => setCreating(true)}
-          style={{ marginInlineStart: 'auto', display: 'inline-flex', gap: 6, alignItems: 'center' }}
-        >
-          <Plus size={18} /> موظف جديد
-        </button>
+        {canEditStaff && (
+          <button
+            className="btn-primary"
+            onClick={() => setCreating(true)}
+            style={{ marginInlineStart: 'auto', display: 'inline-flex', gap: 6, alignItems: 'center' }}
+          >
+            <Plus size={18} /> موظف جديد
+          </button>
+        )}
       </div>
 
       <div className="card">
@@ -165,10 +168,12 @@ export default function StaffPage() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="action-icon edit" onClick={() => setEditing(r)} title="تعديل">
-                          <Pencil size={15} />
-                        </button>
-                        {isSuper && (
+                        {canEditStaff && (
+                          <button className="action-icon edit" onClick={() => setEditing(r)} title="تعديل">
+                            <Pencil size={15} />
+                          </button>
+                        )}
+                        {canEditStaff && (
                           <button
                             className="action-icon delete"
                             onClick={() => void handleRemove(r)}

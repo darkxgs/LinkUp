@@ -25,6 +25,7 @@ import {
   type DecorBadge,
 } from '@/services/admin';
 import { uploadStoreAsset } from '@/lib/storage';
+import { useAdminProfile } from '@/contexts/AdminProfileContext';
 
 const APP_LANGUAGES = [
   { code: 'ar', name: 'العربية' },
@@ -129,6 +130,7 @@ function AppStoreCardPreview({ item }: { item: ConfigStoreItem }) {
 }
 
 export default function StorePage() {
+  const { isSuper, can } = useAdminProfile();
   const [items, setItems] = useState<ConfigStoreItem[]>([]);
   const [frames, setFrames] = useState<RoomFrame[]>([]);
   const [categories, setCategories] = useState<ConfigStoreCategory[]>([]);
@@ -238,45 +240,51 @@ export default function StorePage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-secondary" onClick={() => setShowCategories(true)}>
-            <FolderOpen size={16} /> إدارة التصنيفات ({categories.length})
-          </button>
+          {(isSuper || can('store:edit')) && (
+            <button type="button" className="btn btn-secondary" onClick={() => setShowCategories(true)}>
+              <FolderOpen size={16} /> إدارة التصنيفات ({categories.length})
+            </button>
+          )}
           {isFramesView ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => {
-                setEditingFrame({ id: '', name: '', imageUrl: '', price: 1000, enabled: true });
-              }}
-            >
-              <Plus size={18} /> إطار جديد
-            </button>
+            (isSuper || can('store:add')) && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setEditingFrame({ id: '', name: '', imageUrl: '', price: 1000, enabled: true });
+                }}
+              >
+                <Plus size={18} /> إطار جديد
+              </button>
+            )
           ) : (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => {
-                setIsNew(true);
-                setEditing({
-                  id: '',
-                  name: '',
-                  description: '',
-                  category: filterCategory !== 'all' && filterCategory !== FRAMES_CATEGORY_ID
-                    ? filterCategory
-                    : (categories.find((c) => c.id !== FRAMES_CATEGORY_ID)?.id ?? 'entrance'),
-                  price: 1000,
-                  currency: 'coins',
-                  iconName: 'Sparkles',
-                  iconColor: '#e11212',
-                  bgColor1: '#FCD34D',
-                  bgColor2: '#F59E0B',
-                  enabled: true,
-                  sort: items.length,
-                });
-              }}
-            >
-              <Plus size={18} /> عنصر جديد
-            </button>
+            (isSuper || can('store:add')) && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setIsNew(true);
+                  setEditing({
+                    id: '',
+                    name: '',
+                    description: '',
+                    category: filterCategory !== 'all' && filterCategory !== FRAMES_CATEGORY_ID
+                      ? filterCategory
+                      : (categories.find((c) => c.id !== FRAMES_CATEGORY_ID)?.id ?? 'entrance'),
+                    price: 1000,
+                    currency: 'coins',
+                    iconName: 'Sparkles',
+                    iconColor: '#e11212',
+                    bgColor1: '#FCD34D',
+                    bgColor2: '#F59E0B',
+                    enabled: true,
+                    sort: items.length,
+                  });
+                }}
+              >
+                <Plus size={18} /> عنصر جديد
+              </button>
+            )
           )}
         </div>
       </div>
@@ -372,22 +380,26 @@ export default function StorePage() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button
-                          type="button"
-                          className="action-icon"
-                          title="تعديل"
-                          onClick={() => setEditingFrame(f)}
-                        >
-                          <Pencil size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className="action-icon danger"
-                          title="حذف"
-                          onClick={() => void handleDeleteFrame(f)}
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {(isSuper || can('store:edit')) && (
+                          <button
+                            type="button"
+                            className="action-icon"
+                            title="تعديل"
+                            onClick={() => setEditingFrame(f)}
+                          >
+                            <Pencil size={16} />
+                          </button>
+                        )}
+                        {(isSuper || can('store:delete')) && (
+                          <button
+                            type="button"
+                            className="action-icon danger"
+                            title="حذف"
+                            onClick={() => void handleDeleteFrame(f)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -447,22 +459,26 @@ export default function StorePage() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button
-                          type="button"
-                          className="action-icon"
-                          title="تعديل"
-                          onClick={() => { setIsNew(false); setEditing(item); }}
-                        >
-                          <Pencil size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className="action-icon danger"
-                          title="حذف"
-                          onClick={() => void handleDeleteItem(item)}
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {(isSuper || can('store:edit')) && (
+                          <button
+                            type="button"
+                            className="action-icon"
+                            title="تعديل"
+                            onClick={() => { setIsNew(false); setEditing(item); }}
+                          >
+                            <Pencil size={16} />
+                          </button>
+                        )}
+                        {(isSuper || can('store:delete')) && (
+                          <button
+                            type="button"
+                            className="action-icon danger"
+                            title="حذف"
+                            onClick={() => void handleDeleteItem(item)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -721,6 +737,12 @@ function ItemModal({
             <label><input type="checkbox" checked={form.enabled !== false} onChange={(e) => patch({ enabled: e.target.checked })} /> مفعّل</label>
             <label><input type="checkbox" checked={!!form.isNew} onChange={(e) => patch({ isNew: e.target.checked || undefined })} /> جديد</label>
             <label><input type="checkbox" checked={!!form.isLimited} onChange={(e) => patch({ isLimited: e.target.checked || undefined })} /> محدود</label>
+            {/* إصلاح #15 — إخفاء/إظهار زر «إهداء» بعد الشراء */}
+            <label title="عند إيقاف التفعيل: يختفي زر «إهداء» من هذا العنصر بعد الشراء">
+              <input type="checkbox" checked={form.allowGift !== false}
+                onChange={(e) => patch({ allowGift: e.target.checked ? undefined : false })} />
+              {' '}إتاحة الإهداء بعد الشراء 🎁
+            </label>
           </div>
           <div className="form-row">
             <label>ترتيب العرض</label>
