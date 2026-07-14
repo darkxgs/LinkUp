@@ -59,8 +59,22 @@ export default function MyInvitesScreen() {
     setBusyId(invite.id);
     try {
       const result = await acceptDirectAgencyInvite(invite.id);
+
+      // موافقة الانضمام مفعّلة: المضيفة قبلت والطلب بانتظار تأكيد الوكيل النهائي —
+      // لا نُنفّذ مسار «تم الانضمام» (لا إشعارات انضمام ولا تنقّل للمركز)
+      if (result.pendingAgentConfirm) {
+        setInvites((prev) => prev.map((i) => i.id === invite.id ? { ...i, status: 'host_accepted' } : i));
+        showAlert({
+          type: 'success',
+          title: t('agency.text451502'),
+          message: 'بانتظار تأكيد الوكيل النهائي',
+          buttons: [{ text: t('common.ok') }],
+        });
+        return;
+      }
+
       setInvites((prev) => prev.map((i) => i.id === invite.id ? { ...i, status: 'accepted' } : i));
-      
+
       // 1. Notification to Host (invitedUid)
       try {
         await createNotification({
@@ -280,6 +294,7 @@ function StatusBadge({ status }: { status: string }) {
     pending:  { color: '#F59E0B', bg: '#FEF3C7', label: 'قيد الانتظار', Icon: Clock },
     accepted: { color: '#10B981', bg: '#D1FAE5', label: 'مقبولة', Icon: CheckCircle2 },
     rejected: { color: '#EF4444', bg: '#FEE2E2', label: 'مرفوضة', Icon: XCircle },
+    host_accepted: { color: '#F59E0B', bg: '#FEF3C7', label: 'بانتظار تأكيد الوكيل', Icon: Clock },
   };
   const s = map[status] ?? { color: '#F59E0B', bg: '#FEF3C7', label: 'قيد الانتظار', Icon: Clock };
   return (

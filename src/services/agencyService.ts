@@ -43,7 +43,15 @@ import {
 } from '@/services/agencyLevels';
 
 export type AgencyMemberRole = 'member' | 'host';
-export type InviteStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
+export type InviteStatus =
+  | 'pending'
+  | 'accepted'
+  | 'rejected'
+  | 'cancelled'
+  // موافقة الانضمام: طلب عبر كود دعوة بانتظار موافقة الوكيل
+  | 'requested'
+  // موافقة الانضمام: دعوة مباشرة قبلتها المضيفة بانتظار تأكيد الوكيل النهائي
+  | 'host_accepted';
 
 export interface Agency {
   id: string;
@@ -483,7 +491,7 @@ export async function userHasAgencyMembership(uid: string): Promise<boolean> {
  */
 export const acceptAgencyInviteByCode = async (
   code: string,
-): Promise<{ agencyId: string; agencyName: string; needsGenderVerification: boolean }> => {
+): Promise<{ agencyId: string; agencyName: string; needsGenderVerification: boolean; pending?: boolean }> => {
   const current = auth.currentUser;
   if (!current?.uid) throw new Error('يجب تسجيل الدخول');
   // التوثيق اختياري عند الانضمام — الخادم يقبل غير الموثّقة كعضو ويعيد needsGenderVerification
@@ -495,12 +503,20 @@ export const acceptAgencyInviteByCode = async (
     const token = await callableUser.getIdToken();
     const res = await callCallableWithAuth<
       { code: string },
-      { ok: boolean; agencyId: string; agencyName: string; needsGenderVerification: boolean }
+      {
+        ok: boolean;
+        agencyId: string;
+        agencyName: string;
+        needsGenderVerification: boolean;
+        // موافقة الانضمام مفعّلة: طلب معلّق بانتظار موافقة الوكيل بدل الانضمام الفوري
+        pending?: boolean;
+      }
     >('acceptAgencyHostInviteByCode', { code: code.trim() }, token);
     return {
       agencyId: res.agencyId,
       agencyName: res.agencyName,
       needsGenderVerification: res.needsGenderVerification ?? false,
+      pending: res.pending === true,
     };
   } catch (e) {
     throw new Error(translateCallableError(e));
@@ -1087,7 +1103,12 @@ export const inviteAgencyOwner = async (invitedIdentifier: string): Promise<void
  */
 export const acceptDirectAgencyInvite = async (
   inviteId: string,
-): Promise<{ agencyId: string; agencyName: string; needsGenderVerification: boolean }> => {
+): Promise<{
+  agencyId: string;
+  agencyName: string;
+  needsGenderVerification: boolean;
+  pendingAgentConfirm?: boolean;
+}> => {
   try {
     const current = auth.currentUser;
     if (!current?.uid) throw new Error('يجب تسجيل الدخول');
@@ -1096,12 +1117,20 @@ export const acceptDirectAgencyInvite = async (
     const token = await user.getIdToken();
     const res = await callCallableHttp<
       { inviteId: string },
-      { ok: boolean; agencyId: string; agencyName: string; needsGenderVerification: boolean }
+      {
+        ok: boolean;
+        agencyId: string;
+        agencyName: string;
+        needsGenderVerification: boolean;
+        // موافقة الانضمام مفعّلة: المضيفة قبلت والطلب بانتظار تأكيد الوكيل النهائي
+        pendingAgentConfirm?: boolean;
+      }
     >('acceptDirectAgencyInvite', { inviteId }, token);
     return {
       agencyId: res.agencyId,
       agencyName: res.agencyName,
       needsGenderVerification: res.needsGenderVerification ?? false,
+      pendingAgentConfirm: res.pendingAgentConfirm === true,
     };
   } catch (e) {
     throw new Error(translateCallableError(e));
@@ -1118,6 +1147,69 @@ export const rejectDirectAgencyInvite = async (inviteId: string): Promise<void> 
       { inviteId },
       token,
     );
+  } catch (e) {
+    throw new Error(translateCallableError(e));
+  }
+};
+
+// ========================================================
+// JOIN REQUESTS (موافقة الانضمام — للوكيل)
+// ========================================================
+
+/** الوكيل يوافق على طلب انضمام معلّق — يُنهي الانضمام فعلياً */
+export const approveAgencyJoinRequest = async (
+  inviteId: string,
+): Promise<{ agencyId: string; agencyName: string; joined: boolean; needsGenderVerification: boolean }> => {
+  try {
+    const user = await ensureCallableAuth();
+    const token = await user.getIdToken();
+    const res = await callCallableHttp<
+      { inviteId: string },
+      {
+        ok: boolean;
+        agencyId: string;
+        agencyName: string;
+        joined: boolean;
+        needsHostVerification: boolean;
+        needsGenderVerification: boolean;
+      }
+    >('approveAgencyJoinRequest', { inviteId }, token);
+    return {
+      agencyId: res.agencyId,
+      agencyName: res.agencyName,
+      joined: res.joined ?? false,
+      needsGenderVerification: res.needsGenderVerification ?? false,
+    };
+  } catch (e) {
+    throw new Error(translateCallableError(e));
+  }
+};
+
+/** الوكيل يرفض طلب انضمام معلّق */
+export const rejectAgencyJoinRequest = async (inviteId: string): Promise<void> => {
+  try {
+    const user = await ensureCallableAuth();
+    const token = await user.getIdToken();
+    await callCallableHttp<{ inviteId: string }, { ok: boolean }>(
+      'rejectAgencyJoinRequest',
+      { inviteId },
+      token,
+    );
+  } catch (e) {
+    throw new Error(translateCallableError(e));
+  }
+};
+
+/** جلب طلبات الانضمام المعلّقة لوكالة المستخدم الحالي (للوكيل) */
+export const fetchAgencyJoinRequests = async (): Promise<AgencyInvite[]> => {
+  try {
+    const user = await ensureCallableAuth();
+    const token = await user.getIdToken();
+    const res = await callCallableWithAuth<
+      Record<string, never>,
+      { requests: AgencyInvite[] }
+    >('listAgencyJoinRequests', {}, token);
+    return res.requests ?? [];
   } catch (e) {
     throw new Error(translateCallableError(e));
   }
