@@ -586,7 +586,7 @@ export default function ProfileScreen() {
               <View style={styles.memberBody}>
                 <Text style={[styles.memberTitle, { color: '#FF5C6C' }]}>{t('profile.superVip')}</Text>
                 <Text style={styles.memberPerk} numberOfLines={2}>
-                  {L('شارات حصرية ومكافآت كبرى', 'Exclusive badges & rewards returns')}
+                  {L('شارات حصرية ومكافآت كبرى', 'Exclusive badges & rewards')}
                 </Text>
                 <LinearGradient
                   colors={['#FF4D5E', '#C40E2E']}
