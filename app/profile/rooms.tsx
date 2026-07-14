@@ -248,12 +248,9 @@ export default function UserRoomsScreen() {
               </Text>
             </View>
             <RealCountryFlag countryCode={targetUser?.country || 'WW'} size={14} />
-            <LinearGradient
-              colors={['#3B82F6', '#8B5CF6']}
-              style={styles.levelBadge}
-            >
-              <Text style={styles.levelBadgeText}>LV{targetUser?.level || 1}</Text>
-            </LinearGradient>
+            {/* أُزيل شارة LV: كانت مربوطة بمستوى صاحب الحساب (targetUser) فتظهر نفس
+                الرقم على كل الغرف/الوكالات. بيانات القائمة (RecentRoom/FavoriteRoom)
+                لا تحمل مستوى الوكالة/الغرفة، فإظهاره مضلِّل. */}
           </View>
           
           <Text style={styles.roomRowName} numberOfLines={1}>
