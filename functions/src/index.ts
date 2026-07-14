@@ -4187,6 +4187,40 @@ export const acceptDirectAgencyInvite = onCall(async (request) => {
   }
   await assertUserCanJoinAgency(uid, String(invite.agencyId));
 
+  // السيناريو 2 الجديد (مصافحة الطرفين): عند تفعيل موافقة الوكيل، قبول المضيفة لا
+  // يُدخلها فوراً — يضع الدعوة في حالة host_accepted بانتظار تأكيد الوكيل النهائي.
+  if (await getAgencyJoinRequiresApproval()) {
+    const haNow = Date.now();
+    await inviteRef.update({ status: 'host_accepted', hostAcceptedAt: haNow, updatedAt: haNow });
+    const haHostName = String(userData.profile?.displayName ?? userData.displayName ?? 'مضيف');
+    const haAgencyLabel = String(agency.name ?? invite.agencyName ?? 'الوكالة');
+    const haAgentUid = String(invite.agentUid ?? agency.ownerUid ?? '');
+    if (haAgentUid && haAgentUid !== uid) {
+      await notifyUser(
+        haAgentUid,
+        `وافقت "${haHostName}" على دعوتك — بانتظار تأكيدك النهائي`,
+        {
+          type: 'agency_join_host_accepted',
+          agencyId: String(invite.agencyId),
+          agencyName: haAgencyLabel,
+          inviteId: inviteRef.id,
+          title: 'المضيفة وافقت — أكّد الانضمام',
+          body: `وافقت "${haHostName}" على الانضمام لوكالتك "${haAgencyLabel}" — أكّد أو ارفض`,
+          route: '/agency/requests',
+          fromUid: uid,
+          fromName: haHostName,
+          fromAvatar: userData.profile?.avatar ?? userData.avatar ?? '',
+        },
+      ).catch((e) => console.error('acceptDirectAgencyInvite: notify agent failed', e));
+    }
+    return {
+      ok: true,
+      pendingAgentConfirm: true,
+      agencyId: String(invite.agencyId),
+      agencyName: haAgencyLabel,
+    };
+  }
+
   const now = Date.now();
   const memberRef = db.collection('agencyMembers').doc();
   const joinFields = agencyMemberFieldsOnVerifiedJoin(
@@ -5363,6 +5397,50 @@ export const acceptAgencyHostInviteByCode = onCall(async (request) => {
 
   await assertUserCanJoinAgency(uid, agencyId);
 
+  // السيناريو 1 الجديد: عند تفعيل موافقة الوكيل، لا ننضمّ فوراً — نُنشئ طلباً معلّقاً
+  // (status=requested) يظهر للوكيل في مركز الوكالة ليوافق أو يرفض.
+  if (await getAgencyJoinRequiresApproval()) {
+    const reqNow = Date.now();
+    const reqRef = db.collection('agencyInvites').doc(`${agencyId}_${uid}`);
+    const existingReq = await reqRef.get();
+    if (existingReq.exists && existingReq.data()?.status === 'requested') {
+      return { ok: true, pending: true, agencyId, agencyName: String(agency.name ?? '') };
+    }
+    await reqRef.set({
+      agencyId,
+      agencyName: agency.name ?? '',
+      agentUid: agency.ownerUid ?? '',
+      agentName: agency.ownerName ?? '',
+      invitedUid: uid,
+      invitedName: userData.profile?.displayName ?? userData.displayName ?? 'مضيف',
+      invitedAvatar: userData.profile?.avatar ?? userData.avatar ?? '',
+      status: 'requested',
+      inviteMethod: 'code',
+      createdAt: reqNow,
+      updatedAt: reqNow,
+    });
+    if (ownerUid && ownerUid !== uid) {
+      const reqHostName = String(userData.profile?.displayName ?? userData.displayName ?? 'مضيف');
+      await notifyUser(
+        ownerUid,
+        `طلبت "${reqHostName}" الانضمام لوكالتك "${String(agency.name ?? '')}"`,
+        {
+          type: 'agency_join_request',
+          agencyId,
+          agencyName: String(agency.name ?? ''),
+          inviteId: reqRef.id,
+          title: 'طلب انضمام جديد',
+          body: `طلبت "${reqHostName}" الانضمام لوكالتك عبر كود الدعوة — راجع الطلب`,
+          route: '/agency/requests',
+          fromUid: uid,
+          fromName: reqHostName,
+          fromAvatar: userData.profile?.avatar ?? userData.avatar ?? '',
+        },
+      ).catch((e) => console.error('acceptAgencyHostInviteByCode: notify agent failed', e));
+    }
+    return { ok: true, pending: true, agencyId, agencyName: String(agency.name ?? '') };
+  }
+
   const now = Date.now();
   // معرّفات حتمية لكل (وكالة, مستخدم) — تمنع صفوف عضوية/دعوة مكرّرة عند إعادة الاستدعاء المتزامن
   const memberRef = db.collection('agencyMembers').doc(`${agencyId}_${uid}`);
@@ -5467,6 +5545,128 @@ export const acceptAgencyHostInviteByCode = onCall(async (request) => {
     needsHostVerification: agencyInviteNeedsHostVerification(userData),
     needsGenderVerification: agencyInviteNeedsHostVerification(userData),
   };
+});
+
+// ==================== موافقة الوكيل على طلبات الانضمام (السيناريوهان) ====================
+
+/** يتحقّق أن المستدعي هو مالك الوكالة المرتبطة بالطلب ويعيد (invite, agency, agencyId) */
+async function loadAgencyJoinRequestForOwner(
+  ownerUid: string,
+  inviteId: string,
+): Promise<{
+  inviteRef: FirebaseFirestore.DocumentReference;
+  invite: FirebaseFirestore.DocumentData;
+  agency: FirebaseFirestore.DocumentData;
+  agencyId: string;
+}> {
+  const inviteRef = db.collection('agencyInvites').doc(inviteId.trim());
+  const inviteSnap = await inviteRef.get();
+  if (!inviteSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
+  const invite = inviteSnap.data()!;
+  const agencyId = String(invite.agencyId ?? '');
+  const agencySnap = await db.collection('agencies').doc(agencyId).get();
+  if (!agencySnap.exists) throw new HttpsError('not-found', 'الوكالة غير موجودة');
+  const agency = agencySnap.data()!;
+  if (String(agency.ownerUid ?? '') !== ownerUid) {
+    throw new HttpsError('permission-denied', 'فقط مدير الوكالة يمكنه إدارة الطلبات');
+  }
+  return { inviteRef, invite, agency, agencyId };
+}
+
+/** الوكيل يوافق على طلب انضمام (كود=requested أو دعوة=host_accepted) → تنفيذ الانضمام */
+export const approveAgencyJoinRequest = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+  const { inviteId } = request.data as { inviteId?: string };
+  if (!inviteId?.trim()) throw new HttpsError('invalid-argument', 'inviteId مطلوب');
+
+  const { inviteRef, invite, agency, agencyId } = await loadAgencyJoinRequestForOwner(uid, inviteId);
+  if (!['requested', 'host_accepted'].includes(String(invite.status ?? ''))) {
+    throw new HttpsError('failed-precondition', 'الطلب مُعالَج مسبقاً أو غير صالح للموافقة');
+  }
+
+  const invitedUid = String(invite.invitedUid ?? '');
+  if (!invitedUid) throw new HttpsError('failed-precondition', 'الطلب لا يحتوي مستخدماً');
+  const userSnap = await db.collection('users').doc(invitedUid).get();
+  if (!userSnap.exists) throw new HttpsError('not-found', 'المستخدم غير موجود');
+  const userData = userSnap.data()!;
+
+  const agencyName = String(agency.name ?? invite.agencyName ?? 'الوكالة');
+  const result = await performAgencyJoin(invitedUid, userData, agencyId, agencyName);
+
+  const now = Date.now();
+  await inviteRef.update({ status: 'accepted', approvedBy: uid, updatedAt: now });
+
+  try {
+    await notifyUser(
+      invitedUid,
+      result.isFemaleVerifiedHost
+        ? `تمت الموافقة — انضممت إلى وكالة "${agencyName}" كمضيفة موثّقة`
+        : `تمت الموافقة — انضممت إلى وكالة "${agencyName}"`,
+      { type: 'agency_joined', agencyId, agencyName },
+    );
+  } catch (e) {
+    console.error('approveAgencyJoinRequest: notify failed', e);
+  }
+
+  return {
+    ok: true,
+    agencyId,
+    agencyName,
+    joined: result.joined || result.alreadyMember,
+    needsHostVerification: agencyInviteNeedsHostVerification(userData),
+    needsGenderVerification: agencyInviteNeedsHostVerification(userData),
+  };
+});
+
+/** الوكيل يرفض طلب انضمام (كود=requested أو دعوة=host_accepted) */
+export const rejectAgencyJoinRequest = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+  const { inviteId } = request.data as { inviteId?: string };
+  if (!inviteId?.trim()) throw new HttpsError('invalid-argument', 'inviteId مطلوب');
+
+  const { inviteRef, invite, agency, agencyId } = await loadAgencyJoinRequestForOwner(uid, inviteId);
+  if (!['requested', 'host_accepted'].includes(String(invite.status ?? ''))) {
+    throw new HttpsError('failed-precondition', 'الطلب مُعالَج مسبقاً');
+  }
+
+  const now = Date.now();
+  await inviteRef.update({ status: 'rejected', rejectedBy: uid, updatedAt: now });
+
+  const invitedUid = String(invite.invitedUid ?? '');
+  if (invitedUid && invitedUid !== uid) {
+    await notifyUser(
+      invitedUid,
+      `اعتُذر عن طلب انضمامك لوكالة "${String(agency.name ?? invite.agencyName ?? '')}"`,
+      { type: 'agency_join_rejected', agencyId, inviteId: inviteRef.id },
+    ).catch((e) => console.error('rejectAgencyJoinRequest: notify failed', e));
+  }
+
+  return { ok: true };
+});
+
+/** الوكيل يجلب طلبات الانضمام المعلّقة (requested + host_accepted) لوكالته */
+export const listAgencyJoinRequests = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+
+  const agencySnap = await db.collection('agencies').where('ownerUid', '==', uid).limit(1).get();
+  if (agencySnap.empty) return { requests: [] };
+  const agencyId = agencySnap.docs[0].id;
+
+  const snap = await db
+    .collection('agencyInvites')
+    .where('agencyId', '==', agencyId)
+    .where('status', 'in', ['requested', 'host_accepted'])
+    .limit(150)
+    .get();
+
+  const requests = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a: any, b: any) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
+
+  return { requests };
 });
 
 // ==================== تسجيل الدخول بالمعرّف العام ====================
@@ -6680,6 +6880,67 @@ async function assertUserCanJoinAgencyTx(
   if (conflicts.length > 0) {
     throw new HttpsError('already-exists', SINGLE_AGENCY_MSG);
   }
+}
+
+/**
+ * هل الانضمام لوكالة يتطلّب موافقة الوكيل النهائية؟ (السيناريوهان الجديدان)
+ * مفتاح config/settings.agencyJoinRequiresApproval — الافتراضي false (السلوك القديم:
+ * انضمام فوري) حتى لا يتغيّر شيء على الإنتاج قبل أن يفعّله المالك ويراقبه.
+ * عند true:
+ *  - سيناريو 1 (كود): طلب الانضمام يصير «معلّقاً» (status=requested) والوكيل يوافق/يرفض.
+ *  - سيناريو 2 (دعوة بالـID): قبول المضيفة يصير «بانتظار تأكيد الوكيل» (status=host_accepted).
+ */
+async function getAgencyJoinRequiresApproval(): Promise<boolean> {
+  try {
+    const s = await db.collection('config').doc('settings').get();
+    if (s.exists) return s.data()?.agencyJoinRequiresApproval === true;
+  } catch {}
+  return false;
+}
+
+/**
+ * تنفيذ الانضمام الفعلي لعضو في وكالة (بعد الموافقة النهائية للوكيل).
+ * معرّف حتمي للعضوية ${agencyId}_${uid} — idempotent، لا صفوف مكرّرة ولا عدّ مضاعف.
+ * يُبقي memberCount تقريبياً (تريغر agencyMemberCountSyncV2 يعيد الحساب الدقيق).
+ */
+async function performAgencyJoin(
+  uid: string,
+  userData: FirebaseFirestore.DocumentData,
+  agencyId: string,
+  agencyName: string,
+): Promise<{ joined: boolean; alreadyMember: boolean; isFemaleVerifiedHost: boolean }> {
+  const now = Date.now();
+  const memberRef = db.collection('agencyMembers').doc(`${agencyId}_${uid}`);
+  const agencyRef = db.collection('agencies').doc(agencyId);
+  const joinFields = agencyMemberFieldsOnJoin(uid, userData, agencyId, agencyName, now);
+
+  let joined = false;
+  let alreadyMember = false;
+  await db.runTransaction(async (tx) => {
+    joined = false;
+    alreadyMember = false;
+    const agencySnap = await tx.get(agencyRef);
+    if (!agencySnap.exists) throw new HttpsError('not-found', 'الوكالة غير موجودة');
+    const existingMember = await tx.get(memberRef);
+    if (existingMember.exists) {
+      alreadyMember = true;
+      return;
+    }
+    await assertUserCanJoinAgencyTx(tx, uid, agencyId);
+    tx.set(memberRef, joinFields.member);
+    tx.update(db.collection('users').doc(uid), joinFields.userPatch);
+    const agency = agencySnap.data() ?? {};
+    const agencyPatch: Record<string, unknown> = {
+      memberCount: (Number(agency.memberCount) || 0) + 1,
+      updatedAt: now,
+    };
+    if (joinFields.isFemaleVerifiedHost) {
+      agencyPatch.femaleHostCount = (Number(agency.femaleHostCount) || 0) + 1;
+    }
+    tx.update(agencyRef, agencyPatch);
+    joined = true;
+  });
+  return { joined, alreadyMember, isFemaleVerifiedHost: joinFields.isFemaleVerifiedHost };
 }
 
 async function removeUidFromAgencyChat(agencyId: string, targetUid: string): Promise<void> {
