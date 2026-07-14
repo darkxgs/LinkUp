@@ -6,6 +6,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next';
 import {
   View,
+  FlatList,
   StyleSheet,
   ScrollView,
   Pressable,
@@ -20,7 +21,6 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
-import { FlashList } from '@shopify/flash-list';
 import {
   Plus,
   Users,
@@ -506,14 +506,11 @@ export default function RoomsScreen() {
   const renderAgencyItem = useCallback(
     ({ item, index }: { item: RoomsListEntry; index: number }) => {
       const cardW = agencyViewMode === 'grid' ? roomColW : W - pad * 2;
+      // الشبكة: عرض ثابت للبطاقة + توزيع space-between عبر columnWrapperStyle
+      // (بدل هوامش per-index التي كانت تتعارض مع تخطيط الأعمدة في RTL)
       const wrapStyle =
         agencyViewMode === 'grid'
-          ? {
-              width: roomColW,
-              marginBottom: roomGap,
-              marginEnd: index % 2 === 0 ? roomGap / 2 : 0,
-              marginStart: index % 2 === 1 ? roomGap / 2 : 0,
-            }
+          ? { width: roomColW, marginBottom: roomGap }
           : { width: cardW, marginBottom: 0 };
 
       if (item.kind === 'room') {
@@ -772,7 +769,11 @@ export default function RoomsScreen() {
         onSelect={handleCountrySelect}
         onClose={() => setShowCountryModal(false)}
       />
-      <FlashList
+      <FlatList
+        // FlatList بدل FlashList: يعالج RTL + numColumns بشكل صحيح. FlashList 1.x كان
+        // يضع أعمدة الشبكة خارج الشاشة على أجهزة RTL معيّنة (Infinix) → كسر التخطيط جانبياً.
+        // key يتغيّر مع الوضع لأن FlatList لا يسمح بتغيير numColumns أثناء التشغيل.
+        key={agencyViewMode}
         data={listData}
         extraData={`${i18n.language}-${agencyViewMode}`}
         keyExtractor={(item) =>
@@ -780,7 +781,9 @@ export default function RoomsScreen() {
         }
         renderItem={renderAgencyItem}
         numColumns={agencyViewMode === 'grid' ? 2 : 1}
-        estimatedItemSize={agencyViewMode === 'grid' ? 300 : 120}
+        columnWrapperStyle={
+          agencyViewMode === 'grid' ? { justifyContent: 'space-between' } : undefined
+        }
         ListHeaderComponent={listHeader}
         ListEmptyComponent={listEmpty}
         contentContainerStyle={{
