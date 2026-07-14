@@ -31,11 +31,22 @@ export const IMG_ICON = {
   transition: 120,
 } as const;
 
-/** أوسمة SVIP والإطارات — أولوية عالية وبدون تصغير يُفقد التفاصيل */
+/** أوسمة SVIP والإطارات الثابتة — أولوية عالية وبدون تصغير يُفقد التفاصيل (فكّ ترميز مرّة واحدة) */
 export const IMG_DECOR = {
   cachePolicy: 'memory-disk',
   priority: 'high' as const,
   allowDownscaling: false,
+  transition: 120,
+} as const;
+
+/**
+ * إطارات متحرّكة (GIF) — نسمح بالتصغير لأنها تُفكّ ترميزها لكل إطار باستمرار؛
+ * فكّها بالحجم الكامل × كثافة البكسل لكل مقعد يسخّن الجهاز بشدّة (يزداد كلما امتلأت
+ * الغرفة). التصغير لحجم العرض يقلّل تكلفة الترميز المستمرّة كثيراً بفرق شبه غير مرئي.
+ */
+export const IMG_DECOR_ANIMATED = {
+  cachePolicy: 'memory-disk',
+  priority: 'high' as const,
   transition: 120,
 } as const;
 

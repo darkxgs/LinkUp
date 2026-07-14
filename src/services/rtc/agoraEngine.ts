@@ -76,8 +76,12 @@ export interface AgoraJoinParams {
   timeoutMs?: number;
 }
 
-/** فاصل تقارير مستوى الصوت (مللي ثانية) — نفس إيقاع LiveKit تقريباً */
-const VOLUME_INDICATION_INTERVAL_MS = 200;
+/**
+ * فاصل تقارير مستوى الصوت (مللي ثانية). كان 200 (5 مرات/ثانية) فيُطلق re-render
+ * لكامل شاشة الغرفة عدة مرات بالثانية طول ما أحد يتكلّم → تسخين وبطء. 400ms
+ * (2.5 مرة/ثانية) يخفض الحِمل للنصف مع إبقاء مؤشّر المتحدّث سلساً بما يكفي.
+ */
+const VOLUME_INDICATION_INTERVAL_MS = 400;
 /** مهلة انتظار userAccount لمشارك جديد قبل الإعلان عنه بمعرّف رقمي احتياطي */
 const PENDING_ANNOUNCE_TIMEOUT_MS = 700;
 

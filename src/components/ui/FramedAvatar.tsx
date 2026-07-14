@@ -8,7 +8,7 @@ import { Image } from 'expo-image';
 import { Text } from './Text';
 import { lu } from '@/theme/lu-brand';
 import { isGifImageUrl } from '@/utils/mediaUrl';
-import { IMG_AVATAR, IMG_DECOR, sharpImageStyle } from '@/utils/imageConfig';
+import { IMG_AVATAR, IMG_DECOR, IMG_DECOR_ANIMATED, sharpImageStyle } from '@/utils/imageConfig';
 
 /** نسبة قطر الصورة من حاوية الإطار */
 export const FRAMED_AVATAR_INNER_RATIO = 0.58;
@@ -84,11 +84,13 @@ export function FramedAvatar({
       <View style={[StyleSheet.absoluteFillObject, styles.frameLayer]} pointerEvents="none">
         <Image
           source={{ uri: frameUri }}
-          style={sharpImageStyle(frameSize, frameSize)}
+          // الإطار الثابت: دقّة كاملة (sharp) لأنه يُفكّ مرّة واحدة. المتحرّك (GIF):
+          // حجم العرض فقط + سماح بالتصغير — يقلّل تكلفة الترميز المستمرّة لكل مقعد.
+          style={frameAnimated ? { width: frameSize, height: frameSize } : sharpImageStyle(frameSize, frameSize)}
           contentFit="contain"
           recyclingKey={frameUri}
           autoplay={frameAnimated}
-          {...IMG_DECOR}
+          {...(frameAnimated ? IMG_DECOR_ANIMATED : IMG_DECOR)}
         />
       </View>
 
