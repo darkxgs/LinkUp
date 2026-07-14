@@ -14,14 +14,15 @@ import {
   Mail,
   Crown,
   FileText,
+  LogOut,
 } from 'lucide-react-native';
 
-import { Text } from '@/components/ui';
+import { Text, useAlert } from '@/components/ui';
 import { BackChevron } from '@/components/ui/RtlChevron';
 import { ChevronLeft } from '@/components/ui/RtlIcons';
 import { useAuth } from '@/hooks/useAuth';
 import { isAgencyAgent } from '@/services/firebase/hostTasks';
-import { getCachedMyAgency, subscribeToMyAgency } from '@/services/agencyService';
+import { getCachedMyAgency, leaveMyAgency, subscribeToMyAgency } from '@/services/agencyService';
 import { spacing } from '@/theme';
 
 // صورة مدينة دبي ليلاً تناسب التصميم
@@ -31,8 +32,10 @@ export default function AgencyHubScreen() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const { showAlert, showActionSheet } = useAlert();
   const [ownsAgency, setOwnsAgency] = useState(() => !!getCachedMyAgency());
+  const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -47,6 +50,45 @@ export default function AgencyHubScreen() {
   const isAr = i18n.language?.startsWith('ar') === true;
   const textAlign = isAr ? 'right' : 'left';
   const rowDir = 'row';
+
+  const handleLeaveAgency = () => {
+    showActionSheet({
+      title: isAr ? 'مغادرة الوكالة' : 'Leave agency',
+      message: isAr
+        ? 'هل تريد مغادرة وكالتك؟ لن تتمكن من العودة دون دعوة جديدة.'
+        : 'Leave your agency? You will need a new invite to rejoin.',
+      buttons: [
+        {
+          text: isAr ? 'مغادرة' : 'Leave',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              if (leaving) return;
+              setLeaving(true);
+              try {
+                await leaveMyAgency();
+                await refreshUser?.();
+                showAlert({
+                  type: 'success',
+                  title: t('common.done'),
+                  message: isAr ? 'غادرت الوكالة بنجاح' : 'You left the agency',
+                });
+              } catch (e: any) {
+                showAlert({
+                  type: 'error',
+                  title: t('common.error'),
+                  message: e?.message ?? (isAr ? 'تعذرت المغادرة' : 'Could not leave'),
+                });
+              } finally {
+                setLeaving(false);
+              }
+            })();
+          },
+        },
+        { text: t('common.cancel'), style: 'cancel' },
+      ],
+    });
+  };
 
   const mainActions = useMemo(() => [
     {
@@ -92,6 +134,17 @@ export default function AgencyHubScreen() {
           onPress: () => router.push('/agency/my-invites' as any),
         }
       : null,
+    isHost
+      ? {
+          key: 'leave',
+          title: isAr ? 'مغادرة الوكالة' : 'Leave agency',
+          subtitle: isAr ? 'إنهاء عضويتك في الوكالة الحالية' : 'End your membership in the current agency',
+          icon: LogOut,
+          circleColor: 'rgba(239, 68, 68, 0.18)',
+          iconColor: '#FCA5A5',
+          onPress: handleLeaveAgency,
+        }
+      : null,
     !isAgent
       ? {
           key: 'open',
@@ -103,7 +156,7 @@ export default function AgencyHubScreen() {
           onPress: () => router.push('/agency/apply' as any),
         }
       : null,
-  ].filter(Boolean) as typeof mainActions, [isAgent, isHost, t, router]);
+  ].filter(Boolean) as typeof mainActions, [isAgent, isHost, isAr, t, router, leaving]);
 
   return (
     <View style={[styles.root]}>

@@ -44,6 +44,7 @@ import { AppUpdateGate } from '@/components/AppUpdateGate';
 import { UserHeartbeat } from '@/components/UserHeartbeat';
 import { DeviceSecurityGuard } from '@/components/DeviceSecurityGuard';
 import { HostTasksTracker } from '@/components/HostTasksTracker';
+import { AgencyMembershipWatcher } from '@/components/AgencyMembershipWatcher';
 import { FcmRegistrar } from '@/components/FcmRegistrar';
 import { AppPermissionsPrompt } from '@/components/permissions/AppPermissionsPrompt';
 import { PushNotificationRouter } from '@/components/PushNotificationRouter';
@@ -255,6 +256,7 @@ export default function RootLayout() {
               <UserHeartbeat />
               <DeviceSecurityGuard />
               <HostTasksTracker />
+              <AgencyMembershipWatcher />
               {/* تسجيل FCM token عند تسجيل الدخول */}
               <FcmRegistrar />
             </DeferredMount>
