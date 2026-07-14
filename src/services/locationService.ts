@@ -55,23 +55,75 @@ export function encodeGeohash(
   return hash;
 }
 
-/**
- * Returns the range of geohash prefixes that cover a bounding box
- * around the given center at the given radius.
- */
-function geohashRange(lat: number, lng: number, radiusKm: number): { lower: string; upper: string } {
-  const latDelta = radiusKm / 110.574;
-  const lngDelta = radiusKm / (111.320 * Math.cos((lat * Math.PI) / 180));
+/** Precision for nearby cell queries — smaller radius → finer cells */
+function geohashPrecisionForRadius(radiusKm: number): number {
+  if (radiusKm <= 2) return 6;
+  if (radiusKm <= 8) return 5;
+  if (radiusKm <= 25) return 4;
+  return 3;
+}
 
-  const minLat = lat - latDelta;
-  const maxLat = lat + latDelta;
-  const minLng = lng - lngDelta;
-  const maxLng = lng + lngDelta;
+const NEIGHBOR_TABLE = {
+  right: {
+    even: 'bc01fg45238967deuvhjyznpkmstqrwx',
+    odd: '238967debc01fg45kmstqrwxuvhjyznp',
+  },
+  left: {
+    even: '238967debc01fg45kmstqrwxuvhjyznp',
+    odd: 'bc01fg45238967deuvhjyznpkmstqrwx',
+  },
+  top: {
+    even: 'p0r28b942zc',
+    odd: '14365h7k9qrtwcmmb',
+  },
+  bottom: {
+    even: '14365h7k9qrtwcmmb',
+    odd: 'p0r28b942zc',
+  },
+} as const;
 
-  const lower = encodeGeohash(minLat, minLng, 4);
-  const upper = encodeGeohash(maxLat, maxLng, 4);
+const BORDER_TABLE = {
+  right: { even: 'bcfguvyz', odd: '0145hjnp' },
+  left: { even: '0145hjnp', odd: 'bcfguvyz' },
+  top: { even: 'prxz', odd: '028b' },
+  bottom: { even: '028b', odd: 'prxz' },
+} as const;
 
-  return { lower: lower < upper ? lower : upper, upper: lower < upper ? upper : lower };
+type GeoDirection = keyof typeof NEIGHBOR_TABLE;
+
+function geohashAdjacent(hash: string, direction: GeoDirection): string {
+  if (!hash) return hash;
+  const type = hash.length % 2 === 0 ? 'even' : 'odd';
+  const last = hash.slice(-1);
+  const parent = hash.slice(0, -1);
+  const border = BORDER_TABLE[direction][type];
+  const neighbor = NEIGHBOR_TABLE[direction][type];
+  const idx = border.indexOf(last);
+  if (idx === -1) return hash;
+  const parentPrefix = parent && border.includes(last)
+    ? geohashAdjacent(parent, direction)
+    : parent;
+  return parentPrefix + neighbor.charAt(idx);
+}
+
+/** Center cell + 8 neighbors — single lexicographic range misses boundary users */
+function geohashSearchPrefixes(lat: number, lng: number, radiusKm: number): string[] {
+  const precision = geohashPrecisionForRadius(radiusKm);
+  const center = encodeGeohash(lat, lng, precision);
+  const prefixes = new Set<string>([center]);
+  const north = geohashAdjacent(center, 'top');
+  const south = geohashAdjacent(center, 'bottom');
+  const east = geohashAdjacent(center, 'right');
+  const west = geohashAdjacent(center, 'left');
+  prefixes.add(north);
+  prefixes.add(south);
+  prefixes.add(east);
+  prefixes.add(west);
+  prefixes.add(geohashAdjacent(north, 'right'));
+  prefixes.add(geohashAdjacent(north, 'left'));
+  prefixes.add(geohashAdjacent(south, 'right'));
+  prefixes.add(geohashAdjacent(south, 'left'));
+  return Array.from(prefixes);
 }
 
 // ==================== HAVERSINE DISTANCE ====================
@@ -278,20 +330,22 @@ export async function getNearbyUsers(
   maxResults = 40,
 ): Promise<NearbyUser[]> {
   try {
-    const { lower, upper } = geohashRange(lat, lng, radiusKm);
-
-    const q = query(
-      collection(firestore, 'users'),
-      where('location.geohash', '>=', lower),
-      where('location.geohash', '<=', upper + '\uf8ff'),
-      limit(100),
-    );
-
-    const snap = await getDocs(q);
+    const prefixes = geohashSearchPrefixes(lat, lng, radiusKm);
     const myUid = auth.currentUser?.uid;
-
+    const seen = new Set<string>();
     const results: NearbyUser[] = [];
-    snap.docs.forEach((d) => {
+
+    for (const prefix of prefixes) {
+      const q = query(
+        collection(firestore, 'users'),
+        where('location.geohash', '>=', prefix),
+        where('location.geohash', '<=', prefix + '\uf8ff'),
+        limit(60),
+      );
+      const snap = await getDocs(q);
+      snap.docs.forEach((d) => {
+        if (seen.has(d.id)) return;
+        seen.add(d.id);
       const data = d.data() as Record<string, unknown>;
       if (d.id === myUid) return;
 
@@ -307,9 +361,10 @@ export async function getNearbyUsers(
       const dist = calculateDistance(lat, lng, loc.latitude, loc.longitude);
       if (dist > radiusKm) return;
 
-      const user = normalizeUserDoc(d.id, data);
-      results.push({ ...user, distanceKm: dist });
-    });
+        const user = normalizeUserDoc(d.id, data);
+        results.push({ ...user, distanceKm: dist });
+      });
+    }
 
     results.sort((a, b) => a.distanceKm - b.distanceKm);
     return results.slice(0, maxResults);

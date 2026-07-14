@@ -37,6 +37,9 @@ import { isTrackableAgencyPresence } from '@/services/roomFeatures';
 import { firestore, auth } from '@/services/firebase';
 import { resolveUserIdentifier, getDisplayAccountId } from '@/services/userIdentifier';
 import { colors, radius, spacing, shadows } from '@/theme';
+import { usePresenceForUids } from '@/hooks/usePresence';
+import { isUserOnline, resolveLastSeenMs } from '@/utils/presence';
+import { formatAppNumber } from '@/utils/formatLocaleNumber';
 
 type SearchTab = 'all' | 'users' | 'rooms' | 'id';
 
@@ -264,6 +267,8 @@ export default function SearchScreen() {
     return [...uids];
   }, [suggestedUsers, userResults, idUser]);
 
+  const { presenceMap, now: presenceNow } = usePresenceForUids(visibleUserUids);
+
   const { isInRoom, getMemberRoom } = useAgencyRoomTracking(visibleUserUids);
 
   const handleAvatarTrackPress = useCallback((uid: string) => {
@@ -342,6 +347,7 @@ export default function SearchScreen() {
                   key={user.uid}
                   user={user}
                   followersLabel={t('profile.followers')}
+                  isOnline={isUserOnline(resolveLastSeenMs(user.lastSeen, presenceMap[user.uid]), presenceNow)}
                   showAgencyMusic={isInRoom(user.uid)}
                   onAvatarPress={handleAvatarTrackPress}
                   onPress={() => router.push(`/profile/${user.uid}` as any)}
@@ -373,6 +379,7 @@ export default function SearchScreen() {
                     user={idUser}
                     followersLabel={t('profile.followers')}
                     accountId={getDisplayAccountId(idUser.publicAccountId, idUser.uid)}
+                    isOnline={isUserOnline(resolveLastSeenMs(idUser.lastSeen, presenceMap[idUser.uid]), presenceNow)}
                     showAgencyMusic={isInRoom(idUser.uid)}
                     onAvatarPress={handleAvatarTrackPress}
                     onPress={() => router.push(`/profile/${idUser.uid}` as any)}
@@ -414,6 +421,7 @@ export default function SearchScreen() {
                       user={user}
                       followersLabel={t('profile.followers')}
                       accountId={getDisplayAccountId(user.publicAccountId, user.uid)}
+                      isOnline={isUserOnline(resolveLastSeenMs(user.lastSeen, presenceMap[user.uid]), presenceNow)}
                       showAgencyMusic={isInRoom(user.uid)}
                       onAvatarPress={handleAvatarTrackPress}
                       onPress={() => router.push(`/profile/${user.uid}` as any)}
@@ -484,6 +492,7 @@ const UserRow: React.FC<{
   user: UserDoc;
   followersLabel: string;
   accountId?: string;
+  isOnline?: boolean;
   showAgencyMusic?: boolean;
   onAvatarPress?: (uid: string) => void;
   onPress: () => void;
@@ -491,6 +500,7 @@ const UserRow: React.FC<{
   user,
   followersLabel,
   accountId,
+  isOnline,
   showAgencyMusic,
   onAvatarPress,
   onPress,
@@ -498,13 +508,16 @@ const UserRow: React.FC<{
   const avSize = 48;
 
   const avatarNode = (
-    <AgencyRoomTrackingAvatar size={avSize} active={!!showAgencyMusic}>
-      <Image
-        source={{ uri: user.avatar }}
-        style={styles.userAvatar}
-        contentFit="cover"
-      />
-    </AgencyRoomTrackingAvatar>
+    <View>
+      <AgencyRoomTrackingAvatar size={avSize} active={!!showAgencyMusic}>
+        <Image
+          source={{ uri: user.avatar }}
+          style={styles.userAvatar}
+          contentFit="cover"
+        />
+      </AgencyRoomTrackingAvatar>
+      {isOnline ? <View style={styles.searchOnlineDot} /> : null}
+    </View>
   );
 
   return (
@@ -533,13 +546,15 @@ const UserRow: React.FC<{
           ) : null}
         </View>
         <Text variant="caption" color={colors.text.secondary}>
-          {accountId ? `ID ${accountId}` : `${user.followers} ${followersLabel}`}
+          {accountId
+            ? `ID ${accountId}`
+            : `${formatAppNumber(user.followers)} ${followersLabel}`}
         </Text>
       </View>
       <RealCountryFlag countryCode={user.country} size={20} />
       <View style={styles.levelChip}>
         <Text variant="caption" color={colors.white} weight="bold" style={styles.levelText}>
-          Lv{user.level}
+          Lv{formatAppNumber(user.level)}
         </Text>
       </View>
     </Pressable>
@@ -656,6 +671,17 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     backgroundColor: '#FBEAEA',
+  },
+  searchOnlineDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#22C55E',
+    borderWidth: 2,
+    borderColor: colors.white,
   },
   userInfo: {
     flex: 1,

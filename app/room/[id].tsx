@@ -1890,42 +1890,6 @@ export default function RoomScreen() {
                 videoUrlMp4: svipEntry.videoUrlMp4,
                 key: nextEntryOverlayKey(),
               });
-              if (isAgencyRoom) {
-                setWelcomeEntry({
-                  name: entryName,
-                  avatar: entryAvatar,
-                  key: nextEntryOverlayKey(),
-                  isPrince,
-                  isStaff,
-                  entryImageUrl: isPrince
-                    ? (agencyPrince?.entryImageUrl ?? null)
-                    : staffBadge,
-                });
-              }
-              return;
-            }
-
-            const princeVideoUrl = isPrince ? agencyPrince?.entryAnimationUrl?.trim() : '';
-            if (princeVideoUrl && isVideoMediaUrl(princeVideoUrl)) {
-              enqueueEntryVideo({
-                name: displayName,
-                videoUrl: princeVideoUrl,
-                key: nextEntryOverlayKey(),
-              });
-              if (isAgencyRoom) {
-                setWelcomeEntry({
-                  name: entryName,
-                  avatar: entryAvatar,
-                  key: nextEntryOverlayKey(),
-                  isPrince,
-                  isStaff,
-                  entryImageUrl: agencyPrince?.entryImageUrl ?? staffBadge,
-                });
-              }
-              return;
-            }
-
-            if (isAgencyRoom) {
               setWelcomeEntry({
                 name: entryName,
                 avatar: entryAvatar,
@@ -1936,13 +1900,44 @@ export default function RoomScreen() {
                   ? (agencyPrince?.entryImageUrl ?? null)
                   : staffBadge,
               });
+              return;
             }
+
+            const princeVideoUrl = isPrince ? agencyPrince?.entryAnimationUrl?.trim() : '';
+            if (princeVideoUrl && isVideoMediaUrl(princeVideoUrl)) {
+              enqueueEntryVideo({
+                name: displayName,
+                videoUrl: princeVideoUrl,
+                key: nextEntryOverlayKey(),
+              });
+              setWelcomeEntry({
+                name: entryName,
+                avatar: entryAvatar,
+                key: nextEntryOverlayKey(),
+                isPrince,
+                isStaff,
+                entryImageUrl: agencyPrince?.entryImageUrl ?? staffBadge,
+              });
+              return;
+            }
+
+            setWelcomeEntry({
+              name: entryName,
+              avatar: entryAvatar,
+              key: nextEntryOverlayKey(),
+              isPrince,
+              isStaff,
+              entryImageUrl: isPrince
+                ? (agencyPrince?.entryImageUrl ?? null)
+                : staffBadge,
+            });
           })();
-        } else if (isAgencyRoom) {
+        } else {
           const displayName = resolveDisplayName({ displayName: member.name });
           const holder = agencyPrince?.currentHolder;
           const monthKey = currentMonthKey();
           const isPrince = Boolean(
+            isAgencyRoom &&
             agencyPrince?.enabled &&
             member.uid &&
             holder?.uid === member.uid &&
@@ -2103,8 +2098,11 @@ export default function RoomScreen() {
 
   const pkLive = isPkActive(roomPk);
 
-  // المضيف أو مشرف الإشراف (الأصفر) — كان حكراً على المضيف
-  const canStartPk = isHost || myRoomMemberRole === 'yellow_supervisor';
+  // المضيف أو أي مشرف (أزرق/أصفر) — كان حكراً على المضيف + الإشراف الأصفر فقط
+  const canStartPk =
+    isHost
+    || myRoomMemberRole === 'yellow_supervisor'
+    || myRoomMemberRole === 'blue_supervisor';
   const openPkFlow = useCallback(() => {
     if (!canStartPk) {
       showAlert({
@@ -5118,7 +5116,7 @@ export default function RoomScreen() {
         />
       ) : null}
 
-      {isAgencyRoom && welcomeEntry ? (
+      {welcomeEntry ? (
         <RoomEntryWelcomeBanner
           key={welcomeEntry.key}
           name={welcomeEntry.name}

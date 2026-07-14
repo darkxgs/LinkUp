@@ -14,6 +14,8 @@ let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** فترة سماح بعد آخر عملية محروسة — إضافة أغنية أخرى خلالها لا تمرّ بنافذة خطر */
 const PICKER_GUARD_GRACE_MS = 12_000;
+/** أثناء تبديل مقطع موسيقى (advance) — نفس حماية المقعد */
+const MUSIC_ADVANCE_GUARD_MS = 8_000;
 
 async function resolveActiveRoomId(): Promise<string | null> {
   try {
@@ -81,4 +83,9 @@ export async function withRoomMediaPickerGuard<T>(fn: () => Promise<T>): Promise
 
 export function isRoomMediaPickerGuardActive(): boolean {
   return pickerDepth > 0 || Date.now() < graceUntil;
+}
+
+/** يمدّد حارس المقعد أثناء انتقال الطابور لمقطع تالٍ — يمنع «نزول المايك» عند نهاية الأغنية */
+export function extendRoomMediaPickerGuard(ms = MUSIC_ADVANCE_GUARD_MS): void {
+  graceUntil = Math.max(graceUntil, Date.now() + ms);
 }

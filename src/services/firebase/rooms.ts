@@ -2174,6 +2174,13 @@ function collectAudienceUids(snap: DataSnapshot): Set<string> {
  * لا نعتمد على userPresence لأنه قد يتأخر بعد حذف الحضور فيُبقي الشبح على المقعد.
  */
 export async function pruneStaleRoomSeats(roomId: string): Promise<number> {
+  try {
+    const { isRoomMediaPickerGuardActive } = await import('@/utils/roomMediaPickerGuard');
+    if (isRoomMediaPickerGuardActive()) return 0;
+  } catch {
+    // ignore
+  }
+
   const [audSnap, seatsSnap, holdSnap, roomSnap] = await Promise.all([
     get(ref(realtimeDb, `roomAudience/${roomId}`)),
     get(ref(realtimeDb, `rooms/${roomId}/seats`)),
