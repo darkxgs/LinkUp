@@ -724,7 +724,9 @@ async function executeBuyAndSendGift(
     });
 
     if (recipientAmount > 0) {
-      const balanceKey = recipientIsHostess ? 'pearls' : 'coins';
+      // كل أرباح الهدايا تصل Coins 100% للجميع (بقرار المالك) — المضيفة تحوّلها
+      // Diamonds عبر شاشة التحويل عند السحب. لا تُائتمن الماسة مباشرة من الهدايا بعد الآن.
+      const balanceKey = 'coins';
       // مستوى الثروة من الإنفاق فقط — منح المستلم XP بكامل قيمة الهدية كان
       // يجعل مستواه يطابق مستوى المُرسِل (تدوير الكوينز بالهدايا يضخّم
       // المستويين معاً بلا حد فتظهر حسابات المستخدمين بنفس اللفل)
@@ -761,7 +763,8 @@ async function executeBuyAndSendGift(
     uid: toUid,
     type: 'gift_received',
       amount: recipientAmount,
-    currency: recipientIsHostess ? 'pearls' : 'coins',
+    // الهدايا تصل Coins 100% — نُبقي gift_received بعملة coins حتى للمضيفة
+    currency: 'coins',
     itemId: gift.id,
     itemName: gift.name,
       quantity: qty,
