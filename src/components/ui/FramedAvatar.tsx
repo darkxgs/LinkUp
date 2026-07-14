@@ -21,7 +21,8 @@ export function getFramedAvatarContainerSize(avatarDiameter: number): number {
 
 type FramedAvatarProps = {
   avatarUri?: string;
-  frameUri: string;
+  /** رابط الإطار أو أصل محلي (require) */
+  frameUri: string | number;
   avatarSize: number;
   /** تجاوز اختياري لحجم الحاوية — المقاعد تُكبّر الوجه مع إبقاء مربّع الشبكة ثابتاً */
   containerSize?: number;
@@ -41,7 +42,8 @@ export function FramedAvatar({
 }: FramedAvatarProps) {
   const containerSize = containerSizeProp ?? getFramedAvatarContainerSize(avatarSize);
   const frameSize = Math.round(containerSize * FRAMED_AVATAR_FRAME_RATIO);
-  const frameAnimated = isGifImageUrl(frameUri);
+  const isRemoteFrame = typeof frameUri === 'string';
+  const frameAnimated = isRemoteFrame && isGifImageUrl(frameUri);
 
   return (
     <View
@@ -83,10 +85,10 @@ export function FramedAvatar({
 
       <View style={[StyleSheet.absoluteFillObject, styles.frameLayer]} pointerEvents="none">
         <Image
-          source={{ uri: frameUri }}
+          source={isRemoteFrame ? { uri: frameUri } : frameUri}
           style={sharpImageStyle(frameSize, frameSize)}
           contentFit="contain"
-          recyclingKey={frameUri}
+          recyclingKey={isRemoteFrame ? frameUri : undefined}
           autoplay={frameAnimated}
           {...IMG_DECOR}
         />

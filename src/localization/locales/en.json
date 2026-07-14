@@ -4017,5 +4017,15 @@
     "13": "Eternal Bond",
     "14": "Soulmate",
     "15": "Legendary Bond"
+  },
+  "splash": {
+    "tagline": "Match. Connect. Play.",
+    "loading": "Loading amazing connections…",
+    "secure": "Secure",
+    "secureSub": "100% Safe",
+    "connect": "Connect",
+    "connectSub": "Real People",
+    "instant": "Instant",
+    "instantSub": "Live Matches"
   }
 }

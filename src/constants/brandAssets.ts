@@ -20,10 +20,18 @@ export const LINKUP_NATIVE_SPLASH = require('../../assets/linkup-native-splash.p
 export const LINKUP_SPLASH_WORDMARK_ASPECT = 2098 / 564;
 
 /** أصول تُحمَّل مسبقاً قبل إخفاء شاشة البداية */
+/** خلفية السبلاش - أصل العميل كما هو */
+export const LINKUP_SPLASH_BG = require('../../assets/images/splash_bg.png');
+
+/** أيقونة السبلاش المركزية (الثنائي والأيقونات) - أصل العميل كما هو */
+export const LINKUP_SPLASH_ICON = require('../../assets/images/splash_icon.png');
+
 export const SPLASH_PRELOAD_ASSETS = [
   LINKUP_MAIN_LOGO,
   LINKUP_ICON_STANDALONE,
   LINKUP_SPLASH_WORDMARK,
+  LINKUP_SPLASH_BG,
+  LINKUP_SPLASH_ICON,
 ] as const;
 
 /** أيقونة عملة الماسة في التطبيق */
