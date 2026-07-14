@@ -5170,6 +5170,15 @@ export const sendAgencyHostInvite = onCall(async (request) => {
   const invitedSnap = await db.collection('users').doc(targetUid).get();
   if (!invitedSnap.exists) throw new HttpsError('not-found', 'المستخدم غير موجود');
   const invited = invitedSnap.data()!;
+  // إعادة الدعوة من الوكيل = إجراء جديد يرفع الحظر عن عضو أُزيل سابقاً.
+  // نحذف علامة الإزالة قبل التحقق حتى يستطيع الوكيل إعادة دعوة من أزاله.
+  await db
+    .collection('agencies')
+    .doc(agencyId)
+    .collection('removedMembers')
+    .doc(targetUid)
+    .delete()
+    .catch(() => {});
   try {
     await assertUserCanJoinAgency(targetUid, agencyId);
   } catch (e: unknown) {
@@ -5355,8 +5364,9 @@ export const acceptAgencyHostInviteByCode = onCall(async (request) => {
   await assertUserCanJoinAgency(uid, agencyId);
 
   const now = Date.now();
-  const memberRef = db.collection('agencyMembers').doc();
-  const inviteRef = db.collection('agencyInvites').doc();
+  // معرّفات حتمية لكل (وكالة, مستخدم) — تمنع صفوف عضوية/دعوة مكرّرة عند إعادة الاستدعاء المتزامن
+  const memberRef = db.collection('agencyMembers').doc(`${agencyId}_${uid}`);
+  const inviteRef = db.collection('agencyInvites').doc(`${agencyId}_${uid}`);
   const joinFields = agencyMemberFieldsOnVerifiedJoin(
     uid,
     userData,
@@ -5365,7 +5375,12 @@ export const acceptAgencyHostInviteByCode = onCall(async (request) => {
     now,
   );
 
+  let didJoin = false;
   await db.runTransaction(async (tx) => {
+    didJoin = false; // إعادة الضبط في كل محاولة — قد تُعاد المعاملة عند التعارض
+    // قراءة المستند الحتمي أولاً تضعه في read-set → أي استدعاء متزامن ثانٍ يتعارض ثم يرى exists
+    const existingMember = await tx.get(memberRef);
+    if (existingMember.exists) return; // منضمّ بالفعل — لا صفوف مكرّرة ولا memberCount مضاعف
     await assertUserCanJoinAgencyTx(tx, uid, agencyId);
 
     tx.set(memberRef, joinFields.member);
@@ -5393,7 +5408,20 @@ export const acceptAgencyHostInviteByCode = onCall(async (request) => {
       createdAt: now,
       updatedAt: now,
     });
+    didJoin = true;
   });
+
+  // منضمّ مسبقاً (سباق) — لا ترسل إشعار انضمام مكرّراً
+  if (!didJoin) {
+    return {
+      ok: true,
+      agencyId,
+      agencyName: String(agency.name ?? ''),
+      needsHostVerification: agencyInviteNeedsHostVerification(userData),
+      needsGenderVerification: agencyInviteNeedsHostVerification(userData),
+      alreadyMember: true,
+    };
+  }
 
   const hostName = String(
     userData.profile?.displayName ?? userData.displayName ?? 'مضيف',
@@ -6719,6 +6747,28 @@ async function readAgencySupervisorUids(agencyId: string, ownerUid: string): Pro
 }
 
 /**
+ * تنظيف دور العضو داخل غرفة الوكالة (RTDB) عند إنهاء عضويته — يمنع بقاء «إشراف»/كو-هوست
+ * بعد إلغاء العضوية. يعتمد liveRoomId للوكالة (نفس نطاق readAgencySupervisorUids).
+ */
+async function clearAgencyRoomRoleForUid(agencyId: string, uid: string): Promise<void> {
+  try {
+    const snap = await db.collection('agencies').doc(agencyId).get();
+    const liveRoomId = String(snap.data()?.liveRoomId ?? '').trim();
+    if (!liveRoomId) return;
+    const roomRef = rtdb.ref(`rooms/${liveRoomId}`);
+    await roomRef.child(`memberRoles/${uid}`).remove();
+    const coSnap = await roomRef.child('coHosts').once('value');
+    const coHosts: string[] = Array.isArray(coSnap.val()) ? coSnap.val() : [];
+    const next = coHosts.filter((u) => String(u ?? '').trim() !== uid);
+    if (next.length !== coHosts.length) {
+      await roomRef.update({ coHosts: next, updatedAt: Date.now() });
+    }
+  } catch (e) {
+    console.warn('clearAgencyRoomRoleForUid failed:', agencyId, uid, e);
+  }
+}
+
+/**
  * إزالة عضو من الوكالة (وكيل أو أدمن) — تنظيف كامل + حظر إعادة الانضمام + إشعارات
  */
 export const removeAgencyMember = onCall(async (request) => {
@@ -6800,6 +6850,8 @@ export const removeAgencyMember = onCall(async (request) => {
   const now = Date.now();
 
   await memberRef.delete();
+  // تنظيف دور الغرفة (إشراف/كو-هوست) حتى لا يبقى بعد إنهاء العضوية
+  await clearAgencyRoomRoleForUid(aid, removedUid);
   await db.collection('users').doc(removedUid).update(USER_AGENCY_UNLINK_PATCH).catch(() => {});
   // إخفاء الدردشة عن العضو المُزال فقط — الرسائل والدردشة تبقيان للوكالة
   await removeUidFromAgencyChat(aid, removedUid);
@@ -6903,6 +6955,8 @@ export const leaveAgency = onCall(async (request) => {
   const now = Date.now();
 
   await memberDoc.ref.delete();
+  // تنظيف دور الغرفة (إشراف/كو-هوست) حتى لا يبقى بعد المغادرة
+  await clearAgencyRoomRoleForUid(aid, uid);
   await db.collection('users').doc(uid).update(USER_AGENCY_UNLINK_PATCH).catch(() => {});
   await removeUidFromAgencyChat(aid, uid);
   await cancelPendingAgencyInvites(aid, uid);
@@ -7871,6 +7925,10 @@ export const bumpAgencyPeriodSupportOnGiftSent = onDocumentCreated(
 
     const coins = Math.abs(Number(tx.amount) || 0);
     if (coins <= 0) return;
+
+    // التطبيق يسجّل دعم فترة الوكالة مباشرة بعد الإهداء ويضع هذه العلامة —
+    // لا نكرّر الزيادة هنا (نفس نمط creditAgencyPearlsOnGift / agencyEarningRecordedByClient)
+    if (tx.agencySupportRecordedByClient === true) return;
 
     const guardRef = db
       .collection('processedEvents')
