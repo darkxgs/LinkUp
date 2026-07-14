@@ -222,7 +222,13 @@ export function RoomInformationModal({
   const filteredMembers = useMemo(() => {
     let list = memberRows;
     if (roleFilter !== 'all') {
-      list = list.filter((m) => m.role === roleFilter);
+      // «عضو» (blue_supervisor) يشمل: بلا دور (الافتراضي) + blue + red المهجور —
+      // العدّاد «العضو: N» يحصيهم فيجب أن تعرضهم القائمة (وإلا يبقى التبويب فارغاً)
+      list = list.filter((m) =>
+        roleFilter === 'blue_supervisor'
+          ? !m.role || m.role === 'blue_supervisor' || m.role === 'red_member'
+          : m.role === roleFilter,
+      );
     }
     const q = searchId.trim();
     if (q) {

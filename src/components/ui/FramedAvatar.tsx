@@ -23,6 +23,8 @@ type FramedAvatarProps = {
   avatarUri?: string;
   frameUri: string;
   avatarSize: number;
+  /** تجاوز اختياري لحجم الحاوية — المقاعد تُكبّر الوجه مع إبقاء مربّع الشبكة ثابتاً */
+  containerSize?: number;
   fallbackLetter?: string;
   style?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
@@ -32,11 +34,12 @@ export function FramedAvatar({
   avatarUri,
   frameUri,
   avatarSize,
+  containerSize: containerSizeProp,
   fallbackLetter = '?',
   style,
   children,
 }: FramedAvatarProps) {
-  const containerSize = getFramedAvatarContainerSize(avatarSize);
+  const containerSize = containerSizeProp ?? getFramedAvatarContainerSize(avatarSize);
   const frameSize = Math.round(containerSize * FRAMED_AVATAR_FRAME_RATIO);
   const frameAnimated = isGifImageUrl(frameUri);
 

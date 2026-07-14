@@ -1533,10 +1533,15 @@ export const joinSeat = async (
   // المضيف معفي. الأعضاء المسجّلون وموظفو المنصة لا يدفعون
   let seatFee = 0;
   if (!isHost && !memberRole && !staffMicFree && !isSecondHostSeat) {
-    const perSeatFee = roomData?.seatFees?.[`seat_${seatIdx}`];
-    seatFee = typeof perSeatFee === 'number'
-      ? perSeatFee
-      : (typeof roomData?.seatFee === 'number' ? roomData.seatFee : 0);
+    // النزول عن المايك ثم إعادة الصعود لا يعيد خصم الرسم — علم دفع دائم لكل (غرفة, مستخدم)
+    const paidSnap = await get(ref(realtimeDb, `rooms/${roomId}/seatFeePaid/${user.uid}`));
+    const alreadyPaidSeatFee = paidSnap.exists() && !!paidSnap.val();
+    if (!alreadyPaidSeatFee) {
+      const perSeatFee = roomData?.seatFees?.[`seat_${seatIdx}`];
+      seatFee = typeof perSeatFee === 'number'
+        ? perSeatFee
+        : (typeof roomData?.seatFee === 'number' ? roomData.seatFee : 0);
+    }
   }
 
   const displayName = resolveDisplayName(
@@ -1593,6 +1598,8 @@ export const joinSeat = async (
       createdAt: Date.now(),
     });
     coinsBalance -= seatFee;
+    // سجّل الدفع لهذه الغرفة حتى لا يُخصم الرسم ثانيةً عند إعادة الصعود على المايك
+    await set(ref(realtimeDb, `rooms/${roomId}/seatFeePaid/${user.uid}`), Date.now());
   }
 
   if (

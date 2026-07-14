@@ -11,7 +11,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mic, MicOff, Plus, Crown, Lock } from 'lucide-react-native';
 import { Text } from './index';
-import { FramedAvatar, FRAMED_AVATAR_INNER_RATIO } from './FramedAvatar';
+import { FramedAvatar } from './FramedAvatar';
 import { RoomReactionDisplay } from '@/components/room/RoomReactionDisplay';
 import { GiftVisual } from './GiftVisual';
 import type { GiftLike } from './giftUtils';
@@ -214,7 +214,10 @@ export const RoomSeat = memo(
     // ⚡ مربّع موحّد لكل المقاعد (مؤطّر أو لا) → نفس الحجم ونفس المحاذاة، والأسطر مرتبة.
     //    المقعد المؤطّر كان 1.72× حجم العادي فيكسر الشبكة؛ الآن الإطار يُحسب ليملأ نفس المربّع.
     const seatBox = s.pulse;
-    const framedAvatarSize = Math.round(seatBox * FRAMED_AVATAR_INNER_RATIO);
+    // المقعد المؤطّر: الحاوية = المربّع الموحّد (لا تكسر الشبكة)، لكن الوجه بحجم المقعد
+    // العادي بدل 0.58× الذي كان يجعل الإطار المتحرك يغطّي وجه الجالس على المايك.
+    const framedAvatarSize = s.avatar;
+    const framedContainerSize = seatBox;
     const wrapWidth = seatBox;
     const auraSize = seatBox;
 
@@ -331,6 +334,7 @@ export const RoomSeat = memo(
               avatarUri={avatar}
               frameUri={frameUri}
               avatarSize={framedAvatarSize}
+              containerSize={framedContainerSize}
               fallbackLetter={displayName}
             >
               {seatOverlays}

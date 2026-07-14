@@ -2583,7 +2583,10 @@ export default function RoomScreen() {
     if (n < 4) return Math.max(1, n);
     const minSeatW = n >= 18 ? 48 : n >= 14 ? 52 : 58;
     const hardMax = n >= 18 ? 7 : 6;
-    const maxCols = Math.max(4, Math.min(hardMax, Math.floor(windowW / minSeatW)));
+    // seatsGrid له padding أفقي (spacing.sm كل جهة) — احسب الأعمدة على العرض الفعلي
+    // للشبكة، وإلا يُختار عمود زائد فتضيق الخلايا وتُقصّ المقاعد عند الحواف.
+    const gridW = windowW - 2 * spacing.sm;
+    const maxCols = Math.max(4, Math.min(hardMax, Math.floor(gridW / minSeatW)));
     let best = Math.min(maxCols, n);
     let bestScore = Infinity;
     for (let c = Math.min(maxCols, n); c >= 4; c--) {
@@ -5893,6 +5896,9 @@ export default function RoomScreen() {
             : undefined
         }
         onManageRole={
+          // مصطلحات العضوية/الإشراف خاصة بغرف الوكالة فقط — لا تظهر في الغرف الشخصية
+          // (اتساقاً مع بوابة handleCancelMembership أعلاه)
+          isAgencyRoom &&
           roomId &&
           seatUser?.uid &&
           seatUser.uid !== myUid &&
@@ -5906,29 +5912,25 @@ export default function RoomScreen() {
                   currentRole === 'red_member'
                   || currentRole === 'blue_supervisor'
                   || currentRole === 'yellow_supervisor';
-                const isSupervisorRole =
-                  currentRole === 'blue_supervisor' || currentRole === 'yellow_supervisor';
+                // «إشراف» الحقيقي = الأصفر فقط؛ الأزرق/الأحمر يُعرضان كـ«عضو» (roleLabel).
+                // كان يشمل الأزرق فيُظهر «إزالة الإشراف» لعضو عادي — وهو ما اشتكى منه المختبر.
+                const isSupervisorRole = currentRole === 'yellow_supervisor';
                 const options: { text: string; role: RoomAgencyMemberRole }[] = [];
                 if (!hasMembership) {
                   // زائر بلا عضوية — الخيار المنطقي الوحيد: إعطاء عضوية
                   options.push({ text: t('room.grantMembership', 'إعطاء عضوية'), role: 'red_member' });
+                } else if (isSupervisorRole) {
+                  // مشرف (أصفر) — يُنزَّل إلى عضو عبر «إزالة الإشراف» (لا خيار إلغاء قبل التنزيل: قاعدة الخدمة)
+                  options.push({ text: t('room.removeSupervisor', 'إزالة الإشراف'), role: 'red_member' });
                 } else {
-                  // المشرف الأصفر يُنزَّل إلى عضو أولاً قبل إلغاء العضوية (قاعدة الخدمة)
-                  if (currentRole !== 'yellow_supervisor') {
-                    // «إلغاء عضوية الغرفة» (دور memberRoles) — تمييزاً عن «إزالة من الوكالة»
-                    options.push({ text: t('room.cancelRoomMembership', 'إلغاء عضوية الغرفة'), role: 'cancelled' });
-                  }
-                  if (isSupervisorRole) {
-                    // مشرف حالياً — إزالة الإشراف بدل إعادة تعيينه
-                    options.push({ text: t('room.removeSupervisor', 'إزالة الإشراف'), role: 'red_member' });
-                    if (isHost && currentRole === 'blue_supervisor') {
-                      options.push({ text: t('room.grantYellowSupervisor', 'تعيين إشراف (أصفر)'), role: 'yellow_supervisor' });
-                    }
-                  } else {
+                  // عضو عادي (أزرق/أحمر) — إلغاء عضوية الغرفة أو الترقية إلى إشراف
+                  options.push({ text: t('room.cancelRoomMembership', 'إلغاء عضوية الغرفة'), role: 'cancelled' });
+                  if (currentRole !== 'blue_supervisor') {
+                    // ترقية العضو الأحمر (المهجور) إلى عضو أزرق — لا تُعرض لمن هو أزرق أصلاً
                     options.push({ text: t('room.grantBlueSupervisor', 'تعيين مشرف أزرق'), role: 'blue_supervisor' });
-                    if (isHost) {
-                      options.push({ text: t('room.grantYellowSupervisor', 'تعيين إشراف (أصفر)'), role: 'yellow_supervisor' });
-                    }
+                  }
+                  if (isHost) {
+                    options.push({ text: t('room.grantYellowSupervisor', 'تعيين إشراف (أصفر)'), role: 'yellow_supervisor' });
                   }
                 }
                 // سطر الحالة الحالية — منح تلقائي (صعود المايك) كان يجعل «إلغاء
