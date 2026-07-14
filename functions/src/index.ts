@@ -5655,15 +5655,17 @@ export const listAgencyJoinRequests = onCall(async (request) => {
   if (agencySnap.empty) return { requests: [] };
   const agencyId = agencySnap.docs[0].id;
 
+  // استعلام بحقل واحد (agencyId) فقط لتفادي الحاجة لفهرس مركّب (agencyId+status) —
+  // نُرشّح الحالة في الذاكرة (عدد دعوات الوكالة صغير).
   const snap = await db
     .collection('agencyInvites')
     .where('agencyId', '==', agencyId)
-    .where('status', 'in', ['requested', 'host_accepted'])
-    .limit(150)
+    .limit(300)
     .get();
 
   const requests = snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((r: any) => r.status === 'requested' || r.status === 'host_accepted')
     .sort((a: any, b: any) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
 
   return { requests };
