@@ -12,7 +12,6 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
-  I18nManager,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,8 +20,6 @@ import { Image } from 'expo-image';
 import {
   Headphones,
   Lock,
-  ChevronLeft,
-  ChevronRight,
   Star,
   Plus,
   Users,
@@ -309,7 +306,8 @@ export default function UserRoomsScreen() {
           <Text style={styles.sectionTitle} weight="bold">
             {t('profile.roomsAndAgencies')}
           </Text>
-          {I18nManager.isRTL ? <ChevronLeft size={20} color={lu.colors.ink} /> : <ChevronRight size={20} color={lu.colors.ink} />}
+          {/* أُزيل سهم «التنقّل» — كان أيقونة بلا onPress (زر ميت) يوهم بأنه زر رجوع؛
+              زر الرجوع الفعلي في ترويسة الشاشة (BackButton). */}
         </View>
 
         <Pressable

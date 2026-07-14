@@ -1684,10 +1684,9 @@ export default function RoomScreen() {
     () => hasRoomFeaturePermission(roomPerms, 'shareMusic', myRoomAudience),
     [roomPerms, myRoomAudience],
   );
-  const canSendRoomInviteTool = useMemo(
-    () => hasRoomFeaturePermission(roomPerms, 'sendRoomInvite', myRoomAudience),
-    [roomPerms, myRoomAudience],
-  );
+  // مشاركة الروم متاحة للجميع (زوّار وأعضاء) — إجراء حميد ينمّي الغرفة؛ كانت مقيّدة
+  // بـ guestCanSendRoomInvite=false فلا يراها إلا المشرف/العضو.
+  const canSendRoomInviteTool = true;
   const canInviteToMicTool = useMemo(
     () => hasRoomFeaturePermission(roomPerms, 'inviteToMic', myRoomAudience),
     [roomPerms, myRoomAudience],
