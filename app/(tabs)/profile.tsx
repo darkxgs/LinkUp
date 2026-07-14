@@ -25,6 +25,7 @@ import { ArrowRight } from '@/components/ui/RtlIcons';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 import { lu } from '@/theme/lu-brand';
+import { useThemeMode } from '@/stores/themeStore';
 import { useAppLanguage } from '@/localization/useAppLanguage';
 import { useAuthStore } from '@/stores/authStore';
 import { resolveDisplayName } from '@/utils/displayName';
@@ -42,7 +43,6 @@ import { useEquippedFrameUrl } from '@/hooks/useEquippedFrameUrl';
 import { reconcileSocialCounts, subscribeToSocialCounts } from '@/services/firebase/follow';
 import { reconcileVisitorCount, subscribeToProfileVisitorCount } from '@/services/firebase/profileVisitors';
 import { reconcileUserBalances } from '@/utils/userBalance';
-import { COIN_CURRENCY_ICON } from '@/constants/brandAssets';
 import { subscribeToMyRoomStats } from '@/services/roomFeatures';
 
 const DISPLAY = lu.fonts.displayHeavy;
@@ -74,6 +74,48 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: W } = useWindowDimensions();
+  const { isDark } = useThemeMode();
+
+  // لوحة ألوان الصفحة حسب السمة — نفس لغة صفحات Discover/Feed/Home.
+  const pal = isDark
+    ? {
+        pageGrad: lu.gradients.pageHomeNight,
+        cardBg: lu.colors.nightCard,
+        cardBorder: 'rgba(255,45,60,0.24)',
+        cardShadow: '#FF1E30',
+        ink: '#FFFFFF',
+        ink2: 'rgba(255,255,255,0.72)',
+        muted: 'rgba(255,255,255,0.45)',
+        line: 'rgba(255,255,255,0.08)',
+        red: '#FF5C6C',
+        glassBg: 'rgba(255,255,255,0.06)',
+        glassBorder: 'rgba(255,45,60,0.35)',
+        glassIcon: '#FFFFFF',
+        chipBg: 'rgba(255,255,255,0.07)',
+        toolBg: 'rgba(255,45,60,0.1)',
+        toolBorder: 'rgba(255,45,60,0.35)',
+        outlineBtnBg: 'rgba(255,45,60,0.1)',
+        outlineBtnBorder: 'rgba(255,92,108,0.45)',
+      }
+    : {
+        pageGrad: ['#FBEAEA', '#FBF1F1', '#F8F6F7'] as const,
+        cardBg: '#FFFFFF',
+        cardBorder: 'rgba(225,20,20,0.14)',
+        cardShadow: '#9A1414',
+        ink: '#15151A',
+        ink2: '#3A3A44',
+        muted: '#9A9AA5',
+        line: '#F1E7E7',
+        red: '#E11414',
+        glassBg: '#FFFFFF',
+        glassBorder: 'rgba(225,20,20,0.16)',
+        glassIcon: '#15151A',
+        chipBg: '#F6ECEC',
+        toolBg: 'rgba(225,20,20,0.06)',
+        toolBorder: 'rgba(225,20,20,0.16)',
+        outlineBtnBg: 'rgba(225,20,20,0.07)',
+        outlineBtnBorder: '#F0BABA',
+      };
   const user = useAuthStore((s) => s.user);
   const socialStats = useAuthStore((s) => s.user?.stats);
 
@@ -215,7 +257,7 @@ export default function ProfileScreen() {
     { Icon: Gift, tint: 'rgba(237, 68, 68, 0.08)', color: '#ED4444', label: t('profile.gifts'), route: '/gifts' },
     { Icon: Trophy, tint: 'rgba(225,20,20,0.08)', color: '#E11414', label: L('المستويات', 'Levels'), route: '/wealth-level' },
     { Icon: ShoppingBag, tint: 'rgba(244,63,94,0.08)', color: '#F43F5E', label: t('profile.myStore'), route: '/store' },
-    { Icon: Crown, tint: 'rgba(239, 70, 70, 0.08)', color: '#FF3340', label: 'VIP', route: '/vip' },
+    { Icon: Crown, tint: 'rgba(239, 70, 70, 0.08)', color: '#FF3340', label: t('profile.vipShort'), route: '/vip' },
     ...(showHostTasks
       ? [{ Icon: Award, tint: 'rgba(168, 85, 247, 0.08)', color: '#A855F7', label: t('profile.hostTasksPage'), route: '/host/tasks' }]
       : []),
@@ -262,61 +304,42 @@ export default function ProfileScreen() {
   );
 
   return (
-    <LinearGradient colors={['#FAF5F5', '#FFFFFF', '#F5F5F7']} style={styles.container}>
+    <LinearGradient colors={pal.pageGrad as any} style={styles.container}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}
       >
-        {/* Cover */}
-        <LinearGradient
-          colors={['#FF2D2D', '#B00E0E', '#3A0A0A']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.cover, { paddingTop: insets.top + 8 }]}
-        >
-          <View style={styles.coverOrbA} />
-          <View style={styles.coverOrbB} />
-          <Heart
-            size={78}
-            color="rgba(255,255,255,0.16)"
-            fill="rgba(255,255,255,0.16)"
-            style={[styles.coverHeart, isRtl ? { left: undefined, right: 22 } : undefined]}
-          />
-
-          <View style={[styles.coverTop, { flexDirection: ROW, paddingHorizontal: pad }]}>
-            <GlassBtn onPress={() => go('/settings')}>
-              <Settings size={19} color="#fff" />
+        {/* Header actions */}
+        <View style={[styles.headerRow, { flexDirection: ROW, paddingHorizontal: pad, paddingTop: insets.top + 10 }]}>
+          <GlassBtn pal={pal} onPress={() => go('/settings')}>
+            <Settings size={19} color={pal.glassIcon} />
+          </GlassBtn>
+          <View style={{ flexDirection: ROW, gap: 9 }}>
+            <GlassBtn
+              pal={pal}
+              onPress={() => {
+                void Share.share({
+                  message: t('profile.shareMessage', {
+                    name,
+                    id: accountId,
+                    defaultValue: `${name} على LinkUp — ID: ${accountId}`,
+                  }),
+                }).catch(() => {});
+              }}
+            >
+              <Share2 size={18} color={pal.glassIcon} />
             </GlassBtn>
-            <View style={{ flexDirection: ROW, gap: 9 }}>
-              {/* كان زرّاً ميّتاً بلا أي فعل */}
-              <GlassBtn
-                onPress={() => {
-                  void Share.share({
-                    message: t('profile.shareMessage', {
-                      name,
-                      id: accountId,
-                      defaultValue: `${name} على LinkUp — ID: ${accountId}`,
-                    }),
-                  }).catch(() => {});
-                }}
-              >
-                <Share2 size={18} color="#fff" />
-              </GlassBtn>
-              <GlassBtn onPress={() => go('/profile/edit')}>
-                <Pencil size={18} color="#fff" />
-              </GlassBtn>
-            </View>
+            <GlassBtn pal={pal} onPress={() => go('/profile/edit')}>
+              <Pencil size={18} color={pal.glassIcon} />
+            </GlassBtn>
           </View>
-        </LinearGradient>
+        </View>
 
-        {/* Identity */}
-        <View style={styles.identity}>
+        {/* Identity — الصورة يسارًا والاسم والشارات بجانبها */}
+        <View style={[styles.identityRow, { flexDirection: ROW, paddingHorizontal: pad }]}>
           <Pressable
             onPress={() => uid && go(`/profile/${uid}`)}
-            style={[
-              styles.avatarWrap,
-              equippedFrameUrl && { width: frameBox, height: frameBox },
-            ]}
+            style={[styles.avatarWrap, equippedFrameUrl && { width: frameBox, height: frameBox }]}
           >
             {equippedFrameUrl ? (
               <FramedAvatar
@@ -326,114 +349,193 @@ export default function ProfileScreen() {
                 fallbackLetter={name}
               />
             ) : (
-              <LinearGradient
-                colors={['#FFD86F', '#FF2D2D', '#B00E0E', '#7A0A0A', '#FFD86F']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.avatarRing}
-              >
-                {avatar ? (
-                  <Image source={{ uri: avatar }} style={styles.avatarImg} contentFit="cover" />
-                ) : (
-                  <View style={[styles.avatarImg, styles.avatarFallback]}>
-                    <Text style={styles.avatarFallbackText}>{name.charAt(0)}</Text>
-                  </View>
-                )}
-              </LinearGradient>
+              <View style={styles.avatarGlow}>
+                <LinearGradient
+                  colors={['#FF6670', '#C40E2E', '#7A0A14']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.avatarRing}
+                >
+                  {avatar ? (
+                    <Image source={{ uri: avatar }} style={styles.avatarImg} contentFit="cover" />
+                  ) : (
+                    <View style={[styles.avatarImg, styles.avatarFallback, isDark && styles.avatarFallbackDark]}>
+                      <Text style={styles.avatarFallbackText}>{name.charAt(0)}</Text>
+                    </View>
+                  )}
+                </LinearGradient>
+              </View>
             )}
-            {/* النقطة الخضراء تختفي عند تفعيل «إخفاء حالة الاتصال» — حتى في ملفك */}
             {!((user as any)?.privacyHideOnline === true ||
               (user as any)?.privacySettings?.hideOnline === true) ? (
               <View
                 style={[
                   styles.onlineDot,
+                  isDark && styles.onlineDotDark,
                   equippedFrameUrl && styles.onlineDotFramed,
-                  isRtl && !equippedFrameUrl ? { right: undefined, left: 6 } : undefined,
+                  isRtl && !equippedFrameUrl ? { right: undefined, left: 4 } : undefined,
                   isRtl && equippedFrameUrl ? { right: undefined, left: frameBox * 0.22 } : undefined,
                 ]}
               />
             ) : null}
             <View style={[styles.crownBadge, equippedFrameUrl && styles.crownBadgeFramed]}>
-              <Crown size={12} color="#FFD700" fill="#FFD700" />
+              <Crown size={13} color="#FF4D5E" fill="#FF4D5E" />
             </View>
           </Pressable>
 
-          <View style={[styles.nameRow, { flexDirection: ROW }]}>
-            <Text style={styles.name} numberOfLines={1}>{name}</Text>
-            <BadgeCheck size={18} color="#E11414" fill="#FFE0E0" />
+          <View style={styles.identityInfo}>
+            <View style={[styles.nameRow, { flexDirection: ROW }]}>
+              <Text style={[styles.name, { color: pal.ink }]} numberOfLines={1}>{name}</Text>
+              <BadgeCheck
+                size={20}
+                color={isDark ? '#2A1A1E' : pal.red}
+                fill={isDark ? '#F2F2F5' : '#FFE0E0'}
+              />
+            </View>
+
+            <Pressable
+              style={[styles.idChip, { flexDirection: ROW, backgroundColor: isDark ? 'rgba(255,255,255,0.09)' : pal.chipBg }]}
+              onPress={copyAccountId}
+            >
+              <Text style={[styles.idText, { color: isDark ? 'rgba(255,255,255,0.78)' : pal.muted }]}>
+                ID: {accountId}
+              </Text>
+              <Copy size={15} color={isDark ? 'rgba(255,255,255,0.78)' : pal.muted} />
+            </Pressable>
+
+            <ProfileBadgesRow
+              horizontalPad={0}
+              night={isDark}
+              style={[styles.badgesRowWrap, { justifyContent: 'flex-start' }]}
+            />
           </View>
-
-          <Pressable style={[styles.idChip, { flexDirection: ROW }]} onPress={copyAccountId}>
-            <Text style={styles.idText}>ID: {accountId}</Text>
-            <Copy size={13} color="#9A9AA5" />
-          </Pressable>
-
-          <ProfileBadgesRow horizontalPad={0} style={styles.badgesRowWrap} />
         </View>
 
         {/* Stats */}
-        <View style={[styles.card, styles.statsCard, { marginHorizontal: pad }]}>
+        <View
+          style={[
+            styles.card,
+            styles.statsCard,
+            { marginHorizontal: pad, backgroundColor: pal.cardBg, borderColor: pal.cardBorder, shadowColor: pal.cardShadow },
+          ]}
+        >
           <View style={[styles.statsRow, { flexDirection: ROW }]}>
             {statItems.map((s, i) => (
-              <Pressable key={i} style={styles.statCol} onPress={s.onPress}>
-                <Text style={styles.statN} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                  {s.n}
-                </Text>
-                <View style={[styles.statLabelRow, { flexDirection: ROW }]}>
-                  <s.Icon size={11} color={s.color} />
-                  <Text style={styles.statLabel} numberOfLines={1}>{s.label}</Text>
-                </View>
-              </Pressable>
+              <React.Fragment key={i}>
+                {i > 0 ? <View style={[styles.statDivider, { backgroundColor: pal.line }]} /> : null}
+                <Pressable style={styles.statCol} onPress={s.onPress}>
+                  <Text
+                    style={[styles.statN, { color: pal.ink }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    {s.n}
+                  </Text>
+                  <View style={[styles.statLabelRow, { flexDirection: ROW }]}>
+                    <View style={styles.statIconBox}>
+                      <s.Icon size={11} color={isDark ? pal.red : s.color} />
+                    </View>
+                    <Text style={[styles.statLabel, { color: isDark ? pal.ink2 : '#5E5E68' }]} numberOfLines={1}>
+                      {s.label}
+                    </Text>
+                  </View>
+                </Pressable>
+              </React.Fragment>
             ))}
           </View>
         </View>
 
         {/* Wallet */}
-        <View style={[styles.card, { marginHorizontal: pad, padding: 16 }]}>
+        <View
+          style={[
+            styles.card,
+            { marginHorizontal: pad, padding: 16, backgroundColor: pal.cardBg, borderColor: pal.cardBorder, shadowColor: pal.cardShadow },
+          ]}
+        >
           <View style={[styles.walletHead, { flexDirection: ROW }]}>
-            <Text style={styles.walletTitle}>{t('profile.wallet')}</Text>
+            <Text style={[styles.walletTitle, { color: pal.ink }]}>{t('profile.wallet')}</Text>
             <Pressable style={{ flexDirection: ROW, alignItems: 'center', gap: 3 }} onPress={() => go('/wallet')}>
-              <Text style={styles.walletHistory}>{L('السجل', 'History')}</Text>
-              <ArrowRight size={13} color="#9A9AA5" />
+              <Text style={[styles.walletHistory, { color: pal.red }]}>{L('السجل', 'History')}</Text>
+              <ArrowRight size={13} color={pal.red} />
             </Pressable>
           </View>
 
           <View style={[styles.walletRow, { flexDirection: ROW }]}>
             <View style={styles.walletCol}>
               <View style={[styles.walletBalRow, { flexDirection: ROW }]}>
-                <Image source={require('../../assets/masa.webp')} style={styles.coinImg} contentFit="contain" />
+                <Image
+                  source={require('../../assets/images/wallet_diamond.png')}
+                  style={styles.coinImg}
+                  contentFit="contain"
+                />
                 <View style={{ flex: 1, alignItems: isRtl ? 'flex-end' : 'flex-start' }}>
-                  <Text style={styles.walletVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
+                  <Text
+                    style={[styles.walletVal, { color: pal.ink }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.55}
+                  >
                     {formatExact(stats.pearls ?? 0)}
                   </Text>
-                  <Text style={styles.walletLabel}>{t('profile.myPearls')}</Text>
+                  <Text style={[styles.walletLabel, { color: pal.muted }]}>{t('profile.myPearls')}</Text>
                 </View>
               </View>
-              <Pressable style={[styles.btnOutline, { flexDirection: ROW }]} onPress={() => go('/wallet/exchange')}>
-                {/* النص الإنجليزي أطول من العربي — تصغير تلقائي حتى لا يتجاوز حدود الزر */}
-                <Text style={[styles.btnOutlineText, { flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              <Pressable
+                style={[
+                  styles.btnOutline,
+                  { flexDirection: ROW, backgroundColor: pal.outlineBtnBg, borderColor: pal.outlineBtnBorder },
+                ]}
+                onPress={() => go('/wallet/exchange')}
+              >
+                <Text
+                  style={[styles.btnOutlineText, { color: pal.red, flexShrink: 1 }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                >
                   {t('wallet.exchangeWithdraw')}
                 </Text>
-                <ArrowRight size={13} color="#E11414" />
+                <ArrowRight size={13} color={pal.red} />
               </Pressable>
             </View>
 
-            <View style={styles.walletDivider} />
+            <View style={[styles.walletDivider, { backgroundColor: pal.line }]} />
 
             <View style={styles.walletCol}>
               <View style={[styles.walletBalRow, { flexDirection: ROW }]}>
-                <Image source={COIN_CURRENCY_ICON} style={styles.coinImg} contentFit="contain" />
+                <Image
+                  source={require('../../assets/images/wallet_coin.png')}
+                  style={styles.coinImg}
+                  contentFit="contain"
+                />
                 <View style={{ flex: 1, alignItems: isRtl ? 'flex-end' : 'flex-start' }}>
-                  {/* الرقم الدقيق — التقريب المضغوط (4.7M) كان يوحي برصيد مختلف عن شاشة الشحن */}
-                  <Text style={styles.walletVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
+                  <Text
+                    style={[styles.walletVal, { color: pal.ink }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.55}
+                  >
                     {formatExact(stats.coins ?? 0)}
                   </Text>
-                  <Text style={styles.walletLabel}>{t('profile.myCoins')}</Text>
+                  <Text style={[styles.walletLabel, { color: pal.muted }]}>{t('profile.myCoins')}</Text>
                 </View>
               </View>
-              <Pressable onPress={() => go('/wallet/recharge')} style={styles.btnGoldWrap}>
-                <LinearGradient colors={['#FBBF24', '#F59E0B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.btnGold, { flexDirection: ROW }]}>
-                  <Text style={[styles.btnGoldText, { flexShrink: 1 }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>+ {L('شحن', 'Recharge')}</Text>
+              <Pressable onPress={() => go('/wallet/recharge')} style={styles.btnRedWrap}>
+                <LinearGradient
+                  colors={['#FF4D5E', '#C40E2E']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[styles.btnRed, { flexDirection: ROW }]}
+                >
+                  <Text
+                    style={[styles.btnRedText, { flexShrink: 1 }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    + {L('شحن', 'Recharge')}
+                  </Text>
                   <ArrowRight size={13} color="#fff" />
                 </LinearGradient>
               </Pressable>
@@ -442,13 +544,24 @@ export default function ProfileScreen() {
         </View>
 
         {/* Tools grid */}
-        <View style={[styles.card, styles.toolsCard, { marginHorizontal: pad }]}>
+        <View
+          style={[
+            styles.card,
+            styles.toolsCard,
+            { marginHorizontal: pad, backgroundColor: pal.cardBg, borderColor: pal.cardBorder, shadowColor: pal.cardShadow },
+          ]}
+        >
           {tools.map((tool, i) => (
             <Pressable key={i} style={styles.toolCell} onPress={() => go(tool.route)}>
-              <View style={[styles.toolCircle, { backgroundColor: tool.tint }]}>
-                <tool.Icon size={20} color={tool.color} />
+              <View style={styles.toolCircle}>
+                <Image
+                  source={require('../../assets/images/tool_circle_bg.png')}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                />
+                <tool.Icon size={20} color="#FF8A94" />
               </View>
-              <Text style={styles.toolLabel}>{tool.label}</Text>
+              <Text style={[styles.toolLabel, { color: isDark ? pal.ink2 : '#5E5E68' }]}>{tool.label}</Text>
             </Pressable>
           ))}
         </View>
@@ -456,37 +569,76 @@ export default function ProfileScreen() {
         {/* SVIP status card */}
         <ProfileVipStatusCard horizontalPad={pad} />
 
-        {/* Memberships */}
-        <View style={[styles.membersRow, { flexDirection: ROW, marginHorizontal: pad }]}>
-          <LinearGradient colors={['#3A0A0A', '#1A0A0C']} style={[styles.memberCard, { borderColor: '#F26161' }]}>
-            <View style={[styles.memberIcon, { backgroundColor: 'rgba(253,224,71,0.15)', borderColor: '#FDE047' }]}>
-              <Crown size={22} color="#FEF08A" fill="#FEF08A" />
-            </View>
-            <Text style={[styles.memberTitle, { color: '#FDE047' }]}>SUPER VIP</Text>
-            <Text style={styles.memberPerk}>{L('شارات حصرية ومكافآت كبرى', 'Exclusive badges & rewards')}</Text>
-            <Pressable onPress={() => go('/vip')}>
-              <LinearGradient colors={['#FDE047', '#EAB308']} style={styles.memberCta}>
-                <Text style={[styles.memberCtaText, { color: '#422006' }]}>{L('ترقية', 'Upgrade')}</Text>
-              </LinearGradient>
-            </Pressable>
-          </LinearGradient>
+        {/* Memberships — كرت عريض: قرص التاج يسارًا والنص والزر يمينًا */}
+        <View style={[styles.membersCol, { flexDirection: ROW, marginHorizontal: pad }]}>
+          <Pressable style={{ flex: 1 }} onPress={() => go('/vip')}>
+            <LinearGradient
+              colors={['#571019', '#33080E']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[styles.memberCard, { borderColor: 'rgba(255,77,102,0.6)', shadowColor: '#FF1E30' }]}
+            >
+              <Image
+                source={require('../../assets/images/vip_crown_red.png')}
+                style={styles.memberCrown}
+                contentFit="contain"
+              />
+              <View style={styles.memberBody}>
+                <Text style={[styles.memberTitle, { color: '#FF5C6C' }]}>{t('profile.superVip')}</Text>
+                <Text style={styles.memberPerk} numberOfLines={2}>
+                  {L('شارات حصرية ومكافآت كبرى', 'Exclusive badges & rewards returns')}
+                </Text>
+                <LinearGradient
+                  colors={['#FF4D5E', '#C40E2E']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[styles.memberCta, { flexDirection: ROW }]}
+                >
+                  <Text style={styles.memberCtaText}>{L('ترقية', 'Upgrade')}</Text>
+                  <ArrowRight size={15} color="#fff" />
+                </LinearGradient>
+              </View>
+            </LinearGradient>
+          </Pressable>
 
-          <LinearGradient colors={['#9A1414', '#1A0A0C']} style={[styles.memberCard, { borderColor: '#F26161' }]}>
-            <View style={[styles.memberIcon, { backgroundColor: 'rgba(255,140,140,0.15)', borderColor: '#F26161' }]}>
-              <Crown size={22} color="#FCA5A5" fill="#FCA5A5" />
-            </View>
-            <Text style={[styles.memberTitle, { color: '#F26161' }]}>{t('profile.aristocracy')}</Text>
-            <Text style={styles.memberPerk}>{L('امتيازات النبلاء وعائدات مجمدة', 'Noble privileges & frozen returns')}</Text>
-            <Pressable onPress={() => go('/vip/aristocracy')}>
-              <LinearGradient colors={['#FFE0E0', '#F26161']} style={styles.memberCta}>
-                <Text style={[styles.memberCtaText, { color: '#9A1414' }]}>{L('انضم', 'Join')}</Text>
-              </LinearGradient>
-            </Pressable>
-          </LinearGradient>
+          <Pressable style={{ flex: 1 }} onPress={() => go('/vip/aristocracy')}>
+            <LinearGradient
+              colors={['#331253', '#1E0A33']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[styles.memberCard, { borderColor: 'rgba(168,85,247,0.6)', shadowColor: '#8B5CF6' }]}
+            >
+              <Image
+                source={require('../../assets/images/vip_crown_purple.png')}
+                style={styles.memberCrown}
+                contentFit="contain"
+              />
+              <View style={styles.memberBody}>
+                <Text style={[styles.memberTitle, { color: '#B981F7' }]}>{t('profile.aristocracy')}</Text>
+                <Text style={styles.memberPerk} numberOfLines={2}>
+                  {L('امتيازات النبلاء وعائدات مجمدة', 'Noble privileges & frozen returns')}
+                </Text>
+                <LinearGradient
+                  colors={['#8B5CF6', '#6D28D9']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[styles.memberCta, { flexDirection: ROW }]}
+                >
+                  <Text style={styles.memberCtaText}>{L('انضم', 'Join')}</Text>
+                  <ArrowRight size={15} color="#fff" />
+                </LinearGradient>
+              </View>
+            </LinearGradient>
+          </Pressable>
         </View>
 
         {/* Menu */}
-        <View style={[styles.card, { marginHorizontal: pad, paddingHorizontal: 16, paddingVertical: 4 }]}>
+        <View
+          style={[
+            styles.card,
+            { marginHorizontal: pad, paddingHorizontal: 16, paddingVertical: 4, backgroundColor: pal.cardBg, borderColor: pal.cardBorder, shadowColor: pal.cardShadow },
+          ]}
+        >
           {menu.map((m, i) => (
             <Pressable
               key={i}
@@ -494,19 +646,19 @@ export default function ProfileScreen() {
               style={[
                 styles.menuRow,
                 { flexDirection: ROW },
-                i < menu.length - 1 && styles.menuBorder,
+                i < menu.length - 1 && [styles.menuBorder, { borderBottomColor: pal.line }],
               ]}
             >
-              <View style={styles.menuIcon}>
-                <m.Icon size={18} color="#E11414" />
+              <View style={[styles.menuIcon, { backgroundColor: pal.toolBg }]}>
+                <m.Icon size={18} color={pal.red} />
               </View>
-              <Text style={[styles.menuLabel, { textAlign: isRtl ? 'right' : 'left' }]}>{m.label}</Text>
+              <Text style={[styles.menuLabel, { color: pal.ink, textAlign: isRtl ? 'right' : 'left' }]}>{m.label}</Text>
               {m.isNew && (
                 <View style={styles.newBadge}>
                   <Text style={styles.newBadgeText}>{t('profile.newBadge')}</Text>
                 </View>
               )}
-              <ArrowRight size={16} color="#9A9AA5" />
+              <ArrowRight size={16} color={pal.muted} />
             </Pressable>
           ))}
         </View>
@@ -515,11 +667,17 @@ export default function ProfileScreen() {
   );
 }
 
-function GlassBtn({ children, onPress }: { children: React.ReactNode; onPress: () => void }) {
+type Pal = { glassBg: string; glassBorder: string };
+
+function GlassBtn({ children, onPress, pal }: { children: React.ReactNode; onPress: () => void; pal: Pal }) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.glassBtn, pressed && { opacity: 0.85 }]}
+      style={({ pressed }) => [
+        styles.glassBtn,
+        { backgroundColor: pal.glassBg, borderColor: pal.glassBorder },
+        pressed && { opacity: 0.85 },
+      ]}
     >
       {children}
     </Pressable>
@@ -529,84 +687,99 @@ function GlassBtn({ children, onPress }: { children: React.ReactNode; onPress: (
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
-  cover: { height: 122, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: 'hidden' },
-  coverOrbA: { position: 'absolute', top: -34, right: -24, width: 150, height: 150, borderRadius: 75, backgroundColor: 'rgba(255,255,255,0.12)' },
-  coverOrbB: { position: 'absolute', bottom: -54, left: -24, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(255,255,255,0.1)' },
-  coverHeart: { position: 'absolute', top: 14, left: 22 },
-  coverTop: { alignItems: 'center', justifyContent: 'space-between' },
+  headerRow: { alignItems: 'center', justifyContent: 'space-between' },
   glassBtn: {
     width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.32)',
+    borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
 
-  identity: { alignItems: 'center', paddingHorizontal: 20, marginTop: -52 },
+  identityRow: { alignItems: 'center', gap: 16, marginTop: 18 },
+  identityInfo: { flex: 1, minWidth: 0, gap: 8, alignItems: 'flex-start' },
   avatarWrap: { position: 'relative' },
-  avatarRing: { width: 104, height: 104, borderRadius: 52, padding: 3.5, alignItems: 'center', justifyContent: 'center' },
-  avatarImg: { width: '100%', height: '100%', borderRadius: 50, borderWidth: 3, borderColor: '#fff' },
+  avatarGlow: {
+    borderRadius: 63,
+    shadowColor: '#FF1E30', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.55, shadowRadius: 16,
+    elevation: 10,
+  },
+  avatarRing: { width: 126, height: 126, borderRadius: 63, padding: 4, alignItems: 'center', justifyContent: 'center' },
+  avatarImg: { width: '100%', height: '100%', borderRadius: 59, borderWidth: 3, borderColor: 'rgba(0,0,0,0.35)' },
   avatarFallback: { backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' },
-  avatarFallbackText: { fontSize: 32, fontWeight: '900', color: '#E11414', fontFamily: DISPLAY },
-  onlineDot: { position: 'absolute', bottom: 6, right: 6, width: 16, height: 16, borderRadius: 8, backgroundColor: '#10B981', borderWidth: 2.5, borderColor: '#fff' },
+  avatarFallbackDark: { backgroundColor: '#3A2228' },
+  avatarFallbackText: { fontSize: 34, fontWeight: '900', color: '#E11414', fontFamily: DISPLAY },
+  onlineDot: { position: 'absolute', bottom: 6, right: 6, width: 18, height: 18, borderRadius: 9, backgroundColor: '#10B981', borderWidth: 2.5, borderColor: '#fff' },
+  onlineDotDark: { borderColor: '#1D1317' },
   onlineDotFramed: { bottom: 14, right: 14 },
   crownBadge: {
     position: 'absolute', bottom: -7, alignSelf: 'center',
-    backgroundColor: '#1A0A0C', paddingHorizontal: 9, paddingVertical: 2,
-    borderRadius: 10, borderWidth: 1, borderColor: '#FFD700',
+    backgroundColor: '#0B0608', paddingHorizontal: 13, paddingVertical: 3,
+    borderRadius: 11, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)',
   },
   crownBadgeFramed: { bottom: 2 },
 
-  nameRow: { alignItems: 'center', gap: 6, marginTop: 13 },
-  name: { fontSize: 22, fontWeight: '900', color: '#15151A', fontFamily: DISPLAY },
-  idChip: { alignItems: 'center', gap: 6, marginTop: 7, backgroundColor: '#F6ECEC', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 9 },
-  idText: { fontSize: 12, color: '#9A9AA5', fontWeight: '600', fontFamily: SEMI },
+  nameRow: { alignItems: 'center', gap: 8 },
+  name: { fontSize: 24, fontWeight: '900', fontFamily: DISPLAY, flexShrink: 1 },
+  idChip: { alignItems: 'center', gap: 7, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 12, alignSelf: 'flex-start' },
+  idText: { fontSize: 13.5, fontWeight: '600', fontFamily: SEMI },
 
-  badgesRowWrap: { paddingVertical: 4, alignSelf: 'stretch' },
+  badgesRowWrap: { paddingVertical: 0, alignSelf: 'stretch' },
 
   card: {
-    backgroundColor: '#fff', borderRadius: 24, marginTop: 16,
-    shadowColor: '#9A1414', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 22, elevation: 3,
+    borderRadius: 24, marginTop: 16, borderWidth: 1,
+    shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.16, shadowRadius: 18, elevation: 3,
   },
   statCol: { flex: 1, alignItems: 'center', gap: 3, minWidth: 0 },
-  statsCard: { paddingVertical: 12, paddingHorizontal: 4 },
+  statDivider: { width: 1, alignSelf: 'stretch', marginVertical: 4 },
+  statsCard: { paddingVertical: 14, paddingHorizontal: 4 },
   statsRow: { alignItems: 'stretch', justifyContent: 'space-between' },
-  statN: { fontSize: 16, fontWeight: '900', color: '#15151A', fontFamily: DISPLAY, maxWidth: '100%' },
-  statLabelRow: { alignItems: 'center', gap: 2, maxWidth: '100%' },
-  statLabel: { fontSize: 9.5, color: '#5E5E68', fontWeight: '600', fontFamily: SEMI, flexShrink: 1 },
+  statN: { fontSize: 16, fontWeight: '900', fontFamily: DISPLAY, maxWidth: '100%' },
+  statLabelRow: { alignItems: 'center', gap: 3, maxWidth: '100%' },
+  statIconBox: { height: 12, width: 12, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: -1.5 }] },
+  statLabel: { fontSize: 9.5, fontWeight: '600', fontFamily: SEMI, flexShrink: 1, includeFontPadding: false, lineHeight: 12, textAlignVertical: 'center' },
 
   walletHead: { alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  walletTitle: { fontSize: 16, fontWeight: '800', color: '#15151A', fontFamily: HEAVY },
-  walletHistory: { fontSize: 12.5, color: '#9A9AA5', fontWeight: '600', fontFamily: SEMI },
+  walletTitle: { fontSize: 16, fontWeight: '800', fontFamily: HEAVY },
+  walletHistory: { fontSize: 12.5, fontWeight: '700', fontFamily: SEMI },
   walletRow: { alignItems: 'stretch' },
   walletCol: { flex: 1, alignItems: 'center', gap: 12 },
-  walletDivider: { width: 1, backgroundColor: '#EEE', marginHorizontal: 8 },
+  walletDivider: { width: 1, marginHorizontal: 8 },
   walletBalRow: { alignItems: 'center', gap: 10, width: '100%', paddingHorizontal: 4 },
-  coinImg: { width: 44, height: 44 },
-  walletVal: { fontSize: 18, fontWeight: '800', color: '#15151A', fontFamily: DISPLAY, maxWidth: '100%' },
-  walletLabel: { fontSize: 11, color: '#9A9AA5', fontFamily: BODY },
-  btnOutline: { width: '90%', height: 38, borderRadius: 12, borderWidth: 1, borderColor: '#F0BABA', backgroundColor: 'rgba(225,20,20,0.08)', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
-  btnOutlineText: { color: '#E11414', fontSize: 12.5, fontWeight: '800', fontFamily: HEAVY },
-  btnGoldWrap: { width: '90%', height: 38, borderRadius: 12, overflow: 'hidden', shadowColor: '#F59E0B', shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
-  btnGold: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
-  btnGoldText: { color: '#fff', fontSize: 12.5, fontWeight: '800', fontFamily: HEAVY },
+  coinImg: { width: 46, height: 46 },
+  walletVal: { fontSize: 18, fontWeight: '800', fontFamily: DISPLAY, maxWidth: '100%' },
+  walletLabel: { fontSize: 11, fontFamily: BODY },
+  btnOutline: { width: '90%', height: 38, borderRadius: 99, borderWidth: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
+  btnOutlineText: { fontSize: 12.5, fontWeight: '800', fontFamily: HEAVY },
+  btnRedWrap: {
+    width: '90%', height: 38, borderRadius: 99, overflow: 'hidden',
+    shadowColor: '#FF1E30', shadowOpacity: 0.45, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4,
+  },
+  btnRed: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
+  btnRedText: { color: '#fff', fontSize: 12.5, fontWeight: '800', fontFamily: HEAVY },
 
-  toolsCard: { flexDirection: 'row', flexWrap: 'wrap', paddingVertical: 16, paddingHorizontal: 8 },
-  toolCell: { width: '25%', alignItems: 'center', gap: 7, marginBottom: 14 },
-  toolCircle: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
-  toolLabel: { fontSize: 11, fontWeight: '600', color: '#5E5E68', textAlign: 'center', fontFamily: SEMI },
+  toolsCard: { flexDirection: 'row', flexWrap: 'wrap', paddingVertical: 18, paddingHorizontal: 8, rowGap: 18 },
+  toolCell: { width: '25%', alignItems: 'center', gap: 7 },
+  toolCircle: { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  toolLabel: { fontSize: 11, fontWeight: '600', textAlign: 'center', fontFamily: SEMI },
 
-  membersRow: { gap: 12, marginTop: 4 },
-  memberCard: { flex: 1, borderRadius: 20, padding: 15, borderWidth: 1, gap: 10 },
-  memberIcon: { width: 44, height: 44, borderRadius: 14, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  memberTitle: { fontSize: 15, fontWeight: '900', fontFamily: DISPLAY },
-  memberPerk: { fontSize: 10.5, color: '#FEE2E2', lineHeight: 15 },
-  memberCta: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 99 },
-  memberCtaText: { fontSize: 11, fontWeight: '900', fontFamily: HEAVY },
+  membersCol: { gap: 14, marginTop: 16 },
+  memberCard: {
+    borderRadius: 24, padding: 14, borderWidth: 1.2, alignItems: 'flex-start', gap: 10,
+    shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 6,
+  },
+  memberCrown: { width: 62, height: 62 },
+  memberBody: { alignSelf: 'stretch', minWidth: 0, gap: 6, alignItems: 'flex-start' },
+  memberTitle: { fontSize: 16, fontWeight: '900', fontFamily: DISPLAY },
+  memberPerk: { fontSize: 11, color: 'rgba(255,255,255,0.82)', lineHeight: 15, minHeight: 30 },
+  memberCta: {
+    alignSelf: 'flex-start', alignItems: 'center', gap: 7,
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 99, marginTop: 2,
+  },
+  memberCtaText: { fontSize: 13.5, fontWeight: '900', color: '#fff', fontFamily: HEAVY },
 
   menuRow: { alignItems: 'center', gap: 12, paddingVertical: 14 },
-  menuBorder: { borderBottomWidth: 1, borderBottomColor: '#F1E7E7' },
-  menuIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: 'rgba(225,20,20,0.08)', alignItems: 'center', justifyContent: 'center' },
-  menuLabel: { flex: 1, fontSize: 14.5, fontWeight: '600', color: '#15151A', fontFamily: SEMI },
+  menuBorder: { borderBottomWidth: 1 },
+  menuIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  menuLabel: { flex: 1, fontSize: 14.5, fontWeight: '600', fontFamily: SEMI },
   newBadge: { backgroundColor: '#FF3340', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99, marginEnd: 4 },
   newBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800', fontFamily: HEAVY },
 });

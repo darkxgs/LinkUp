@@ -1061,7 +1061,8 @@
     "noGiftsInCategory": "No gifts in this category",
     "giftSent": "Gift sent",
     "giftSendFailed": "Failed to send gift",
-    "insufficientCoinsForGift": "Insufficient balance"
+    "insufficientCoinsForGift": "Insufficient balance",
+    "luckyGameOnline": "{{count}} online"
   },
   "feed": {
     "title": "Moments",
@@ -1315,7 +1316,9 @@
     "ageValue": "{{count}} years",
     "reportAccount": "Report this account",
     "text86551": "No data",
-    "text12996": "الذين يتابعهم"
+    "text12996": "الذين يتابعهم",
+    "superVip": "SUPER VIP",
+    "vipShort": "VIP"
   },
   "settings": {
     "title": "Settings",
@@ -3997,5 +4000,22 @@
         "desc": "Pick a fruit and win"
       }
     }
+  },
+  "relationshipLevels": {
+    "1": "Acquaintance",
+    "2": "Familiar",
+    "3": "Friend",
+    "4": "Close Friend",
+    "5": "Strong Friendship",
+    "6": "Close Bond",
+    "7": "Special Bond",
+    "8": "Lifelong Friend",
+    "9": "Soul Friend",
+    "10": "Companion",
+    "11": "Sweetheart",
+    "12": "Besties",
+    "13": "Eternal Bond",
+    "14": "Soulmate",
+    "15": "Legendary Bond"
   }
 }

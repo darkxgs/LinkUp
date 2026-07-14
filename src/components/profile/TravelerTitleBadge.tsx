@@ -21,33 +21,54 @@ type Props = {
   size?: 'sm' | 'md';
   onPress?: () => void;
   style?: StyleProp<ViewStyle>;
+  /** سمة داكنة — قرص زجاجي نبيذي موحّد بدل التدرج الذهبي */
+  night?: boolean;
 };
 
-export function TravelerTitleBadge({ title, size = 'sm', onPress, style }: Props) {
+export function TravelerTitleBadge({ title, size = 'sm', onPress, style, night }: Props) {
   const isMd = size === 'md';
   const h = isMd ? 32 : 26;
   const fontSize = isMd ? 12.5 : 11;
   const iconSize = isMd ? 13 : 11;
 
-  const inner = (
-    <View style={[styles.frame, { height: h }, style]}>
-      <LinearGradient
-        colors={['#FFE9A8', '#F5BE37', '#E0930B']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.fill}
+  const content = (
+    <>
+      <View style={[styles.iconDisc, night && styles.iconDiscNight]}>
+        <Crown size={iconSize} color="#F5BE37" fill="#F5BE37" strokeWidth={1.4} />
+      </View>
+      <Text
+        weight="bold"
+        numberOfLines={1}
+        style={[styles.title, night && styles.titleNight, { fontSize }]}
       >
-        <View style={styles.iconDisc}>
-          <Crown size={iconSize} color="#B8740A" fill="#B8740A" strokeWidth={1.4} />
-        </View>
-        <Text
-          weight="bold"
-          numberOfLines={1}
-          style={[styles.title, { fontSize }]}
+        {title}
+      </Text>
+    </>
+  );
+
+  const inner = (
+    <View style={[styles.frame, { height: h }, night && styles.frameNight, style]}>
+      {night ? (
+        <View style={[styles.fill, styles.fillNight]}>{content}</View>
+      ) : (
+        <LinearGradient
+          colors={['#FFE9A8', '#F5BE37', '#E0930B']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.fill}
         >
-          {title}
-        </Text>
-      </LinearGradient>
+          <View style={styles.iconDisc}>
+            <Crown size={iconSize} color="#B8740A" fill="#B8740A" strokeWidth={1.4} />
+          </View>
+          <Text
+            weight="bold"
+            numberOfLines={1}
+            style={[styles.title, { fontSize }]}
+          >
+            {title}
+          </Text>
+        </LinearGradient>
+      )}
     </View>
   );
 
@@ -68,6 +89,12 @@ const styles = StyleSheet.create({
     maxWidth: 190,
     ...lu.shadows.card,
   },
+  frameNight: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,90,105,0.28)',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   fill: {
     flex: 1,
     flexDirection: 'row',
@@ -77,6 +104,9 @@ const styles = StyleSheet.create({
     paddingStart: 3,
     paddingEnd: 10,
   },
+  fillNight: {
+    backgroundColor: 'rgba(255,60,75,0.16)',
+  },
   iconDisc: {
     width: 19,
     height: 19,
@@ -85,11 +115,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  iconDiscNight: {
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
   title: {
     color: '#6B3F02',
     fontFamily: lu.fonts.displayHeavy,
     includeFontPadding: false,
     flexShrink: 1,
     textAlign: 'center',
+  },
+  titleNight: {
+    color: '#FFFFFF',
   },
 });

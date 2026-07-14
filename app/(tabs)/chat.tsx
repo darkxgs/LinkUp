@@ -44,11 +44,8 @@ import { Pin } from 'lucide-react-native';
 import i18n from '@/localization/i18n';
 
 import { lu } from '@/theme/lu-brand';
-import { CASINO_GAME_IMAGES, getCasinoGames } from '@/constants/casinoGames';
+import { useThemeMode } from '@/stores/themeStore';
 
-const LUCKY_777_ROUTE =
-  getCasinoGames().find((g) => g.id === 'lucky-777')?.route ??
-  '/games/webview?url=https://linkup-dc45f.web.app/games/lucky-777/&name=Lucky%20777';
 import {
   subscribeToConversations,
   togglePinConversation,
@@ -74,13 +71,14 @@ import { resolveDisplayName } from '@/utils/displayName';
 import { resolveUserDocAvatar, resolveConversationPeerAvatar } from '@/utils/userAvatar';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useAgencyRoomTracking } from '@/hooks/useAgencyRoomTracking';
-import { useGamePresenceCounts } from '@/hooks/useGamePresence';
+import { HomeGamesHub } from '@/components/home/HomeGamesHub';
 import { AgencyRoomTrackingAvatar } from '@/components/chat/AgencyRoomTrackingAvatar';
 import { QuickClearChatsModal } from '@/components/chat/QuickClearChatsModal';
 import { isTrackableAgencyPresence } from '@/services/roomFeatures';
 import { navigateToRoom } from '@/utils/navigateToRoom';
 
-const PAGE_BG = ['#FFFFFF', '#F9FAFB', '#F3F4F6'] as const;
+const PAGE_BG = ['#FBEAEA', '#FBF1F1', '#F8F6F7'] as const;
+const PAGE_BG_NIGHT = lu.gradients.pageHomeNight;
 const PAGE_BG_LOCATIONS: readonly [number, number, number] = [0, 0.5, 1];
 
 const CHAT_SHORTCUTS = [
@@ -118,6 +116,12 @@ const CHAT_SHORTCUTS = [
     labelEn: 'Support',
   },
 ] as const;
+
+const SHORTCUT_ICONS: Record<string, any> = {
+  recharge: require('../../assets/images/chat_sc_wallet.png'),
+  gifts: require('../../assets/images/chat_sc_reward.png'),
+  feedback: require('../../assets/images/chat_sc_support.png'),
+};
 
 type HeaderTab = 'chat' | 'friends';
 
@@ -189,6 +193,7 @@ export default function ChatListScreen() {
   const [headerTab, setHeaderTab] = useState<HeaderTab>('chat');
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const { showAlert, showActionSheet } = useAlert();
+  const { isDark } = useThemeMode();
 
   const conversationPeerUids = useMemo(() => {
     const myId = currentUser?.uid;
@@ -500,12 +505,13 @@ export default function ChatListScreen() {
       const otherUid = item.participants.find((p) => p !== currentUser?.uid) ?? '';
       const selected = selectedConvIds.has(item.id);
       return (
-      <View style={styles.whiteSheetContinued}>
+      <View style={[styles.whiteSheetContinued, isDark && styles.whiteSheetContinuedDark]}>
         <View>
           <ConversationRow
             conv={item}
             currentUid={currentUser?.uid}
             isSmall={isSmall}
+            dark={isDark}
             t={t}
             lang={lang}
             showAgencyMusic={isInRoom(otherUid)}
@@ -524,7 +530,7 @@ export default function ChatListScreen() {
       </View>
       );
     },
-    [currentUser?.uid, isSmall, t, lang, isInRoom, handleAvatarTrackPress, handleConversationMenu, handleOpenConversation, selectMode, selectedConvIds, handleToggleSelectConv],
+    [currentUser?.uid, isSmall, t, lang, isDark, isInRoom, handleAvatarTrackPress, handleConversationMenu, handleOpenConversation, selectMode, selectedConvIds, handleToggleSelectConv],
   );
 
   const filterCounts = useMemo(() => {
@@ -633,25 +639,13 @@ export default function ChatListScreen() {
     });
   }, [filteredConvs, friends, peerProfiles, currentUser?.uid, t]);
 
-  const luckyGameAvatars = useMemo(
-    () =>
-      friends
-        .map((f) => resolveUserDocAvatar(f as unknown as Record<string, unknown>, f.uid))
-        .filter((a): a is string => !!a)
-        .slice(0, 3),
-    [friends],
-  );
-
-  const gamePresence = useGamePresenceCounts();
-  const luckyGamePlayerCount = gamePresence.casino;
-
   const shortcutGap = isSmall ? 8 : 10;
   const shortcutW =
     (W - pad * 2 - shortcutGap * (CHAT_SHORTCUTS.length - 1)) / CHAT_SHORTCUTS.length;
 
   return (
     <LinearGradient
-      colors={PAGE_BG}
+      colors={isDark ? PAGE_BG_NIGHT : PAGE_BG}
       locations={PAGE_BG_LOCATIONS}
       style={styles.container}
     >
@@ -672,15 +666,16 @@ export default function ChatListScreen() {
         ListHeaderComponent={
           <View>
             {/* ===== الشريط العلوي الموحد (مطابق لصفحة Home) ===== */}
-            <TabScreenHeader pad={pad}>
-              <HeaderIconButton onPress={() => router.push('/search' as any)}>
-                <LuSearchIcon size={headerMetrics.iconSize} color={lu.colors.ink} />
+            <TabScreenHeader pad={pad} dark={isDark}>
+              <HeaderIconButton dark={isDark} onPress={() => router.push('/search' as any)}>
+                <LuSearchIcon size={headerMetrics.iconSize} color={isDark ? '#fff' : lu.colors.ink} />
               </HeaderIconButton>
               <HeaderIconButton
+                dark={isDark}
                 onPress={() => router.push('/notifications' as any)}
                 badge={unreadNotifCount > 0}
               >
-                <LuNotificationIcon size={headerMetrics.iconSize} color={lu.colors.ink} />
+                <LuNotificationIcon size={headerMetrics.iconSize} color={isDark ? '#fff' : lu.colors.ink} />
               </HeaderIconButton>
             </TabScreenHeader>
 
@@ -697,14 +692,15 @@ export default function ChatListScreen() {
                   <Text
                     style={[
                       styles.headerTabText,
-                      headerTab === 'chat' && styles.headerTabTextActive,
+                      isDark && { color: lu.colors.nightMuted },
+                      headerTab === 'chat' && (isDark ? styles.headerTabTextActiveDark : styles.headerTabTextActive),
                     ]}
                   >
                     {t('chat.title')}
                   </Text>
                   {headerTab === 'chat' ? (
                     <LinearGradient
-                      colors={[lu.colors.pink, lu.colors.purple]}
+                      colors={['#FF4D5E', '#C40E2E']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                       style={styles.headerTabUnderline}
@@ -723,14 +719,15 @@ export default function ChatListScreen() {
                   <Text
                     style={[
                       styles.headerTabText,
-                      headerTab === 'friends' && styles.headerTabTextActive,
+                      isDark && { color: lu.colors.nightMuted },
+                      headerTab === 'friends' && (isDark ? styles.headerTabTextActiveDark : styles.headerTabTextActive),
                     ]}
                   >
                     {t('chat.friends')}
                   </Text>
                   {headerTab === 'friends' ? (
                     <LinearGradient
-                      colors={[lu.colors.pink, lu.colors.purple]}
+                      colors={['#FF4D5E', '#C40E2E']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                       style={styles.headerTabUnderline}
@@ -764,8 +761,9 @@ export default function ChatListScreen() {
                     ],
                   });
                 }}
-                icon={<LuSettingsIcon size={21} color={lu.colors.ink} />}
+                icon={<LuSettingsIcon size={21} color={isDark ? '#fff' : lu.colors.ink} />}
                 badge={false}
+                dark={isDark}
               />
             </View>
 
@@ -782,6 +780,7 @@ export default function ChatListScreen() {
                   index={index}
                   width={shortcutW}
                   item={item}
+                  dark={isDark}
                   promoLabel={
                     item.id === 'recharge' && settings.inAppRechargeEnabled !== true
                       ? ''
@@ -792,23 +791,9 @@ export default function ChatListScreen() {
               ))}
             </View>
 
-            {/* بحث */}
-            <View style={[styles.searchRow, { paddingHorizontal: pad }]}>
-              <View style={styles.searchBox}>
-                <LuSearchIcon size={18} color={lu.colors.muted} />
-                <TextInput
-                  value={searchInput}
-                  onChangeText={setSearchInput}
-                  placeholder={t('common.search')}
-                  placeholderTextColor={lu.colors.muted}
-                  style={styles.searchInput}
-                  returnKeyType="search"
-                />
-              </View>
-            </View>
-
             <ChatFilterBar
               pad={pad}
+              dark={isDark}
               mode={filterMode}
               counts={filterCounts}
               onSelect={(mode) => {
@@ -819,16 +804,17 @@ export default function ChatListScreen() {
             />
 
             {filterMode !== 'archived' ? (
-              <LuckyGameBanner
-                pad={pad}
-                avatars={luckyGameAvatars}
-                playerCount={luckyGamePlayerCount}
-                onPress={() => router.push(LUCKY_777_ROUTE as any)}
-              />
+              <View style={styles.gamesHubWrap}>
+                <HomeGamesHub
+                  pad={pad}
+                  dark={isDark}
+                  onNavigate={(route) => router.push(route as any)}
+                />
+              </View>
             ) : null}
 
             {/* ورقة بيضاء: الأصدقاء */}
-            <View style={styles.whiteSheet}>
+            <View style={[styles.whiteSheet, isDark && styles.whiteSheetDark]}>
               {showFriendsStrip && friendsWithoutChat.length > 0 ? (
                 <>
                   <View style={styles.friendsHeader}>
@@ -841,7 +827,7 @@ export default function ChatListScreen() {
                         )
                       }
                     >
-                      <Text style={styles.seeAll}>{t('common.viewAll')}</Text>
+                      <Text style={[styles.seeAll, isDark && { color: "#FF5C6C" }]}>{t('common.viewAll')}</Text>
                     </Pressable>
                   </View>
 
@@ -855,6 +841,7 @@ export default function ChatListScreen() {
                         key={u.uid}
                         index={i}
                         user={u}
+                        dark={isDark}
                         showAgencyMusic={isInRoom(u.uid)}
                         onAvatarPress={handleAvatarTrackPress}
                         onPress={() => router.push(`/chat/${u.uid}` as any)}
@@ -867,11 +854,12 @@ export default function ChatListScreen() {
               {/* دردشات الوكالات (لأعضائها فقط) */}
               {agencyChats.length > 0 ? (
                 <>
-                  {showFriendsStrip && friendsWithoutChat.length > 0 && <View style={styles.threadListDivider} />}
+                  {showFriendsStrip && friendsWithoutChat.length > 0 && <View style={[styles.threadListDivider, isDark && styles.threadListDividerDark]} />}
                   {agencyChats.map((ac) => (
                     <AgencyChatRow
                       key={ac.id}
                       chat={ac}
+                      dark={isDark}
                       onPress={() => router.push(`/agency/chat?agencyId=${ac.agencyId}` as any)}
                     />
                   ))}
@@ -879,22 +867,22 @@ export default function ChatListScreen() {
               ) : null}
 
               {showFriendsStrip && (friendsWithoutChat.length > 0 || agencyChats.length > 0) && listConversations.length > 0 ? (
-                <View style={styles.threadListDivider} />
+                <View style={[styles.threadListDivider, isDark && styles.threadListDividerDark]} />
               ) : null}
             </View>
           </View>
         }
         ListEmptyComponent={
           loading ? (
-            <View style={[styles.emptyState, styles.whiteSheetContinued]}>
+            <View style={[styles.emptyState, styles.whiteSheetContinued, isDark && styles.whiteSheetContinuedDark]}>
               <ActivityIndicator size="large" color={lu.colors.pink} />
             </View>
           ) : (
-            <View style={[styles.emptyState, styles.whiteSheetContinued]}>
+            <View style={[styles.emptyState, styles.whiteSheetContinued, isDark && styles.whiteSheetContinuedDark]}>
               <View style={{ marginBottom: 10 }}>
                 <LuTabChatIcon size={52} active={false} />
               </View>
-              <Text style={styles.emptyText}>
+              <Text style={[styles.emptyText, isDark && { color: lu.colors.nightInk2 }]}>
                 {filterMode === 'archived'
                   ? t('chat.noArchivedChats')
                   : filterMode === 'friends'
@@ -907,7 +895,7 @@ export default function ChatListScreen() {
                         ? t('chat.noPinnedChats')
                         : t('chat.noConversations')}
               </Text>
-              <Text style={styles.emptySubtitle}>
+              <Text style={[styles.emptySubtitle, isDark && { color: lu.colors.nightMuted }]}>
                 {t('chat.startFromDiscover')}
               </Text>
             </View>
@@ -960,16 +948,17 @@ function ChatShortcutTile({
   width,
   item,
   promoLabel,
+  dark,
   onPress,
 }: {
   index?: number;
   width: number;
   item: (typeof CHAT_SHORTCUTS)[number];
   promoLabel: string;
+  dark?: boolean;
   onPress: () => void;
 }) {
   const { i18n } = useTranslation();
-  const Icon = item.Icon;
   const showPromo = item.badge === 'promo' && !!promoLabel;
 
   return (
@@ -986,16 +975,21 @@ function ChatShortcutTile({
           <Text style={styles.shortcutPromoText}>{promoLabel}</Text>
         </View>
       ) : null}
-      <View style={styles.shortcutIconWrap}>
-        {'filled' in item && item.iconFilled ? (
-          <Icon size={28} color={item.iconColor} filled />
-        ) : (
-          <Icon size={28} color={item.iconColor} strokeWidth={2} />
-        )}
-        </View>
-        <Text style={styles.shortcutLabel} numberOfLines={1}>
+      <View style={[styles.shortcutRing, !dark && styles.shortcutRingLight]}>
+        <Image
+          source={SHORTCUT_ICONS[item.id]}
+          style={styles.shortcutIconImg}
+          contentFit="contain"
+        />
+      </View>
+      <View style={[styles.shortcutLabelPill, !dark && styles.shortcutLabelPillLight]}>
+        <Text
+          style={[styles.shortcutLabel, dark && { color: '#fff' }]}
+          numberOfLines={1}
+        >
           {i18n.language?.startsWith('ar') ? item.labelAr : item.labelEn}
         </Text>
+      </View>
       </Pressable>
     </Animated.View>
   );
@@ -1003,11 +997,13 @@ function ChatShortcutTile({
 
 function ChatFilterBar({
   pad,
+  dark,
   mode,
   counts,
   onSelect,
 }: {
   pad: number;
+  dark?: boolean;
   mode: ChatFilterMode;
   counts: { friends: number; unread: number; online: number; pinned: number };
   onSelect: (mode: ChatFilterMode) => void;
@@ -1044,20 +1040,25 @@ function ChatFilterBar({
             onPress={() => onSelect(chip.id)}
             style={({ pressed }) => [
               styles.filterChip,
-              active && styles.filterChipActive,
+              dark && styles.filterChipDark,
+              active && (dark ? styles.filterChipActiveDark : styles.filterChipActive),
               pressed && { opacity: 0.9 },
             ]}
           >
-            {active ? (
+            {active && !dark ? (
               <LinearGradient
-                colors={['#1A0A0C', '#3A1316']}
+                colors={['#FF4D66', '#C40E2E']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={StyleSheet.absoluteFill}
               />
             ) : null}
             <Text
-              style={[styles.filterChipLabel, active && styles.filterChipLabelActive]}
+              style={[
+                styles.filterChipLabel,
+                dark && { color: 'rgba(255,255,255,0.68)' },
+                active && styles.filterChipLabelActive,
+              ]}
               numberOfLines={1}
             >
               {chip.label}
@@ -1065,6 +1066,7 @@ function ChatFilterBar({
                 <Text
                   style={[
                     styles.filterChipCount,
+                    dark && { color: '#FF5C6C' },
                     active && styles.filterChipCountActive,
                   ]}
                 >
@@ -1097,16 +1099,18 @@ function GradientSectionTitle({ children }: { children: string }) {
 function CircBtn({
   icon,
   badge,
+  dark,
   onPress,
 }: {
   icon: React.ReactNode;
   badge?: boolean;
+  dark?: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.circBtn, pressed && { opacity: 0.9 }]}
+      style={({ pressed }) => [styles.circBtn, dark && styles.circBtnDark, pressed && { opacity: 0.9 }]}
     >
       {icon}
       {badge ? <View style={styles.circBadge} /> : null}
@@ -1117,12 +1121,14 @@ function CircBtn({
 function FriendChip({
   user,
   index = 0,
+  dark,
   showAgencyMusic,
   onAvatarPress,
   onPress,
 }: {
   user: UserDoc;
   index?: number;
+  dark?: boolean;
   showAgencyMusic?: boolean;
   onAvatarPress?: (uid: string) => void;
   onPress: () => void;
@@ -1178,7 +1184,7 @@ function FriendChip({
         ) : (
           avatarNode
         )}
-        <Text style={styles.friendName} numberOfLines={1}>
+        <Text style={[styles.friendName, dark && { color: '#fff' }]} numberOfLines={1}>
           {resolveDisplayName({ displayName: user.displayName, email: user.email })}
         </Text>
       </Pressable>
@@ -1192,6 +1198,7 @@ const ConversationRow = memo(function ConversationRow({
   isSmall,
   t,
   lang,
+  dark,
   showAgencyMusic,
   onAvatarPress,
   onPress,
@@ -1202,6 +1209,7 @@ const ConversationRow = memo(function ConversationRow({
   isSmall: boolean;
   t: (key: string, opts?: any) => string;
   lang: string;
+  dark?: boolean;
   showAgencyMusic?: boolean;
   onAvatarPress?: (uid: string) => void;
   onPress: (conv: Conversation) => void;
@@ -1242,7 +1250,9 @@ const ConversationRow = memo(function ConversationRow({
       >
       {isPinned ? (
         <LinearGradient
-          colors={['rgba(255, 238, 238, 0.45)', 'rgba(255, 236, 240, 0.45)']}
+          colors={dark
+            ? ['rgba(255,45,60,0.1)', 'rgba(255,45,60,0.05)']
+            : ['rgba(255, 238, 238, 0.45)', 'rgba(255, 236, 240, 0.45)']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFillObject}
@@ -1342,14 +1352,14 @@ const ConversationRow = memo(function ConversationRow({
           </View>
         ) : null}
         {online && !isSupportChat && !showAgencyMusic ? (
-          <View style={styles.onlineIndicatorDot} />
+          <View style={[styles.onlineIndicatorDot, dark && { borderColor: '#1D1317' }]} />
         ) : null}
       </View>
       )}
 
       <View style={styles.threadBody}>
         <View style={styles.threadTitleRow}>
-          <Text style={styles.threadName} numberOfLines={1}>
+          <Text style={[styles.threadName, dark && { color: '#fff' }]} numberOfLines={1}>
             {name}
           </Text>
           {isSupportChat && (
@@ -1364,7 +1374,8 @@ const ConversationRow = memo(function ConversationRow({
         <Text
           style={[
             styles.threadLast,
-            unread > 0 && { color: lu.colors.ink, fontWeight: '700' },
+            dark && { color: lu.colors.nightMuted },
+            unread > 0 && { color: dark ? '#fff' : lu.colors.ink, fontWeight: '700' },
           ]}
           numberOfLines={1}
         >
@@ -1373,100 +1384,14 @@ const ConversationRow = memo(function ConversationRow({
       </View>
 
       <View style={styles.threadMeta}>
-        <Text style={styles.threadTime}>{formatChatTime(conv.lastMessageAt, t, lang)}</Text>
+        <Text style={[styles.threadTime, dark && { color: '#FF5C6C' }]}>{formatChatTime(conv.lastMessageAt, t, lang)}</Text>
         </View>
       </Pressable>
     </View>
   );
 });
 
-function LuckyGameBanner({
-  pad,
-  avatars,
-  playerCount,
-  onPress,
-}: {
-  pad: number;
-  avatars: string[];
-  playerCount: number;
-  onPress: () => void;
-}) {
-  const { t } = useTranslation();
-  const slots = avatars.length > 0 ? avatars : [null, null, null];
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.luckyGameBanner,
-        { marginHorizontal: pad, opacity: pressed ? 0.92 : 1 },
-      ]}
-    >
-      <LinearGradient
-        colors={['#B00E0E', '#FF3340']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
-      <View style={styles.luckyGameIconWrap}>
-        <View style={[styles.luckyGameIconBox, { backgroundColor: 'rgba(255, 255, 255, 0.18)', borderColor: 'rgba(255, 255, 255, 0.35)' }]}>
-          <Image
-            source={CASINO_GAME_IMAGES['lucky-777']}
-            style={styles.luckyGameSlotImage}
-            contentFit="contain"
-            cachePolicy="memory-disk"
-          />
-        </View>
-      </View>
-
-      <View style={styles.luckyGameBody}>
-        <Text style={[styles.luckyGameTitle, { color: '#fff' }]}>{t('chat.luckyGameTitle')}</Text>
-        <Text style={[styles.luckyGameSub, { color: 'rgba(255, 255, 255, 0.85)' }]} numberOfLines={2}>
-          {t('chat.luckyGameSubtitle')}
-        </Text>
-      </View>
-
-      <View style={styles.luckyGameRight}>
-        <View style={styles.luckyGameAvatars}>
-          {slots.slice(0, 3).map((uri, i) => (
-            <View
-              key={i}
-              style={[
-                styles.luckyGameAvatarRing,
-                { marginLeft: i > 0 ? -9 : 0, zIndex: 3 - i },
-              ]}
-            >
-              {uri ? (
-                <Image
-                  source={{ uri }}
-                  style={styles.luckyGameAvatar}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  recyclingKey={uri}
-                />
-              ) : (
-                <LinearGradient
-                  colors={[...gradFor(`lucky-slot-${i}`)]}
-                  style={styles.luckyGameAvatar}
-                >
-                  <LuUserIcon size={13} color="#fff" filled />
-                </LinearGradient>
-              )}
-            </View>
-          ))}
-        </View>
-        <View style={[styles.luckyGameCountBadge, { backgroundColor: 'rgba(255, 255, 255, 0.22)' }]}>
-          <LuUserIcon size={11} color="#FFD700" filled />
-          <Text style={[styles.luckyGameCountText, { color: '#fff' }]}>
-            {playerCount.toLocaleString()}
-          </Text>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-function AgencyChatRow({ chat, onPress }: { chat: AgencyChatMeta; onPress: () => void }) {
+function AgencyChatRow({ chat, dark, onPress }: { chat: AgencyChatMeta; dark?: boolean; onPress: () => void }) {
   const { t } = useTranslation();
   const { width: W } = useWindowDimensions();
   const isSmall = W < 360;
@@ -1496,12 +1421,12 @@ function AgencyChatRow({ chat, onPress }: { chat: AgencyChatMeta; onPress: () =>
       </View>
       <View style={styles.threadBody}>
         <View style={styles.threadTitleRow}>
-          <Text style={styles.threadName} numberOfLines={1}>{chat.name}</Text>
+          <Text style={[styles.threadName, dark && { color: '#fff' }]} numberOfLines={1}>{chat.name}</Text>
           <View style={styles.agencyBadge}>
             <Text style={styles.agencyBadgeText}>{t('chat.agencyTag')}</Text>
           </View>
         </View>
-        <Text style={styles.threadLast} numberOfLines={1}>
+        <Text style={[styles.threadLast, dark && { color: lu.colors.nightMuted }]} numberOfLines={1}>
           {chat.lastMessage || t('agency.centerMembers', { count: chat.members?.length ?? 0 })}
         </Text>
       </View>
@@ -1596,6 +1521,11 @@ const styles = StyleSheet.create({
     color: lu.colors.ink,
     fontFamily: lu.fonts.bodyHeavy,
   },
+  headerTabTextActiveDark: {
+    fontWeight: '800',
+    color: '#FFFFFF',
+    fontFamily: lu.fonts.bodyHeavy,
+  },
   headerTabUnderline: {
     marginTop: 6,
     width: 28,
@@ -1626,8 +1556,11 @@ const styles = StyleSheet.create({
   },
   shortcutTile: {
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    justifyContent: 'flex-start',
+  },
+  shortcutIconImg: {
+    width: 64,
+    height: 64,
   },
   shortcutLabel: {
     fontSize: 12,
@@ -1635,9 +1568,38 @@ const styles = StyleSheet.create({
     color: '#15151A',
     fontFamily: lu.fonts.bodyHeavy,
   },
-  shortcutIconWrap: {
+  shortcutRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,77,94,0.75)',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.55,
+    shadowRadius: 10,
+    elevation: 6,
+    backgroundColor: 'rgba(255,45,60,0.05)',
+  },
+  shortcutRingLight: {
+    borderColor: 'rgba(225,20,20,0.45)',
+    backgroundColor: 'rgba(225,20,20,0.04)',
+    shadowOpacity: 0.25,
+  },
+  shortcutLabelPill: {
+    marginTop: -13,
+    paddingHorizontal: 15,
+    paddingVertical: 4,
+    borderRadius: 99,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255,77,94,0.75)',
+    backgroundColor: '#1D1014',
+  },
+  shortcutLabelPillLight: {
+    borderColor: 'rgba(225,20,20,0.45)',
+    backgroundColor: '#FDF4F4',
   },
   shortcutPromoBadge: {
     position: 'absolute',
@@ -1648,6 +1610,10 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderBottomRightRadius: 10,
     zIndex: 2,
+  },
+  gamesHubWrap: {
+    marginTop: -10,
+    marginBottom: 10,
   },
   shortcutPromoText: {
     color: '#fff',
@@ -1668,6 +1634,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 12,
     elevation: 4,
+  },
+  circBtnDark: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,45,60,0.35)',
+    shadowColor: '#FF1E30',
+    shadowOpacity: 0.3,
+    elevation: 2,
   },
   circBadge: {
     position: 'absolute',
@@ -1702,6 +1676,14 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 3,
   },
+  searchBoxDark: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,45,60,0.28)',
+    shadowColor: '#FF1E30',
+    shadowOpacity: 0.2,
+    elevation: 2,
+  },
   searchInput: {
     flex: 1,
     fontSize: 13.5,
@@ -1728,10 +1710,23 @@ const styles = StyleSheet.create({
     borderColor: lu.colors.line,
   },
   filterChipActive: {
-    borderColor: 'transparent',
-    shadowColor: '#1A0A0C',
+    borderColor: '#FF4D66',
+    shadowColor: '#FF1E30',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  filterChipDark: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: lu.colors.nightLine,
+  },
+  filterChipActiveDark: {
+    backgroundColor: 'rgba(255,45,60,0.16)',
+    borderColor: '#FF3B55',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 3,
   },
@@ -1767,10 +1762,21 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 8,
   },
+  whiteSheetDark: {
+    backgroundColor: lu.colors.nightCard,
+    shadowColor: '#FF1E30',
+    shadowOpacity: 0.15,
+  },
   whiteSheetContinued: {
     backgroundColor: '#fff',
     marginTop: 0,
     paddingHorizontal: 8,
+  },
+  whiteSheetContinuedDark: {
+    backgroundColor: lu.colors.nightCard,
+  },
+  threadListDividerDark: {
+    backgroundColor: lu.colors.nightLine,
   },
   threadListDivider: {
     height: 1,
@@ -2017,91 +2023,4 @@ const styles = StyleSheet.create({
     fontFamily: lu.fonts.body,
   },
 
-  luckyGameBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: lu.radius.base,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    marginBottom: 8,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.9)',
-    shadowColor: '#E11414',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  luckyGameIconWrap: {
-    marginRight: 10,
-  },
-  luckyGameIconBox: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.85)',
-  },
-  luckyGameSlotImage: {
-    width: 40,
-    height: 40,
-  },
-  luckyGameBody: {
-    flex: 1,
-    minWidth: 0,
-    paddingRight: 8,
-  },
-  luckyGameTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: lu.colors.ink,
-    fontFamily: lu.fonts.bodyHeavy,
-  },
-  luckyGameSub: {
-    fontSize: 11.5,
-    color: lu.colors.ink2,
-    marginTop: 2,
-    lineHeight: 15,
-    fontFamily: lu.fonts.body,
-  },
-  luckyGameRight: {
-    alignItems: 'flex-end',
-    gap: 5,
-  },
-  luckyGameAvatars: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  luckyGameAvatarRing: {
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: '#fff',
-    overflow: 'hidden',
-  },
-  luckyGameAvatar: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  luckyGameCountBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: lu.colors.goldSoft,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  luckyGameCountText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: lu.colors.gold2,
-    fontFamily: lu.fonts.bodyHeavy,
-  },
 });

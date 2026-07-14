@@ -1,5 +1,5 @@
 /**
- * فلتر الدول — نافذة منبثقة بشبكة أزرار (مثل التطبيق المرجعي).
+ * فلتر الدول — نافذة منبثقة بشبكة أزرار على سمة الغرف (فاتح/داكن).
  */
 import React, { useMemo } from 'react';
 import {
@@ -12,9 +12,12 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Globe, X, ChevronDown } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { RealCountryFlag } from '@/components/ui';
 import { lu } from '@/theme/lu-brand';
+import { useThemeMode } from '@/stores/themeStore';
 
 export const FILTER_COUNTRY_CODES = [
   'WW', 'PS', 'SA', 'AE', 'EG', 'JO', 'KW', 'QA', 'BH', 'OM',
@@ -38,6 +41,35 @@ export function CountryFilterPopover({
   onClose,
 }: CountryFilterPopoverProps) {
   const { t } = useTranslation();
+  const { isDark } = useThemeMode();
+
+  const pal = isDark
+    ? {
+        cardBg: '#231217',
+        cardBorder: 'rgba(255,45,60,0.3)',
+        cardShadow: '#FF1E30',
+        title: '#FFFFFF',
+        closeBg: 'rgba(255,255,255,0.08)',
+        closeIcon: '#FFFFFF',
+        cellBg: 'rgba(255,255,255,0.05)',
+        cellBorder: lu.colors.nightLine,
+        cellText: 'rgba(255,255,255,0.68)',
+        globeBg: 'rgba(255,45,60,0.14)',
+        globeIcon: '#FF5C6C',
+      }
+    : {
+        cardBg: '#FFFFFF',
+        cardBorder: 'rgba(225,20,20,0.14)',
+        cardShadow: '#9A1414',
+        title: '#15151A',
+        closeBg: '#F6ECEC',
+        closeIcon: '#15151A',
+        cellBg: '#FFFFFF',
+        cellBorder: '#E9E0E1',
+        cellText: '#6B7280',
+        globeBg: '#FEE2E2',
+        globeIcon: '#E11414',
+      };
 
   const countries = useMemo(
     () =>
@@ -50,14 +82,28 @@ export function CountryFilterPopover({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.popover} onPress={(e) => e.stopPropagation()}>
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+
+        <Animated.View
+          entering={FadeInDown.duration(280).springify().damping(18)}
+          style={[
+            styles.popover,
+            { backgroundColor: pal.cardBg, borderColor: pal.cardBorder, shadowColor: pal.cardShadow },
+          ]}
+        >
           <View style={styles.popoverHeader}>
-            <Pressable onPress={onClose} hitSlop={10} style={styles.closeBtn}>
-              <X size={16} color={lu.colors.muted} strokeWidth={2.5} />
+            <Pressable
+              onPress={onClose}
+              hitSlop={10}
+              style={[styles.closeBtn, { backgroundColor: pal.closeBg }]}
+            >
+              <X size={16} color={pal.closeIcon} strokeWidth={2.5} />
             </Pressable>
-            <RNText style={styles.popoverTitle}>{t('rooms.selectCountry')}</RNText>
-            <View style={{ width: 28 }} />
+            <RNText style={[styles.popoverTitle, { color: pal.title }]}>
+              {t('rooms.selectCountry')}
+            </RNText>
+            <View style={styles.headerPlaceholder} />
           </View>
 
           <FlatList
@@ -72,17 +118,39 @@ export function CountryFilterPopover({
               return (
                 <Pressable
                   onPress={() => onSelect(item.code)}
-                  style={[styles.countryCell, isActive && styles.countryCellActive]}
+                  style={({ pressed }) => [
+                    styles.countryCell,
+                    { backgroundColor: isActive ? '#C40E2E' : pal.cellBg, borderColor: pal.cellBorder },
+                    isActive && styles.countryCellActive,
+                    pressed && { transform: [{ scale: 0.96 }] },
+                  ]}
                 >
+                  {isActive ? (
+                    <LinearGradient
+                      colors={['#FF4D66', '#C40E2E']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={StyleSheet.absoluteFill}
+                    />
+                  ) : null}
                   {item.code === 'WW' ? (
-                    <View style={[styles.globeIcon, isActive && styles.globeIconActive]}>
-                      <Globe size={16} color={isActive ? lu.colors.purple : '#6B7280'} strokeWidth={2.3} />
+                    <View
+                      style={[
+                        styles.globeIcon,
+                        { backgroundColor: isActive ? 'rgba(255,255,255,0.22)' : pal.globeBg },
+                      ]}
+                    >
+                      <Globe size={16} color={isActive ? '#fff' : pal.globeIcon} strokeWidth={2.3} />
                     </View>
                   ) : (
                     <RealCountryFlag countryCode={item.code} size={22} />
                   )}
                   <RNText
-                    style={[styles.countryCellText, isActive && styles.countryCellTextActive]}
+                    style={[
+                      styles.countryCellText,
+                      { color: isActive ? '#fff' : pal.cellText },
+                      isActive && styles.countryCellTextActive,
+                    ]}
                     numberOfLines={2}
                   >
                     {item.name}
@@ -91,8 +159,8 @@ export function CountryFilterPopover({
               );
             }}
           />
-        </Pressable>
-      </Pressable>
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
@@ -111,7 +179,7 @@ export function CountryGlobeTrigger({ countryCode, dark, onPress }: CountryGlobe
   return (
     <Pressable onPress={onPress} style={[styles.globeTrigger, dark && styles.globeTriggerDark]}>
       <View style={[styles.globeTriggerIcon, dark && styles.globeTriggerIconDark]}>
-        <Globe size={15} color={dark ? '#FF5C6C' : lu.colors.purple} strokeWidth={2.4} />
+        <Globe size={15} color={dark ? '#FF5C6C' : '#E11414'} strokeWidth={2.4} />
       </View>
       <RNText
         style={[styles.globeTriggerText, dark && { color: lu.colors.nightInk }]}
@@ -127,7 +195,7 @@ export function CountryGlobeTrigger({ countryCode, dark, onPress }: CountryGlobe
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(8,3,5,0.72)',
     paddingTop: 120,
     paddingHorizontal: 16,
     alignItems: 'center',
@@ -135,14 +203,13 @@ const styles = StyleSheet.create({
   popover: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#fff',
-    borderRadius: 18,
+    borderRadius: 24,
+    borderWidth: 1,
     paddingBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 22,
+    elevation: 12,
   },
   popoverHeader: {
     flexDirection: 'row',
@@ -150,19 +217,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 14,
     paddingTop: 12,
-    paddingBottom: 8,
+    paddingBottom: 10,
   },
   popoverTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: lu.colors.ink,
     fontFamily: lu.fonts.bodyHeavy,
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   closeBtn: {
-    width: 28,
-    height: 28,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerPlaceholder: {
+    width: 30,
   },
   gridContent: {
     paddingHorizontal: 10,
@@ -176,41 +248,39 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    borderRadius: 13,
     paddingVertical: 10,
     paddingHorizontal: 4,
-    borderWidth: 1.5,
-    borderColor: '#F3F4F6',
+    borderWidth: 1.3,
     minHeight: 72,
     gap: 6,
+    overflow: 'hidden',
   },
   countryCellActive: {
-    backgroundColor: '#FEE2E2',
-    borderColor: '#FCA5A5',
+    borderColor: '#FF4D66',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    elevation: 5,
   },
   countryCellText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#4B5563',
     fontFamily: lu.fonts.bodySemi,
     textAlign: 'center',
     lineHeight: 13,
   },
   countryCellTextActive: {
-    color: lu.colors.purple,
     fontWeight: '800',
+    fontFamily: lu.fonts.bodyHeavy,
   },
   globeIcon: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  globeIconActive: {
-    backgroundColor: '#FEE2E2',
   },
   globeTrigger: {
     flexDirection: 'row',
