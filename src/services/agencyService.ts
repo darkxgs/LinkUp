@@ -486,14 +486,8 @@ export const acceptAgencyInviteByCode = async (
 ): Promise<{ agencyId: string; agencyName: string; needsGenderVerification: boolean }> => {
   const current = auth.currentUser;
   if (!current?.uid) throw new Error('يجب تسجيل الدخول');
-  const meSnap = await getDoc(doc(firestore, 'users', current.uid));
-  const meData = meSnap.exists() ? (meSnap.data() as Record<string, unknown>) : {};
-  const genderRaw = String((meData.gender ?? (meData.profile as any)?.gender ?? '')).toLowerCase();
-  const isFemale = genderRaw === 'female';
-  const isVerified = meData.isVerified === true || meData.verificationStatus === 'approved';
-  if (isFemale && !isVerified) {
-    throw new Error('عليك توثيق الحساب للانضمام إلى الوكالة');
-  }
+  // التوثيق اختياري عند الانضمام — الخادم يقبل غير الموثّقة كعضو ويعيد needsGenderVerification
+  // للتوثيق لاحقاً. (أُزيلت بوابة عميل قديمة كانت ترمي «عليك توثيق الحساب» وتمنع الانضمام رغم أن الخادم يسمح.)
 
   // #10: نفس إصلاح الإرسال — مسار HTTP الموثوق بدل httpsCallable وحده
   try {
@@ -1097,15 +1091,7 @@ export const acceptDirectAgencyInvite = async (
   try {
     const current = auth.currentUser;
     if (!current?.uid) throw new Error('يجب تسجيل الدخول');
-    const meSnap = await getDoc(doc(firestore, 'users', current.uid));
-    const meData = meSnap.exists() ? (meSnap.data() as Record<string, unknown>) : {};
-    const genderRaw = String((meData.gender ?? (meData.profile as any)?.gender ?? '')).toLowerCase();
-    const isFemale = genderRaw === 'female';
-    const isVerified = meData.isVerified === true || meData.verificationStatus === 'approved';
-    if (isFemale && !isVerified) {
-      throw new Error('عليك توثيق الحساب للانضمام إلى الوكالة');
-    }
-
+    // التوثيق اختياري عند الانضمام — الخادم يقبل غير الموثّقة كعضو (أُزيلت بوابة العميل القديمة)
     const user = await ensureCallableAuth();
     const token = await user.getIdToken();
     const res = await callCallableHttp<

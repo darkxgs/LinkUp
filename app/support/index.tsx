@@ -48,7 +48,7 @@ const LINK_ITEMS = [
   { key: 'wallet',  icon: Wallet,      color: '#D97706', bg: '#FFFBEB', route: '/wallet' },
   { key: 'report',  icon: ShieldAlert, color: '#DC2626', bg: '#FEF2F2', route: '/report' },
   { key: 'myReports', icon: ClipboardList, color: '#7C3AED', bg: '#F5F3FF', route: '/report/my' },
-  { key: 'email',   icon: Mail,        color: '#EA2626', bg: '#FEF0F0', action: 'mailto:support@linkup.app' },
+  { key: 'email',   icon: Mail,        color: '#EA2626', bg: '#FEF0F0', action: 'mailto:support@linkuplivechat.com' },
 ] as const;
 
 const FAQ_KEYS = ['account', 'wallet', 'agency', 'rooms', 'report'] as const;

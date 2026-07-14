@@ -2608,8 +2608,9 @@ export default function RoomScreen() {
     return windowW < 360 ? 'small' : 'medium';
   }, [seatNumbers.length, seatColumns, windowW]);
 
-  // Task 5: cap mic stage (~42% screen) — never grow with seat count (was 54% at 16+)
-  const stageMaxHeight = windowH * 0.42;
+  // Task 5: cap mic stage — never grow with seat count. رُفع من 0.42 إلى 0.50 لأن السقف
+  // كان يقصّ الصف الأخير من المايكات (لا يظهر إلا بالتمرير) في تخطيط صفّين الشائع.
+  const stageMaxHeight = windowH * 0.50;
   const hostSeatReserve = secondHostEnabled ? 128 : 100;
   const seatsAreaMaxHeight = Math.max(140, stageMaxHeight - hostSeatReserve);
   // E4: في PK تُقسَم المقاعد إلى لوحتين داخل ScrollView محدود الارتفاع → المقاعد السفلية تُقصّ.

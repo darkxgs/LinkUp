@@ -374,14 +374,14 @@ export default function SettingsScreen() {
             icon={FileText}
             iconColor="#ED4444"
             label={t('settings.termsOfService')}
-            onPress={() => router.push('/about' as any)}
+            onPress={() => router.push('/about/terms' as any)}
           />
           <Divider />
           <NavRow
             icon={FileText}
             iconColor="#10B981"
             label={t('settings.privacyPolicy')}
-            onPress={() => router.push('/about' as any)}
+            onPress={() => router.push('/about/privacy' as any)}
           />
           <Divider />
           <NavRow

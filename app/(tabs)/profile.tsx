@@ -19,7 +19,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   Settings, Share2, Pencil, BadgeCheck, Crown, Copy,
   Users, Heart, Eye, Gift, Trophy, ShoppingBag, Wallet, Gamepad2, Headphones,
-  User, Award, Briefcase, MessageCircle, Ban, Lock, ShieldCheck,
+  User, Award, Briefcase, MessageCircle, Ban, Lock, ShieldCheck, Info,
 } from 'lucide-react-native';
 import { ArrowRight } from '@/components/ui/RtlIcons';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -300,6 +300,7 @@ export default function ProfileScreen() {
   menu.push(
     { Icon: MessageCircle, label: t('profile.feedback'), route: '/support' },
     { Icon: Ban, label: t('profile.blockedList'), route: '/blocked' },
+    { Icon: Info, label: t('profile.aboutApp'), route: '/about' },
     { Icon: Lock, label: t('settings.privacy'), route: '/settings/privacy' },
   );
 
