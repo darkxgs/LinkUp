@@ -61,7 +61,15 @@ export default function AgencyJoinScreen() {
     setBusy(true);
     try {
       const result = await acceptAgencyInviteByCode(trimmed);
-      if (result.needsGenderVerification) {
+      if (result.pending) {
+        // موافقة الانضمام مفعّلة: أُرسل الطلب ولم يُنفَّذ الانضمام — لا تنقل كـ«منضم»
+        showAlert({
+          type: 'success',
+          title: t('agency.text451502'),
+          message: 'تم إرسال طلب الانضمام — بانتظار موافقة الوكيل',
+          buttons: [{ text: t('common.ok'), onPress: () => router.replace('/(tabs)/profile' as any) }],
+        });
+      } else if (result.needsGenderVerification) {
         showAlert({
           type: 'success',
           title: t('agency.text451502'),

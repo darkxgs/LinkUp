@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { copyToClipboard } from '@/utils/copyToClipboard';
-import { TrendingUp, Users, Gift, PhoneCall, MessageSquare, MoreHorizontal, UserPlus, BarChart3, Building2, LogOut, Crown, Gem, Copy, KeyRound, Headphones, Wallet, MessageCircle, HelpCircle, ChevronDown, RotateCcw, PieChart, Sparkles, Eye, Camera } from 'lucide-react-native';
+import { TrendingUp, Users, Gift, PhoneCall, MessageSquare, MoreHorizontal, UserPlus, BarChart3, Building2, LogOut, Crown, Gem, Copy, KeyRound, Headphones, Wallet, MessageCircle, HelpCircle, ChevronDown, RotateCcw, PieChart, Sparkles, Eye, Camera, Inbox } from 'lucide-react-native';
 import { ArrowUpRight, ChevronLeft } from '@/components/ui/RtlIcons';
 
 import { Text, useAlert, RealCountryFlag } from '@/components/ui';
@@ -39,6 +39,7 @@ import {
   getAgencyManagerAnalytics,
   invalidateAgencyAnalyticsCache,
   enterAgencyLiveRoom,
+  fetchAgencyJoinRequests,
   type Agency,
   type AgencyEarningsSummary,
 } from '@/services/agencyService';
@@ -830,6 +831,15 @@ function ManagementTab({
   const [showAgencySettings, setShowAgencySettings] = useState(false);
   const [settingsRoomId, setSettingsRoomId] = useState<string | null>(null);
   const [openingSettings, setOpeningSettings] = useState(false);
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAgencyJoinRequests()
+      .then((reqs) => { if (!cancelled) setPendingRequestsCount(reqs.length); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [agency.id]);
 
   const handleOpenAgencySettings = useCallback(async () => {
     if (openingSettings) return;
@@ -928,6 +938,15 @@ function ManagementTab({
       Icon: UserPlus,
     },
     {
+      label: 'طلبات الانضمام',
+      route: '/agency/requests',
+      Icon: Inbox,
+      subtitle: pendingRequestsCount > 0
+        ? `${pendingRequestsCount} طلب بانتظار الموافقة`
+        : 'موافقة أو رفض طلبات انضمام المضيفين',
+      hasRedDot: pendingRequestsCount > 0,
+    },
+    {
       label: 'متجر إطارات الوكالة',
       route: '/agency/decor',
       Icon: Sparkles,
@@ -961,7 +980,7 @@ function ManagementTab({
       route: '/agency/host-completions',
       Icon: Users,
     },
-  ], [clanName]);
+  ], [clanName, pendingRequestsCount]);
 
   return (
     <View style={{ paddingHorizontal: 20 }}>
