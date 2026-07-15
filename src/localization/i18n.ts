@@ -18,6 +18,24 @@ import {
   DEFAULT_LANGUAGE,
 } from './language';
 
+/**
+ * فرض الأرقام اللاتينية (0-9) في كل التطبيق حتى في الواجهة العربية.
+ * `Number.prototype.toLocaleString()` بلا locale كان يتبع لغة الجهاز (العربية)
+ * فيعرض أرقاماً هندية (١٢٣). نجعل الافتراضي en-US مرة واحدة عند بدء التشغيل —
+ * يصلح كل مواضع toLocaleString() دون تعديلها، ويحترم أي locale يُمرَّر صراحةً.
+ */
+{
+  const _origNumberToLocaleString = Number.prototype.toLocaleString;
+  // eslint-disable-next-line no-extend-native
+  Number.prototype.toLocaleString = function (
+    this: number,
+    locales?: string | string[],
+    options?: Intl.NumberFormatOptions,
+  ): string {
+    return _origNumberToLocaleString.call(this, locales ?? 'en-US', options);
+  } as typeof Number.prototype.toLocaleString;
+}
+
 export {
   SUPPORTED_LANGUAGES,
   isRTLLanguage,

@@ -134,7 +134,9 @@ export default function AgencyApplyScreen() {
         backgroundUri ? uriToBase64(backgroundUri, 1280, 0.78) : Promise.resolve(''),
       ]);
 
-      const result = await submitAgencyVerification({
+      // القرار (قبول/رفض) يُتّخذ في الخلفية ويصل المستخدم كإشعار — الشاشة تعرض
+      // رسالة موحّدة «أُرسل للإدارة» مع مهلة حتى 24 ساعة (لا نكشف القرار الآلي هنا).
+      await submitAgencyVerification({
         agencyName: agencyName.trim(),
         countryCode: countryCode.trim().toUpperCase(),
         phone: phone.trim(),
@@ -149,33 +151,26 @@ export default function AgencyApplyScreen() {
         await sendAgencyApplicationConfirmation(user.uid);
       }
 
-      const goCenter = () => {
-        if (fromChat) router.replace(`/chat/${SUPPORT_UID}` as any);
-        else router.replace('/agency/center' as any);
-      };
+      // الوكيلة الأنثى تعمل كمضيفة أيضاً (مهام ودخل) — فتحتاج توثيق الهوية كمضيفة
+      // بجانب طلب الوكالة. غير الموثّقة تُوجَّه لإكمال توثيق الوجه الآن.
+      const gender = (user as any)?.profile?.gender ?? (user as any)?.gender;
+      const needsHostKyc = gender === 'female' && (user as any)?.isVerified !== true;
 
-      if (result.decision === 'approve') {
-        showAlert({
-          type: 'success',
-          title: t('agencyApply.approvedTitle'),
-          message: t('agencyApply.approvedMessage', { code: result.inviteCode ?? '' }),
-          buttons: [{ text: t('common.ok'), onPress: goCenter }],
-        });
-      } else if (result.decision === 'reject') {
-        // رفض آلي — يبقى المستخدم على الشاشة ليصحّح ويعيد
-        showAlert({
-          type: 'error',
-          title: t('agencyApply.rejectedTitle'),
-          message: result.reason || t('agencyApply.rejectedGeneric'),
-        });
-      } else {
-        showAlert({
-          type: 'info',
-          title: t('agencyApply.pendingTitle'),
-          message: result.reason || t('agencyApply.pendingMessage'),
-          buttons: [{ text: t('common.ok'), onPress: goCenter }],
-        });
-      }
+      showAlert({
+        type: 'success',
+        title: t('agencyApply.sentTitle'),
+        message: needsHostKyc
+          ? t('agencyApply.sentFemaleKyc')
+          : t('agencyApply.sentToAdminMessage'),
+        buttons: [{
+          text: needsHostKyc ? t('agencyApply.verifyIdentityNow') : t('common.ok'),
+          onPress: () => {
+            if (needsHostKyc) router.replace('/wallet/kyc' as any);
+            else if (fromChat) router.replace(`/chat/${SUPPORT_UID}` as any);
+            else router.replace('/agency/center' as any);
+          },
+        }],
+      });
     } catch (e: any) {
       showAlert({ type: 'error', title: t('common.error'), message: e?.message ?? t('common.error') });
     } finally {
