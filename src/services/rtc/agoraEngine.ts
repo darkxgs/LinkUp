@@ -246,6 +246,19 @@ class AgoraEngineManager {
     this.appStateSub = AppState.addEventListener('change', onChange);
   }
 
+  /**
+   * يحرّر المحرك إن لم يكن في قناة نشطة (غرفة/مكالمة) — لتحرير جلسة الصوت/المايك
+   * لمسجّل الفويس (expo-av) في المحادثات. كان المحرك يمسك المايك فيفشل بدء التسجيل
+   * («فشل بدء التسجيل»). لا يحرّر أثناء مكالمة/غرفة نشطة. يعيد true إن حرّر فعلاً.
+   */
+  releaseIfIdle(): boolean {
+    if (this.engine && !this.currentChannel && !this.joinWaiter) {
+      this.release();
+      return true;
+    }
+    return false;
+  }
+
   /** هل الحدث يخص الجلسة الحالية؟ (فلترة الأجيال + القناة) */
   private isCurrent(connection?: RtcConnection): boolean {
     if (!this.sessionActive) return false;
