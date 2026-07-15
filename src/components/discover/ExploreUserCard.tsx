@@ -10,6 +10,7 @@ import Animated, {
   withTiming,
   withSequence,
   withRepeat,
+  cancelAnimation,
   Easing,
   FadeInUp,
 } from 'react-native-reanimated';
@@ -113,12 +114,22 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
   const dotScale = useSharedValue(0.9);
 
   useEffect(() => {
+    // نُشغّل نبضة النقطة فقط عند الاتصال — الأوفلاين يعرض نقطة ثابتة بلا حلقة worklet
+    // (شبكة عمودين تُركّب عشرات البطاقات؛ حلقة لا نهائية لكل بطاقة تُسخّن الجهاز)
+    if (!online) {
+      cancelAnimation(dotScale);
+      dotScale.value = 0.9;
+      return;
+    }
     dotScale.value = withRepeat(
       withTiming(1.2, { duration: 1100, easing: Easing.inOut(Easing.ease) }),
       -1,
       true
     );
-  }, []);
+    return () => {
+      cancelAnimation(dotScale);
+    };
+  }, [online]);
 
   const cardAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: cardScale.value }],

@@ -24,6 +24,8 @@
  * - المحرك يتصل بقناة واحدة (بخلاف LiveKit الذي يتحمّل اتصالين): روم Agora
  *   مثبّت يُفصل قبل الانضمام لقناة المكالمة ويُعاد وصله بعد انتهائها.
  */
+import { AppState, Platform, type AppStateStatus } from 'react-native';
+
 import {
   endCall as endCallFn,
   chargeCallMinute,
@@ -126,6 +128,10 @@ class AgoraCallSessionManager {
   private videoDowngraded = false;
   /** روم Agora فُصل لأجل المكالمة (قناة واحدة للمحرك) — يُعاد وصله بعدها */
   private suspendedRoom: { roomName: string; canPublish: boolean } | null = null;
+  /** مستمع حالة التطبيق — يُثبَّت مرة (حارس يمنع التكرار)، يُزال عند إنهاء الجلسة */
+  private appStateSub: { remove: () => void } | null = null;
+  /** أوقفنا التقاط الكاميرا لأن التطبيق دخل الخلفية أثناء مكالمة فيديو — للاستئناف عند العودة */
+  private cameraSuspendedForBackground = false;
 
   private isConnectStale(generation: number): boolean {
     return generation !== this.connectGeneration;
@@ -322,7 +328,10 @@ class AgoraCallSessionManager {
         // إعادة تطبيق حالة الوسائط بعد عودة الشبكة (نظير reapplyMediaStateAfterReconnect)
         agoraEngine.setMicMuted(this.isMuted);
         agoraEngine.setSpeakerphone(this.isSpeakerOn);
-        if (this.isVideoEnabled) agoraEngine.setCameraPublishing(true);
+        // لا نعيد تشغيل الكاميرا إن كنا موقفينها لأجل الخلفية — تُستأنف عند العودة للمقدمة
+        if (this.isVideoEnabled && !this.cameraSuspendedForBackground) {
+          agoraEngine.setCameraPublishing(true);
+        }
         if (this.remoteJoined) this.startBillingIfNeeded();
         this.emit();
         break;
@@ -447,6 +456,49 @@ class AgoraCallSessionManager {
       console.warn('agoraCallSession camera enable failed — continuing audio-only:', e);
       return false;
     }
+  }
+
+  /**
+   * مستمع حالة التطبيق — يُثبَّت مرة (حارس appStateSub يمنع التكرار، على نمط
+   * agoraEngine.installIdleAudioRelease). عند دخول الخلفية/الخمول أثناء مكالمة
+   * فيديو قائمة نوقف التقاط الكاميرا (الحسّاس + مشفّر H.264) — كان يبقى يلتقط
+   * ويشفّر إلى الأبد فيسخّن الجهاز ويستنزف البطارية؛ الصوت يبقى حياً. عند العودة
+   * للمقدمة نستأنف الكاميرا إن بقيت المكالمة فيديو ومنضمّة. مكالمات الصوت فقط
+   * لا تتأثر أبداً (isVideoEnabled=false).
+   */
+  private installAppStateHandler(): void {
+    if (this.appStateSub) return;
+    const onChange = (next: AppStateStatus): void => {
+      const backgrounded =
+        next === 'background' || (Platform.OS === 'ios' && next === 'inactive');
+      if (backgrounded) {
+        // نتصرّف فقط أثناء مكالمة فيديو منضمّة ومُثبتة، ولا نصارع rejoin/leave
+        if (
+          this.joined &&
+          this.sessionEstablished &&
+          this.isVideoEnabled &&
+          !this.rejoinInFlight &&
+          !this.cameraSuspendedForBackground
+        ) {
+          this.cameraSuspendedForBackground = true;
+          agoraEngine.setCameraPublishing(false);
+        }
+      } else if (next === 'active' && this.cameraSuspendedForBackground) {
+        this.cameraSuspendedForBackground = false;
+        // نستأنف فقط إن ما زالت المكالمة فيديو ومنضمّة (قد تكون انتهت في الخلفية)
+        if (this.joined && this.sessionEstablished && this.isVideoEnabled) {
+          agoraEngine.setCameraPublishing(true);
+        }
+      }
+    };
+    this.appStateSub = AppState.addEventListener('change', onChange);
+  }
+
+  /** إزالة مستمع حالة التطبيق عند إنهاء الجلسة — وتصفير علم تعليق الكاميرا */
+  private removeAppStateHandler(): void {
+    this.appStateSub?.remove();
+    this.appStateSub = null;
+    this.cameraSuspendedForBackground = false;
   }
 
   // ==================== الاتصال ====================
@@ -598,6 +650,10 @@ class AgoraCallSessionManager {
 
         this.sessionEstablished = true;
 
+        // مستمع الخلفية: يوقف كاميرا مكالمة الفيديو عند قفل الشاشة/الخلفية
+        // (منع تسخين الجهاز واستنزاف البطارية) — يُزال في leave()
+        this.installAppStateHandler();
+
         // تجديد التوكن تلقائياً + إعادة انضمام كاملة عند انتهائه الفعلي
         this.attachRenewal(generation);
 
@@ -688,7 +744,8 @@ class AgoraCallSessionManager {
         agoraEngine.enableVideoForCall();
         const dims = this.videoDowngraded ? VIDEO_FALLBACK : VIDEO_PRIMARY;
         agoraEngine.setVideoEncoding(dims.width, dims.height);
-        agoraEngine.setCameraPublishing(true);
+        // لا نبدأ التقاط الكاميرا إن كنا موقفينها لأجل الخلفية — تُستأنف عند العودة للمقدمة
+        if (!this.cameraSuspendedForBackground) agoraEngine.setCameraPublishing(true);
       }
       this.isReconnecting = false;
       this.callState = 'connected';
@@ -715,6 +772,7 @@ class AgoraCallSessionManager {
     this.stopBilling();
     this.stopDurationTimer();
     this.detachEngine();
+    this.removeAppStateHandler();
 
     // المحرك مشترك مع الغرف: لا نلمس القناة إلا إن كانت جلسةُ المكالمة هذه
     // من قامت بها — leave() عابر (تنظيف شاشة/جلسة لم تنضم) كان سيقطع قناة

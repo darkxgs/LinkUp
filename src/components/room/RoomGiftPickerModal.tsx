@@ -37,7 +37,8 @@ import { radius, spacing } from '@/theme';
 
 const QTY_OPTIONS = [1, 5, 10, 20, 50, 99];
 const COMBO_DURATION_SEC = 5;
-const COMBO_TICK_MS = 100;
+// نبضة العدّاد ~2.5Hz بدل 10Hz — يكفي لعرض بيل تنازلي دون إعادة رسم شبكة الهدايا 10 مرات/ث
+const COMBO_TICK_MS = 400;
 const COMBO_RING_R = 30;
 const COMBO_RING_C = 2 * Math.PI * COMBO_RING_R;
 
@@ -151,6 +152,8 @@ export function RoomGiftPickerModal({
   const [comboCount, setComboCount] = useState<number>(0);
   const [comboTimeLeft, setComboTimeLeft] = useState<number>(COMBO_DURATION_SEC);
   const comboTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  // طابع نهاية الكومبو — نشتق الوقت المتبقي من الفرق الزمني حتى تبقى الـ5 ثوانٍ دقيقة رغم خشونة النبضة
+  const comboEndAtRef = useRef(0);
   const comboGlow = useRef(new Animated.Value(0)).current;
   const comboScale = useRef(new Animated.Value(1)).current;
   /** يمنع ضغطات مزدوجة دون الاعتماد على prop `sending` (كان يعطّل الزر على أجهزة بطيئة) */
@@ -210,9 +213,11 @@ export function RoomGiftPickerModal({
 
   const startComboTimer = useCallback(() => {
     clearComboTimer();
+    comboEndAtRef.current = Date.now() + COMBO_DURATION_SEC * 1000;
     setComboTimeLeft(COMBO_DURATION_SEC);
     comboTimerRef.current = setInterval(() => {
-      setComboTimeLeft((prev) => Math.max(0, prev - COMBO_TICK_MS / 1000));
+      // الوقت المتبقي من الفرق الزمني الحقيقي — يصل 0 بدقة عند انقضاء المدة
+      setComboTimeLeft(Math.max(0, (comboEndAtRef.current - Date.now()) / 1000));
     }, COMBO_TICK_MS);
   }, [clearComboTimer]);
 

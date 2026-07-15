@@ -207,6 +207,26 @@ function stopUserDocListener() {
   userDocUnsubscribe = null;
 }
 
+// حقول «ضجيج» الحضور فقط — تغيّرها لا يغيّر أي شيء بالواجهة. نتبضِّه نبضة كل
+// ~دقيقتين (lastSeen) فتُطلق onSnapshot دون تغيّر حقيقي. نحذفها قبل المقارنة.
+const PRESENCE_NOISE_KEYS = [
+  'lastSeen',
+  'lastSeenAt',
+  'lastActive',
+  'lastActiveAt',
+  'onlineAt',
+  'presence',
+  'presenceUpdatedAt',
+] as const;
+
+// نسخة قابلة للمقارنة من المستخدم بعد حذف حقول الحضور. لو تطابقت نسختا
+// current/updated فالتغيّر حضور/lastSeen فقط ولا يستحق set() ولا كتابة تخزين.
+function comparableUserSnapshot(u: User): string {
+  const clone: Record<string, unknown> = { ...(u as unknown as Record<string, unknown>) };
+  for (const k of PRESENCE_NOISE_KEYS) delete clone[k];
+  return JSON.stringify(clone);
+}
+
 function startUserDocListener(
   uid: string,
   get: () => AuthState,
@@ -288,6 +308,12 @@ function startUserDocListener(
       privacyHideVisitors: data.privacyHideVisitors === true,
       privacySettings: (data.privacySettings as Record<string, boolean> | undefined) ?? undefined,
     };
+    // بوابة منع إعادة الرسم: لو لم يتغيّر أي حقل حقيقي (كوينز/ماسات/حظر/VIP/مستوى/
+    // اسم/أفاتار/أدوار…) وكان الفرق حضور/lastSeen فقط، نتجاهل — بلا set ولا كتابة
+    // تخزين — كي لا يُعاد رسم ~88 مستهلكاً بلا داعٍ. أي فرق آخر يُحدَّث كما كان تماماً.
+    if (comparableUserSnapshot(updated) === comparableUserSnapshot(current)) {
+      return;
+    }
     void AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(updated));
     set({ user: updated });
   });

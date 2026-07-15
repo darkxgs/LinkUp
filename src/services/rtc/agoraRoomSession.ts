@@ -54,8 +54,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * مقارنة لقطتي مشاركين — نفس تكميم المرجع (audioLevel بخطوات 0..4)
- * حتى لا نعيد رسم شاشة الروم مع كل تقرير مستوى صوت (كل 200ms).
+ * مقارنة لقطتي مشاركين — تكميم audioLevel لخطوتين فقط (0..2)
+ * حتى لا نعيد رسم شاشة الروم مع كل تذبذب طفيف بمستوى الصوت.
  */
 function participantsEqual(a: RoomParticipant[], b: RoomParticipant[]): boolean {
   if (a.length !== b.length) return false;
@@ -66,7 +66,7 @@ function participantsEqual(a: RoomParticipant[], b: RoomParticipant[]): boolean 
       x.identity !== y.identity ||
       x.isSpeaking !== y.isSpeaking ||
       x.isMuted !== y.isMuted ||
-      Math.round(x.audioLevel * 4) !== Math.round(y.audioLevel * 4)
+      Math.round(x.audioLevel * 2) !== Math.round(y.audioLevel * 2)
     ) {
       return false;
     }

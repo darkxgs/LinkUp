@@ -61,6 +61,8 @@ export function RoomBackgroundKeepAlive() {
         const roomId = roomIdRef.current;
         if (suspendedRef.current && roomId) {
           suspendedRef.current = false;
+          // إيقاف الخدمة الأمامية (مايك/wakelock) — لزِمت بالخلفية فقط، والآن رجعنا للمقدمة
+          void stopRoomForegroundService();
           void recoverRoomPresenceAfterRtdbReconnect()
             .then(() => {
               const pinned = useRoomSessionStore.getState();

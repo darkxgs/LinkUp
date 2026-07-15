@@ -323,6 +323,10 @@ const ONLINE_THRESHOLD_MS = 2 * 60 * 1000; // دقيقتان
 
 export const subscribeToConversations = (
   callback: (convs: Conversation[]) => void,
+  // enrich=false: مسار خفيف يعيد المستندات الخام بلا جلب مستندات الأطراف
+  // (للاستخدام حيث نحتاج العدّ فقط، مثل شارة «غير مقروء» داخل الروم).
+  // الافتراضي إثراء كامل (اسم/صورة/حالة اتصال) لقائمة الدردشات.
+  options?: { enrich?: boolean },
 ): (() => void) => {
   // نفس إصلاح سباق الإقلاع في notifications.ts: قراءة auth.currentUser لحظة
   // الاستدعاء تُرجع noop إذا رُكِّب المستمع قبل اكتمال استعادة الجلسة.
@@ -335,7 +339,7 @@ export const subscribeToConversations = (
       if (disposed || attachedUid === user.uid) return;
       fsUnsub?.();
       attachedUid = user.uid;
-      fsUnsub = attachConversationsListener(user, callback);
+      fsUnsub = attachConversationsListener(user, callback, options);
     },
     () => {
       if (disposed) return;
@@ -357,7 +361,9 @@ export const subscribeToConversations = (
 function attachConversationsListener(
   user: User,
   callback: (convs: Conversation[]) => void,
+  options?: { enrich?: boolean },
 ): () => void {
+  const enrich = options?.enrich !== false; // الافتراضي: إثراء كامل
   const q = query(
     collection(firestore, 'conversations'),
     where('participants', 'array-contains', user.uid),
@@ -378,6 +384,22 @@ function attachConversationsListener(
   return onSnapshot(q, async (snap) => {
     const seq = ++snapshotSeq;
     const baseConvs = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Conversation);
+
+    // مسار خفيف: عدّ «غير مقروء» فقط بلا جلب مستندات الأطراف.
+    // كان الإثراء يقرأ getDoc(users/{peer}) لكل طرف من حتى 50 محادثة على كل
+    // لقطة (~50 قراءة). هنا نعيد المستندات الخام (unreadBy) مع نفس الفلترة
+    // (المخفية/المحذوفة/الرسمية المخفية/بلا نشاط) ليطابق العدّ قائمة الدردشات.
+    if (!enrich) {
+      const visible = baseConvs.filter(
+        (c) =>
+          !c.hiddenBy?.[user.uid] &&
+          !c.deletedAtBy?.[user.uid] &&
+          !c.participants.some((p) => isOfficialHiddenInChatList(p)) &&
+          conversationHasThreadActivity(c),
+      );
+      callback(visible);
+      return;
+    }
 
     await waitForFirestoreAuth(12_000);
 

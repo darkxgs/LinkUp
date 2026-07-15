@@ -12,7 +12,6 @@ import { useTranslation } from 'react-i18next';
 
 import { Text } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
-import { subscribeToNotifications } from '@/services/firebase/notifications';
 import { repairKycMismatchBan } from '@/services/firebase/kyc';
 import { lu } from '@/theme/lu-brand';
 
@@ -24,13 +23,8 @@ export function AccountModerationGate() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  useEffect(() => {
-    if (!user?.uid) return;
-    const unsub = subscribeToNotifications(() => {
-      void refreshUser();
-    });
-    return unsub;
-  }, [user?.uid, refreshUser]);
+  // حالة الحظر (isBanned/banReason) تصل حيّة عبر مستمع وثيقة المستخدم في authStore،
+  // فلا حاجة للاشتراك في الإشعارات لإعادة تحميل المستخدم — أُزيل لتفادي عاصفة refreshUser.
 
   useEffect(() => {
     if (!user?.uid || !user.isBanned || user.banReason !== KYC_GENDER_MISMATCH_BAN) return;

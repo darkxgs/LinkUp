@@ -1,16 +1,18 @@
 /**
  * LinkUp Tab Bar — شريط سفلي زجاجي بأيقونات ثلاثية الأبعاد وميكروفون مركزي بارز.
  */
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   Pressable,
   StyleSheet,
   useWindowDimensions,
+  AppState,
 } from 'react-native';
 import { Tabs } from 'expo-router';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
@@ -22,6 +24,7 @@ import Animated, {
   withTiming,
   withRepeat,
   withDelay,
+  cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
 
@@ -69,6 +72,17 @@ const LinkUpTabBar: React.FC<BottomTabBarProps> = ({ state, navigation }) => {
     readUserGender(user) === 'female'
       ? require('../../assets/images/tab_profile_female.png')
       : require('../../assets/images/tab_profile_male.png');
+
+  // ⚡ لا نشغّل الحلقات اللانهائية (نبض الميكروفون + أعمدة الموازن) إلا حين يكون
+  //    الشريط ظاهراً وفي المقدمة. تحت شاشات الروم/المكالمة/المحادثة يفقد ملّاح
+  //    التبويبات التركيز، وفي الخلفية يصبح AppState غير active — فنوقف الرسم عندئذٍ.
+  const isFocused = useIsFocused();
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
+    return () => sub.remove();
+  }, []);
+  const animate = isFocused && appActive;
 
   const BAR_W = W - 24;
 
@@ -172,6 +186,7 @@ const LinkUpTabBar: React.FC<BottomTabBarProps> = ({ state, navigation }) => {
                   icon={it.icon}
                   label={it.label}
                   active={isActive(it.route)}
+                  animate={animate}
                   pal={pal}
                   onPress={() => navigateTo(it.route)}
                 />
@@ -285,12 +300,14 @@ function CenterMicTab({
   icon,
   label,
   active,
+  animate,
   pal,
   onPress,
 }: {
   icon: number;
   label: string;
   active: boolean;
+  animate: boolean; // شغّل حلقة النبض فقط حين يكون الشريط ظاهراً وفي المقدمة.
   pal: Pal;
   onPress: () => void;
 }) {
@@ -299,19 +316,26 @@ function CenterMicTab({
   const focus = useSharedValue(active ? 1 : 0);
 
   useEffect(() => {
-    pulse.value = withRepeat(
-      withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true,
-    );
-  }, []);
+    if (animate) {
+      pulse.value = withRepeat(
+        withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
+        -1,
+        true,
+      );
+    } else {
+      // إيقاف الحلقة اللانهائية حين يختفي الشريط أو يذهب التطبيق للخلفية.
+      cancelAnimation(pulse);
+      pulse.value = withTiming(0, { duration: 200 });
+    }
+    return () => cancelAnimation(pulse); // تنظيف عند إلغاء التركيب.
+  }, [animate]);
   useEffect(() => {
     focus.value = withSpring(active ? 1 : 0, { damping: 12, stiffness: 160 });
   }, [active]);
 
+  // نحرّك المقياس فقط — shadowOpacity ثابت في الستايل لتفادي إعادة رسم الظل كل إطار.
   const ringStyle = useAnimatedStyle(() => ({
     transform: [{ scale: press.value * (1 + pulse.value * 0.04 + focus.value * 0.06) }],
-    shadowOpacity: 0.35 + pulse.value * 0.35 + focus.value * 0.15,
   }));
   const haloStyle = useAnimatedStyle(() => ({
     opacity: 0.28 + pulse.value * 0.3,
@@ -347,7 +371,7 @@ function CenterMicTab({
         <Image source={icon} style={styles.micIcon} contentFit="contain" />
         <View style={styles.eqRow}>
           {[0, 1, 2, 3, 4].map((i) => (
-            <EqBar key={i} delay={i * 110} />
+            <EqBar key={i} delay={i * 110} animate={animate} />
           ))}
         </View>
       </Animated.View>
@@ -367,18 +391,25 @@ function CenterMicTab({
 }
 
 // عمود موجة صوتية متحرّكة أسفل أيقونة الرئيسية.
-function EqBar({ delay }: { delay: number }) {
+function EqBar({ delay, animate }: { delay: number; animate: boolean }) {
   const v = useSharedValue(0.25);
   useEffect(() => {
-    v.value = withDelay(
-      delay,
-      withRepeat(
-        withTiming(1, { duration: 430, easing: Easing.inOut(Easing.ease) }),
-        -1,
-        true,
-      ),
-    );
-  }, []);
+    if (animate) {
+      v.value = withDelay(
+        delay,
+        withRepeat(
+          withTiming(1, { duration: 430, easing: Easing.inOut(Easing.ease) }),
+          -1,
+          true,
+        ),
+      );
+    } else {
+      // إيقاف حلقة العمود حين لا يكون الشريط في المقدمة.
+      cancelAnimation(v);
+      v.value = withTiming(0.25, { duration: 200 });
+    }
+    return () => cancelAnimation(v); // تنظيف عند إلغاء التركيب.
+  }, [animate]);
   const st = useAnimatedStyle(() => ({
     transform: [{ scaleY: 0.3 + v.value * 0.7 }],
   }));
@@ -475,6 +506,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 0 },
+    // ظل ثابت (كان يُحرَّك كل إطار = إعادة رسم الظل مكلفة جداً) — قيمة وسطية للتوهّج.
+    shadowOpacity: 0.5,
     shadowRadius: 14,
     elevation: 12,
   },

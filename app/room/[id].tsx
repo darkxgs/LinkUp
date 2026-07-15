@@ -3141,7 +3141,9 @@ export default function RoomScreen() {
 
   useEffect(() => {
     if (!user?.uid) return;
-    const unsub = subscribeToConversations(setPrivateConversations);
+    // شارة «غير مقروء» في الشريط تحتاج العدّ فقط — نمرّر enrich:false لتخطّي
+    // جلب مستندات الأطراف (~50 قراءة getDoc على كل لقطة) داخل الروم.
+    const unsub = subscribeToConversations(setPrivateConversations, { enrich: false });
     return unsub;
   }, [user?.uid]);
 

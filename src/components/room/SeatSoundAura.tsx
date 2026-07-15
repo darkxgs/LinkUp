@@ -2,11 +2,15 @@
  * هالة صوت حول المقعد — توهّج يتجاوب مع مستوى الصوت الحقيقي + حلقات متموّجة
  * تُظهر فوراً أنّ صاحب المقعد يتكلّم بأي مستوى صوت.
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated, Easing } from 'react-native';
 import { lu } from '@/theme/lu-brand';
 
 const RING_COUNT = 3;
+// عتبة صغيرة: تحت هذا المستوى نعتبر المقعد صامتاً فنوقف الحلقات (توفير حرارة/بطارية)
+const ACTIVE_THRESHOLD = 0.02;
+// مهلة صغيرة قبل إيقاف الحلقات حتى لا تتذبذب مع فجوات الكلام القصيرة
+const PARK_DELAY_MS = 600;
 
 type Props = {
   size: number;
@@ -46,7 +50,16 @@ export function SeatSoundAura({ size, variant = 'voice', audioLevel }: Props) {
     }
   }, [audioLevel, hasAudioLevel, levelAnim]);
 
-  useEffect(() => {
+  // مراجع الحلقات + حالة التشغيل + مؤقّت الإيقاف المؤجّل (تُنشأ الحلقات مرّة واحدة، لا مع كل فجوة كلام)
+  const ringLoopsRef = useRef<Animated.CompositeAnimation[] | null>(null);
+  const glowLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const loopsRunningRef = useRef(false);
+  const parkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startLoops = useCallback(() => {
+    if (loopsRunningRef.current) return; // تعمل أصلاً — لا تُنشئ حلقات جديدة (تجنّب هدر GC)
+    loopsRunningRef.current = true;
+
     const ringLoops = rings.map((a, i) =>
       Animated.loop(
         Animated.sequence([
@@ -78,15 +91,56 @@ export function SeatSoundAura({ size, variant = 'voice', audioLevel }: Props) {
       ]),
     );
 
+    ringLoopsRef.current = ringLoops;
+    glowLoopRef.current = glowLoop;
     ringLoops.forEach((l) => l.start());
     glowLoop.start();
-    return () => {
-      ringLoops.forEach((l) => l.stop());
-      glowLoop.stop();
-      rings.forEach((a) => a.setValue(0));
-      glowAnim.setValue(0);
-    };
   }, [rings, glowAnim]);
+
+  const stopLoops = useCallback(() => {
+    if (!loopsRunningRef.current) return;
+    loopsRunningRef.current = false;
+    ringLoopsRef.current?.forEach((l) => l.stop());
+    glowLoopRef.current?.stop();
+    ringLoopsRef.current = null;
+    glowLoopRef.current = null;
+    // إعادة للراحة حتى تختفي الحلقات ويهدأ التوهّج عند الصمت
+    rings.forEach((a) => a.setValue(0));
+    glowAnim.setValue(0);
+  }, [rings, glowAnim]);
+
+  // شغّل الحلقات فقط عند وجود صوت فعلي؛ أوقفها (بعد مهلة قصيرة) عند الصمت.
+  // في وضع الموسيقى/غياب audioLevel نُبقيها دائمة كالسابق (لا نغيّر مظهر مقعد الموسيقى).
+  const soundActive =
+    audioLevel == null || (audioLevel ?? 0) >= ACTIVE_THRESHOLD;
+
+  useEffect(() => {
+    if (soundActive) {
+      // استأنف فوراً عند عودة الصوت وألغِ أي إيقاف مؤجّل
+      if (parkTimerRef.current) {
+        clearTimeout(parkTimerRef.current);
+        parkTimerRef.current = null;
+      }
+      startLoops();
+    } else if (loopsRunningRef.current && !parkTimerRef.current) {
+      // صمت: أوقف الحلقات بعد مهلة قصيرة (نتحمّل فجوات الكلام القصيرة)
+      parkTimerRef.current = setTimeout(() => {
+        parkTimerRef.current = null;
+        stopLoops();
+      }, PARK_DELAY_MS);
+    }
+  }, [soundActive, startLoops, stopLoops]);
+
+  // تنظيف نهائي عند إزالة المكوّن: أوقف كل الحلقات وألغِ المؤقّت
+  useEffect(() => {
+    return () => {
+      if (parkTimerRef.current) {
+        clearTimeout(parkTimerRef.current);
+        parkTimerRef.current = null;
+      }
+      stopLoops();
+    };
+  }, [stopLoops]);
 
   const glowOpacity = hasAudioLevel
     ? Animated.add(

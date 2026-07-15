@@ -2671,21 +2671,39 @@ export const subscribeToRoomMessages = (
     limitToLast(limit),
   );
 
-  const handler = (snapshot: DataSnapshot) => {
-    const data = snapshot.val() ?? {};
+  // نحتفظ بآخر لقطة خام + بصمة آخر قائمة مُرسلة، لإعادة تطبيق فلتر TTL محلياً بلا قراءة شبكة
+  let lastRawData: Record<string, any> = {};
+  let lastEmittedLen = -1;
+  let lastEmittedId: string | undefined;
+
+  // بناء القائمة النهائية من البيانات الخام (فرز + دمج + فلتر TTL/وقت الدخول)
+  const buildMessages = (data: Record<string, any>): RoomMessage[] => {
     const messages: RoomMessage[] = Object.entries(data)
       .map(([id, msg]: [string, any]) => ({ id, ...msg }))
       .sort((a, b) => resolveRoomMessageCreatedAt(a.createdAt) - resolveRoomMessageCreatedAt(b.createdAt));
     const compacted = compactAgencyEntryMessages(messages);
-    callback(filterRoomMessagesForViewer(compacted, { sinceMs }));
+    return filterRoomMessagesForViewer(compacted, { sinceMs });
+  };
+
+  const handler = (snapshot: DataSnapshot) => {
+    lastRawData = snapshot.val() ?? {};
+    const list = buildMessages(lastRawData);
+    lastEmittedLen = list.length;
+    lastEmittedId = list[list.length - 1]?.id;
+    callback(list);
     schedulePruneExpiredRoomMessages(roomId);
   };
 
   onValue(messagesRef, handler);
+  // تكة محلية كل دقيقة: تعيد تطبيق فلتر TTL على آخر لقطة مخزّنة (بلا قراءة شبكة)،
+  // وتُحدّث الواجهة فقط عند اختفاء رسائل منتهية الصلاحية (تغيّر الطول أو آخر معرّف)
   const ttlTick = setInterval(() => {
-    get(messagesRef)
-      .then((snapshot) => handler(snapshot))
-      .catch(() => {});
+    const list = buildMessages(lastRawData);
+    const lastId = list[list.length - 1]?.id;
+    if (list.length === lastEmittedLen && lastId === lastEmittedId) return;
+    lastEmittedLen = list.length;
+    lastEmittedId = lastId;
+    callback(list);
   }, 60_000);
   return () => {
     clearInterval(ttlTick);
