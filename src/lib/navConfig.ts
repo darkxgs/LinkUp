@@ -84,8 +84,10 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: adminPath('/agencies'), routePath: 'agencies', label: 'الوكالات', icon: Building2 },
       { to: adminPath('/agency-levels'), routePath: 'agency-levels', label: 'مستويات الوكالة', icon: TrendingUp },
+      { to: adminPath('/agency-policies'), routePath: 'agency-policies', label: 'سياسات الوكالة (رواتب)', icon: Wallet },
       { to: adminPath('/agency-prince'), routePath: 'agency-prince', label: 'أمير الوكلاء', icon: Crown },
       { to: adminPath('/agency-applications'), routePath: 'agency-applications', label: 'طلبات فتح الوكالة', icon: FileText },
+      { to: adminPath('/agency-verifications'), routePath: 'agency-verifications', label: 'تحقق الوكالات', icon: ShieldCheck },
     ],
   },
   {

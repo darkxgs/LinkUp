@@ -38,6 +38,7 @@ const DEFAULTS: ConfigSettings = {
   maintenanceMode: false,
   allowRegistration: true,
   requireVerification: false,
+  agencyJoinRequiresApproval: false,
   welcomeBonus: 0,
   firstRechargeBonus: 50_000,
   inAppRechargeEnabled: false,
@@ -371,6 +372,9 @@ export default function SettingsPage() {
               onChange={(v) => setSettings({ ...settings, allowRegistration: v })} />
             <Toggle label="إلزام توثيق الحساب" icon={Bell} checked={settings.requireVerification}
               onChange={(v) => setSettings({ ...settings, requireVerification: v })} />
+            <Toggle label="موافقة الوكيل على طلبات الانضمام (كود + دعوة)" icon={Shield}
+              checked={!!settings.agencyJoinRequiresApproval}
+              onChange={(v) => setSettings({ ...settings, agencyJoinRequiresApproval: v })} />
             <Toggle
               label="شحن داخل التطبيق (بوابة دفع)"
               icon={Zap}

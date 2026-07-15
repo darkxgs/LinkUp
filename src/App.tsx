@@ -26,6 +26,7 @@ const RoomDecor = lazy(() => import('@/pages/RoomDecor'));
 const Agencies = lazy(() => import('@/pages/Agencies'));
 const AgencyDetail = lazy(() => import('@/pages/AgencyDetail'));
 const AgencyApplications = lazy(() => import('@/pages/AgencyApplications'));
+const AgencyVerifications = lazy(() => import('@/pages/AgencyVerifications'));
 const Admins = lazy(() => import('@/pages/Admins'));
 const Staff = lazy(() => import('@/pages/Staff'));
 const Wallet = lazy(() => import('@/pages/Wallet'));
@@ -38,6 +39,7 @@ const RoomThrone = lazy(() => import('@/pages/RoomThrone'));
 const RoomReactions = lazy(() => import('@/pages/RoomReactions'));
 const Vip = lazy(() => import('@/pages/Vip'));
 const AgencyLevels = lazy(() => import('@/pages/AgencyLevels'));
+const AgencyPolicies = lazy(() => import('@/pages/AgencyPolicies'));
 const AgencyPrince = lazy(() => import('@/pages/AgencyPrince'));
 const RewardsCenter = lazy(() => import('@/pages/RewardsCenter'));
 const HostTasks = lazy(() => import('@/pages/HostTasks'));
@@ -133,7 +135,9 @@ export default function App() {
             <Route path="agencies/:id" element={guard('agencies', <AgencyDetail />)} />
             <Route path="agency-prince" element={guard('agency-prince', <AgencyPrince />)} />
             <Route path="agency-levels" element={guard('agency-levels', <AgencyLevels />)} />
+            <Route path="agency-policies" element={guard('agency-policies', <AgencyPolicies />)} />
             <Route path="agency-applications" element={guard('agency-applications', <AgencyApplications />)} />
+            <Route path="agency-verifications" element={guard('agency-verifications', <AgencyVerifications />)} />
             <Route path="wallet" element={guard('wallet', <Wallet />)} />
             <Route path="withdrawals" element={guard('withdrawals', <Withdrawals />)} />
             <Route path="bot" element={guard('bot', <BotAdmin />)} />

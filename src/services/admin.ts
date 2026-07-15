@@ -1781,6 +1781,8 @@ export interface ConfigSettings {
   pearlUsdRate?: number;
   giftCommission: number;
   agencyCommission: number;
+  /** تفعيل موافقة الوكيل على طلبات الانضمام (السيناريوهان: كود=معلّق، دعوة=مصافحة طرفين) */
+  agencyJoinRequiresApproval?: boolean;
   /** نسبة عمولة BD من دخل الوكالة المُحالة (%) */
   bdReferralCommissionPercent?: number;
   /** مدة استفادة الوكيل المُحيل من الوكالة الجديدة (أشهر) */
@@ -2674,6 +2676,130 @@ export const saveAgencyLevelsConfig = async (config: ConfigAgencyLevels): Promis
       vipSupervisorBonus: Math.max(0, Math.round(Number(config.vipSupervisorBonus) || 0)),
       updatedAt: Date.now(),
       _permKey: 'agency-levels',
+    },
+    { merge: true },
+  );
+};
+
+
+// ===== Agency Policies (official salary/withdrawal tables) =====
+export interface ConfigAgentPolicyRow {
+  target: number;
+  collectionPct: number;
+  diamonds: number;
+  salaryUsd: number;
+  bonusPct: number;
+  totalUsd: number;
+  giftCoins: number;
+}
+
+export interface ConfigHostessPolicyRow {
+  target: number;
+  collectionPct: number;
+  diamonds: number;
+  salaryUsd: number;
+  bonusPct: number;
+  totalUsd: number;
+  giftCoins: number;
+}
+
+export interface ConfigAgencyPolicies {
+  usdPerDiamond: number;
+  agentCollectionAbovePct: number;   // collection% above the last agent target (75)
+  agentBonusAbovePct: number;        // bonus% above last agent target (30)
+  agentGiftAboveTargetPct: number;   // gift = % of target above cap (1.5)
+  hostessBonusAbovePct: number;      // 150
+  hostessGiftAboveTargetPct: number; // 0.5
+  agent: ConfigAgentPolicyRow[];
+  hostess: ConfigHostessPolicyRow[];
+}
+
+const DEFAULT_AGENT_POLICY_ROWS: ConfigAgentPolicyRow[] = [
+  { target: 2_000_000, collectionPct: 30, diamonds: 12, salaryUsd: 11.40, bonusPct: 0, totalUsd: 11, giftCoins: 40_000 },
+  { target: 5_000_000, collectionPct: 35, diamonds: 35, salaryUsd: 33.25, bonusPct: 2.5, totalUsd: 34, giftCoins: 100_000 },
+  { target: 7_500_000, collectionPct: 40, diamonds: 60, salaryUsd: 57, bonusPct: 5, totalUsd: 60, giftCoins: 150_000 },
+  { target: 10_000_000, collectionPct: 45, diamonds: 90, salaryUsd: 85.5, bonusPct: 8, totalUsd: 92, giftCoins: 200_000 },
+  { target: 15_000_000, collectionPct: 50, diamonds: 150, salaryUsd: 142.5, bonusPct: 10, totalUsd: 157, giftCoins: 300_000 },
+  { target: 20_000_000, collectionPct: 55, diamonds: 220, salaryUsd: 209, bonusPct: 12, totalUsd: 234, giftCoins: 400_000 },
+  { target: 25_000_000, collectionPct: 60, diamonds: 300, salaryUsd: 285, bonusPct: 15, totalUsd: 328, giftCoins: 500_000 },
+  { target: 30_000_000, collectionPct: 65, diamonds: 390, salaryUsd: 370.5, bonusPct: 20, totalUsd: 445, giftCoins: 600_000 },
+  { target: 50_000_000, collectionPct: 70, diamonds: 700, salaryUsd: 665, bonusPct: 25, totalUsd: 831, giftCoins: 1_000_000 },
+];
+
+const DEFAULT_HOSTESS_POLICY_ROWS: ConfigHostessPolicyRow[] = [
+  { target: 100_000, collectionPct: 100, diamonds: 2, salaryUsd: 1.90, bonusPct: 0, totalUsd: 2, giftCoins: 0 },
+  { target: 200_000, collectionPct: 100, diamonds: 4, salaryUsd: 3.8, bonusPct: 15, totalUsd: 4, giftCoins: 0 },
+  { target: 500_000, collectionPct: 100, diamonds: 10, salaryUsd: 9.5, bonusPct: 30, totalUsd: 12, giftCoins: 0 },
+  { target: 1_000_000, collectionPct: 100, diamonds: 20, salaryUsd: 19, bonusPct: 40, totalUsd: 27, giftCoins: 5_000 },
+  { target: 2_000_000, collectionPct: 100, diamonds: 40, salaryUsd: 38, bonusPct: 50, totalUsd: 57, giftCoins: 10_000 },
+  { target: 3_500_000, collectionPct: 100, diamonds: 70, salaryUsd: 66.5, bonusPct: 60, totalUsd: 106, giftCoins: 17_500 },
+  { target: 5_000_000, collectionPct: 100, diamonds: 100, salaryUsd: 95, bonusPct: 70, totalUsd: 162, giftCoins: 25_000 },
+  { target: 7_000_000, collectionPct: 100, diamonds: 140, salaryUsd: 133, bonusPct: 90, totalUsd: 253, giftCoins: 35_000 },
+  { target: 10_000_000, collectionPct: 100, diamonds: 200, salaryUsd: 190, bonusPct: 120, totalUsd: 418, giftCoins: 50_000 },
+];
+
+export const DEFAULT_AGENCY_POLICIES: ConfigAgencyPolicies = {
+  usdPerDiamond: 0.95,
+  agentCollectionAbovePct: 75,
+  agentBonusAbovePct: 30,
+  agentGiftAboveTargetPct: 1.5,
+  hostessBonusAbovePct: 150,
+  hostessGiftAboveTargetPct: 0.5,
+  agent: DEFAULT_AGENT_POLICY_ROWS,
+  hostess: DEFAULT_HOSTESS_POLICY_ROWS,
+};
+
+/** يوحّد صفّاً واحداً من جداول الرواتب (الوكلاء أو المضيفات — نفس البنية) */
+const sanitizePolicyRow = (row: Partial<ConfigAgentPolicyRow> | undefined): ConfigAgentPolicyRow => ({
+  target: Math.max(0, Math.round(Number(row?.target) || 0)),
+  collectionPct: Math.max(0, Number(row?.collectionPct) || 0),
+  diamonds: Math.max(0, Number(row?.diamonds) || 0),
+  salaryUsd: Math.max(0, Number(row?.salaryUsd) || 0),
+  bonusPct: Math.max(0, Number(row?.bonusPct) || 0),
+  totalUsd: Math.max(0, Number(row?.totalUsd) || 0),
+  giftCoins: Math.max(0, Math.round(Number(row?.giftCoins) || 0)),
+});
+
+export const getAgencyPolicies = async (): Promise<ConfigAgencyPolicies> => {
+  try {
+    const snap = await getDoc(doc(firestore, 'config', 'agencyPolicies'));
+    if (!snap.exists()) return DEFAULT_AGENCY_POLICIES;
+    const d = snap.data();
+    const agent = Array.isArray(d.agent) && d.agent.length > 0
+      ? (d.agent as ConfigAgentPolicyRow[]).map(sanitizePolicyRow)
+      : DEFAULT_AGENCY_POLICIES.agent;
+    const hostess = Array.isArray(d.hostess) && d.hostess.length > 0
+      ? (d.hostess as ConfigHostessPolicyRow[]).map(sanitizePolicyRow)
+      : DEFAULT_AGENCY_POLICIES.hostess;
+    return {
+      usdPerDiamond: Number(d.usdPerDiamond) > 0 ? Number(d.usdPerDiamond) : DEFAULT_AGENCY_POLICIES.usdPerDiamond,
+      agentCollectionAbovePct: Number(d.agentCollectionAbovePct) || DEFAULT_AGENCY_POLICIES.agentCollectionAbovePct,
+      agentBonusAbovePct: Number(d.agentBonusAbovePct) || DEFAULT_AGENCY_POLICIES.agentBonusAbovePct,
+      agentGiftAboveTargetPct: Number(d.agentGiftAboveTargetPct) || DEFAULT_AGENCY_POLICIES.agentGiftAboveTargetPct,
+      hostessBonusAbovePct: Number(d.hostessBonusAbovePct) || DEFAULT_AGENCY_POLICIES.hostessBonusAbovePct,
+      hostessGiftAboveTargetPct: Number(d.hostessGiftAboveTargetPct) || DEFAULT_AGENCY_POLICIES.hostessGiftAboveTargetPct,
+      agent,
+      hostess,
+    };
+  } catch {
+    return DEFAULT_AGENCY_POLICIES;
+  }
+};
+
+export const saveAgencyPolicies = async (config: ConfigAgencyPolicies): Promise<void> => {
+  await setDoc(
+    doc(firestore, 'config', 'agencyPolicies'),
+    {
+      usdPerDiamond: Math.max(0, Number(config.usdPerDiamond) || DEFAULT_AGENCY_POLICIES.usdPerDiamond),
+      agentCollectionAbovePct: Math.max(0, Number(config.agentCollectionAbovePct) || 0),
+      agentBonusAbovePct: Math.max(0, Number(config.agentBonusAbovePct) || 0),
+      agentGiftAboveTargetPct: Math.max(0, Number(config.agentGiftAboveTargetPct) || 0),
+      hostessBonusAbovePct: Math.max(0, Number(config.hostessBonusAbovePct) || 0),
+      hostessGiftAboveTargetPct: Math.max(0, Number(config.hostessGiftAboveTargetPct) || 0),
+      agent: (config.agent ?? DEFAULT_AGENCY_POLICIES.agent).map(sanitizePolicyRow).filter((r) => r.target > 0),
+      hostess: (config.hostess ?? DEFAULT_AGENCY_POLICIES.hostess).map(sanitizePolicyRow).filter((r) => r.target > 0),
+      updatedAt: Date.now(),
+      _permKey: 'agency-policies',
     },
     { merge: true },
   );
@@ -5094,8 +5220,10 @@ export const PERMISSION_SECTIONS = [
   { key: 'room-reactions', label: 'رموز الروم (GIF/صور)' },
   { key: 'agencies', label: 'الوكالات' },
   { key: 'agency-levels', label: 'مستويات الوكالة' },
+  { key: 'agency-policies', label: 'سياسات الوكالة (رواتب)' },
   { key: 'agency-prince', label: 'أمير الوكلاء' },
   { key: 'agency-applications', label: 'طلبات فتح الوكالة' },
+  { key: 'agency-verifications', label: 'تحقق الوكالات' },
   { key: 'wallet', label: 'الشحن والسحب' },
   { key: 'withdrawals', label: 'طلبات السحب' },
   { key: 'bot', label: 'بوت تيليغرام (شحن)' },
@@ -5429,6 +5557,7 @@ export const seedAllConfig = async (): Promise<{ ok: boolean; message: string }>
         maintenanceMode: false,
         allowRegistration: true,
         requireVerification: false,
+        agencyJoinRequiresApproval: false,
         welcomeBonus: 0,
         firstRechargeBonus: 50_000,
       }),
@@ -5875,6 +6004,20 @@ export interface AdminAgencyApplication {
   source?: string;
   rejectionReason?: string;
   agencyId?: string;
+  // توثيق الوكالة بالذكاء الاصطناعي (مسار submitAgencyVerification)
+  ownerName?: string;
+  reviewMethod?: string;
+  logoUrl?: string;
+  backgroundUrl?: string;
+  idDocumentUrl?: string;
+  aiDecision?: 'approve' | 'reject' | 'uncertain';
+  aiReason?: string;
+  aiConfidence?: number;
+  aiChecks?: Array<{ key: string; pass: boolean | null; note: string }>;
+  aiProvider?: string;
+  aiModel?: string;
+  aiRaw?: string;
+  aiReviewedAt?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -5901,6 +6044,26 @@ export const reviewAgencyApplicationAdmin = async (
 ) => {
   const fn = httpsCallable(functions, 'reviewAgencyApplication');
   return fn({ applicationId, action, rejectionReason });
+};
+
+/**
+ * طلبات توثيق الوكالة (المُراجَعة آلياً بالذكاء الاصطناعي) — reviewMethod === 'ai'.
+ * ترشيح client-side لتجنّب فهرس مركّب.
+ */
+export const getAgencyVerifications = async (): Promise<AdminAgencyApplication[]> => {
+  try {
+    const snap = await getDocs(
+      query(collection(firestore, 'agencyApplications'), limit(300)),
+    );
+    return snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as object) }) as AdminAgencyApplication)
+      .filter((a) => a.reviewMethod === 'ai')
+      .filter((a) => isInAdminCountryScope(a.countryCode))
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  } catch (e) {
+    console.error('getAgencyVerifications:', e);
+    return [];
+  }
 };
 
 export const adminVerifyAgencyHostAdmin = async (
