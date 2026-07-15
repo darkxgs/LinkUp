@@ -40,9 +40,11 @@ import {
   invalidateAgencyAnalyticsCache,
   enterAgencyLiveRoom,
   fetchAgencyJoinRequests,
+  withdrawAgencySalary,
   type Agency,
   type AgencyEarningsSummary,
 } from '@/services/agencyService';
+import { computeAgentEntitlement } from '@/services/agencySalary';
 import { SimpleLineChart } from '@/components/agency/SimpleLineChart';
 import { Clock, AlertCircle } from 'lucide-react-native';
 import { doc, getDoc } from 'firebase/firestore';
@@ -580,8 +582,93 @@ function IncomeTab({
     { id: 'other' as IncomeType, label: 'أخرى' },
   ], []);
 
+  // محفظة راتب الوكيل — إجمالي كوينز العمل + المرحلة المحقَّقة + السحب (يوم 2)
+  const [withdrawingSalary, setWithdrawingSalary] = useState(false);
+  const walletWorkCoins = Math.max(0, Number(agency?.walletWorkCoins) || 0);
+  const salaryEnt = useMemo(() => computeAgentEntitlement(walletWorkCoins), [walletWorkCoins]);
+  const currentMonthKey = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+  const alreadyWithdrawnThisMonth = String(agency?.walletLastWithdrawMonthKey ?? '') === currentMonthKey;
+
+  const handleWithdrawSalary = useCallback(async () => {
+    if (withdrawingSalary) return;
+    if (!salaryEnt.tier || salaryEnt.entitlementCoins <= 0) {
+      Alert.alert('لا يوجد استحقاق', 'لم تبلغ الوكالة أدنى مرحلة في جدول الوكلاء لهذا الشهر.');
+      return;
+    }
+    setWithdrawingSalary(true);
+    try {
+      const r = await withdrawAgencySalary();
+      Alert.alert(
+        'تم سحب الراتب ✓',
+        `تم تحويل ${r.entitlementCoins.toLocaleString()} كوين (${r.diamonds} ماسة) إلى محفظة بروفايلك.\nحوّلها إلى ماس ثم قدّم طلب السحب الذاتي (رسوم 2%).`,
+      );
+    } catch (e: any) {
+      Alert.alert('تعذّر السحب', e?.message ?? 'حدث خطأ');
+    } finally {
+      setWithdrawingSalary(false);
+    }
+  }, [withdrawingSalary, salaryEnt]);
+
+  const canWithdraw = !!salaryEnt.tier && salaryEnt.entitlementCoins > 0 && !alreadyWithdrawnThisMonth;
+
   return (
     <>
+      {/* محفظة الوكيل */}
+      <View style={styles.walletCard}>
+        <View style={styles.walletHeaderRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Wallet size={18} color="#FDE047" strokeWidth={2} />
+            <Text weight="bold" style={{ color: '#fff', fontSize: 15 }}>محفظة الوكالة</Text>
+          </View>
+          <Pressable onPress={() => router.push('/agency/host-balances' as any)} hitSlop={8}>
+            <Text style={{ color: '#FDE047', fontSize: 12 }}>أرصدة البنات (سحب بالنيابة) ›</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.walletLabel}>إجمالي كوينز العمل هذا الشهر</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
+          <Text weight="bold" style={styles.walletBig}>{walletWorkCoins.toLocaleString()}</Text>
+          <Text style={styles.walletUnit}>كوين</Text>
+        </View>
+
+        <View style={styles.walletDivider} />
+
+        <View style={styles.walletRow}>
+          <Text style={styles.walletRowLabel}>المرحلة المحقَّقة</Text>
+          <Text weight="bold" style={styles.walletRowValue}>
+            {salaryEnt.tier ? `${salaryEnt.tier.target.toLocaleString()} (${salaryEnt.tier.collectionPct}%)` : 'لم تبلغ أدنى مرحلة'}
+          </Text>
+        </View>
+        <View style={styles.walletRow}>
+          <Text style={styles.walletRowLabel}>استحقاقك للسحب</Text>
+          <Text weight="bold" style={[styles.walletRowValue, { color: '#FDE047' }]}>
+            {salaryEnt.entitlementCoins.toLocaleString()} كوين = {salaryEnt.diamonds} ماسة
+          </Text>
+        </View>
+        {salaryEnt.nextTier ? (
+          <Text style={styles.walletHint}>
+            المرحلة التالية عند {salaryEnt.nextTier.target.toLocaleString()} كوين — الزيادة تتراكم للشهر القادم.
+          </Text>
+        ) : null}
+
+        <Pressable
+          onPress={handleWithdrawSalary}
+          disabled={!canWithdraw || withdrawingSalary}
+          style={[styles.walletBtn, (!canWithdraw || withdrawingSalary) && { opacity: 0.5 }]}
+        >
+          {withdrawingSalary ? (
+            <ActivityIndicator color="#1a1012" />
+          ) : (
+            <Text weight="bold" style={{ color: '#1a1012', fontSize: 14 }}>
+              {alreadyWithdrawnThisMonth ? 'تم سحب راتب هذا الشهر' : 'سحب الراتب (يوم 2 شهرياً)'}
+            </Text>
+          )}
+        </Pressable>
+      </View>
+
       <View style={{ flexDirection: 'row', justifyContent: 'flex-start', marginBottom: 12, gap: 8, paddingHorizontal: 20 }}>
         {periods.map((p) => (
           <Pressable
@@ -1131,6 +1218,40 @@ function ManagementTab({
 const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: lu.colors.bg },
   centered: { alignItems: 'center', justifyContent: 'center' },
+
+  // محفظة الوكيل
+  walletCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.25)',
+  },
+  walletHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  walletLabel: { color: 'rgba(255,255,255,0.5)', fontSize: 12, marginBottom: 2 },
+  walletBig: { color: '#fff', fontSize: 26 },
+  walletUnit: { color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 4 },
+  walletDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginVertical: 12 },
+  walletRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  walletRowLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 13 },
+  walletRowValue: { color: '#fff', fontSize: 13 },
+  walletHint: { color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 4, lineHeight: 16 },
+  walletBtn: {
+    marginTop: 14,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#FDE047',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
 
   hero: {
     paddingBottom: 36,

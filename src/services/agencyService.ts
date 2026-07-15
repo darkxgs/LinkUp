@@ -79,6 +79,12 @@ export interface Agency {
   /** دعم الفترة الحالية (كوينز هدايا داخل الوكالة) */
   periodSupportCoins?: number;
   periodSupportWeekKey?: string;
+  /** كوينز العمل المتراكمة لمحفظة راتب الوكيل (لا تُصفَّر أسبوعياً) */
+  walletWorkCoins?: number;
+  /** آخر شهر تم فيه سحب راتب الوكيل (YYYY-MM) — يمنع تكرار السحب */
+  walletLastWithdrawMonthKey?: string;
+  walletLastWithdrawAt?: number;
+  walletLastWithdrawCoins?: number;
   /** الحد الأقصى لعدد المايكات — يحدده الأدمن، والوكيل يختار العدد الفعلي ضمنه */
   maxSeatsCount?: number;
   cardFrameId?: string;
@@ -340,6 +346,28 @@ export async function bumpAgencyPeriodSupport(agencyId: string, coins: number): 
       updatedAt: Date.now(),
     });
   }
+}
+
+export interface AgencySalaryWithdrawResult {
+  ok: boolean;
+  entitlementCoins: number;
+  diamonds: number;
+  consumedCoins: number;
+  remainingWorkCoins: number;
+  tierTarget: number;
+}
+
+/**
+ * سحب راتب الوكيل الشهري (يوم 2) — يحسب الاستحقاق من كوينز العمل المتراكمة
+ * ويحوّله كوينز لمحفظة البروفايل. يرمي خطأ برسالة عربية عند فشل الشروط.
+ */
+export async function withdrawAgencySalary(): Promise<AgencySalaryWithdrawResult> {
+  const fn = httpsCallable<Record<string, never>, AgencySalaryWithdrawResult>(
+    functions,
+    'withdrawAgencySalary',
+  );
+  const res = await fn({});
+  return res.data;
 }
 
 export function subscribeToAgencyById(
