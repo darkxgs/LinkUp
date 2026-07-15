@@ -20,11 +20,13 @@ let started = false;
 export function startUnreadTracking(): void {
   if (started) return;
   started = true;
+  // العدّ فقط يحتاج unreadBy الموجود على المستند الخام — نمرّر enrich:false
+  // لتخطّي جلب مستندات الأطراف (كان ~50 قراءة getDoc على كل لقطة، طوال عمر التطبيق).
   subscribeToConversations((convs) => {
     const uid = auth.currentUser?.uid;
     const totalUnread = uid
       ? convs.reduce((sum, c) => sum + (c.unreadBy?.[uid] ?? 0), 0)
       : 0;
     useUnreadStore.setState({ totalUnread });
-  });
+  }, { enrich: false });
 }

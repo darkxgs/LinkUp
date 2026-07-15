@@ -6,7 +6,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Pencil } from 'lucide-react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, cancelAnimation, Easing } from 'react-native-reanimated';
+import { useIsFocused } from '@react-navigation/native';
 
 const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
 
@@ -49,13 +50,20 @@ export function ProfileHeaderBanner({
   settingsIcon,
 }: Props) {
   const rotation = useSharedValue(0);
+  // زخرفة دوّارة — نوقف الحلقة اللانهائية عندما لا تكون شاشة البروفايل ظاهرة
+  // حتى لا تدور على خيط الواجهة بينما المستخدم في شاشة أخرى (توفير معالج/حرارة).
+  const isFocused = useIsFocused();
   React.useEffect(() => {
+    if (!isFocused) return;
     rotation.value = withRepeat(
       withTiming(360, { duration: 6000, easing: Easing.linear }),
       -1,
       false
     );
-  }, []);
+    return () => {
+      cancelAnimation(rotation);
+    };
+  }, [isFocused]);
   const animatedStyle = useAnimatedStyle(() => {
     return {
       transform: [{ rotateZ: `${rotation.value}deg` }, { scale: 1.5 }],

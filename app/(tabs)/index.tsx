@@ -26,8 +26,10 @@ import Animated, {
   withRepeat,
   withTiming,
   withSpring,
+  cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
+import { useIsFocused } from '@react-navigation/native';
 import {
   Check,
   Bell, Search,
@@ -357,15 +359,22 @@ export default function DiscoverScreen() {
   const WAVE_HEIGHTS = [10, 22, 14, 30, 18, 38, 24, 44, 20, 34, 15, 26, 12, 20, 9];
 
   // نبض زر البدء + توهجه — لمسة حيّة على البطاقة الرئيسية.
+  // نوقف الحلقة اللانهائية عندما لا تكون تبويبة الرئيسية ظاهرة (داخل روم/تبويب آخر)
+  // حتى لا تبقى تدور على خيط الواجهة طوال الجلسة (توفير معالج/حرارة).
+  const isHomeFocused = useIsFocused();
   const ctaGlow = useSharedValue(0);
   const ctaPress = useSharedValue(1);
   useEffect(() => {
+    if (!isHomeFocused) return;
     ctaGlow.value = withRepeat(
       withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.ease) }),
       -1,
       true,
     );
-  }, []);
+    return () => {
+      cancelAnimation(ctaGlow);
+    };
+  }, [isHomeFocused]);
   const ctaAnimStyle = useAnimatedStyle(() => ({
     transform: [{ scale: ctaPress.value * (1 + ctaGlow.value * 0.02) }],
     shadowOpacity: 0.35 + ctaGlow.value * 0.3,
