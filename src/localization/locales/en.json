@@ -217,7 +217,7 @@
     "birthYearLabel": "Birth Year",
     "yearsAge": "{{count}} years",
     "text68438": "Or log in with",
-    "continueWithGoogle": "Login with Google",
+    "continueWithGoogle": "Continue with Google",
     "loginWithSnapchat": "Login with Snapchat",
     "rewardTitle": "Daily Reward",
     "rewardSubtitle": "Claim your reward and win free coins!",
@@ -249,7 +249,15 @@
     "accountIdNotFound": "No account found with this ID",
     "accountIdNoEmail": "This account is not linked to an email",
     "loginWithEmailInstead": "Prefer email?",
-    "loginWithIdInstead": "Prefer ID?"
+    "loginWithIdInstead": "Prefer ID?",
+    "welcomeTagline": "Connect. Match. LinkUp.",
+    "welcomeBack": "Welcome Back",
+    "loginJourney": "Login to continue your journey",
+    "continueWithEmail": "Continue with Email",
+    "welcomeTaglinePrefix": "Connect. Match.",
+    "welcomeBackPrefix": "Welcome",
+    "welcomeBackAccent": "Back",
+    "continueWithSnapchat": "Continue with Snapchat"
   },
   "tabs": {
     "home": "Discover",

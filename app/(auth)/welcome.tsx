@@ -1,6 +1,5 @@
 /**
- * Onboarding / Welcome — تصميم العميل بهوية LinkUp الداكنة (سمة Discover)
- * بطاقة المكافأة اليومية + قلب التعارف المركزي (أصول العميل) + أزرار الدخول
+ * Onboarding / Welcome — تصميم العميل: خلفية القلب + بطاقة دخول سفلية
  */
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -17,29 +16,18 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
-import { Phone, ChevronRight, Gift, Sparkles, Facebook, Languages, HelpCircle, Heart } from 'lucide-react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withTiming,
-  Easing,
-} from 'react-native-reanimated';
-
-const AnimatedExpoImage = Animated.createAnimatedComponent(Image);
+import { Phone, ChevronRight, ChevronDown, Mail, Facebook, Languages, HelpCircle } from 'lucide-react-native';
 
 import { lu } from '@/theme/lu-brand';
 import { GoogleLogo, TikTokLogo, XLogo, SnapchatLogo } from '@/components/brand/LuBrand';
 import { LanguagePickerSheet } from '@/components/localization/LanguagePickerSheet';
 import { useAppLanguage } from '@/localization/useAppLanguage';
-import { LINKUP_ID_LOGO, COIN_CURRENCY_ICON } from '@/constants/brandAssets';
+import { LINKUP_ID_LOGO, LINKUP_MAIN_LOGO } from '@/constants/brandAssets';
 import { loadGoogleAuthConfig, useGoogleSignIn } from '@/services/social-auth';
 import { markOnboardingSeen } from '@/services/onboardingStorage';
 import { useAuth } from '@/hooks/useAuth';
 
-const GIFT_IMG = require('../../assets/images/welcome_gift.png');
-const HERO_IMG = require('../../assets/images/welcome_center.png');
-const COIN_IMG = COIN_CURRENCY_ICON;
+const WELCOME_BG = require('../../assets/images/welcome_bg.png');
 
 export default function OnboardingScreen() {
   const { t } = useTranslation();
@@ -69,29 +57,18 @@ export default function OnboardingScreen() {
 
   const usableH = H - insets.top - insets.bottom;
   const scaleFactor = useMemo(
-    () => Math.min(Math.max(usableH / 740, 0.72), 1),
+    () => Math.min(Math.max(usableH / 780, 0.72), 1),
     [usableH],
   );
   const isSmall = W < 360;
-  const isCompact = usableH < 700;
-  const PAD = isSmall ? 14 : isCompact ? 16 : 20;
+  const PAD = isSmall ? 14 : 20;
   const contentW = Math.min(W, 460);
 
-  // تنفّس لطيف لصورة الهدية
-  const giftY = useSharedValue(0);
-  useEffect(() => {
-    giftY.value = withRepeat(
-      withTiming(-4, { duration: 2600, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true,
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const giftStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: giftY.value }],
-  }));
-
-  const handleSocialLogin = (provider: 'google' | 'tiktok' | 'phone' | 'id' | 'facebook' | 'x' | 'snapchat') => {
+  const handleSocialLogin = (provider: 'google' | 'tiktok' | 'phone' | 'id' | 'facebook' | 'x' | 'snapchat' | 'email') => {
+    if (provider === 'email') {
+      router.push('/(auth)/login' as any);
+      return;
+    }
     if (provider === 'phone') {
       Alert.alert(t('match.comingSoonTitle'), t('auth.text68191'));
       return;
@@ -145,8 +122,8 @@ export default function OnboardingScreen() {
     router.push('/(auth)/login' as any);
   };
 
-  const circleWrapSize = Math.round((isCompact ? 54 : 62) * scaleFactor);
-  const iconSize = Math.round((isCompact ? 20 : 23) * scaleFactor);
+  const circleWrapSize = Math.round(56 * scaleFactor);
+  const iconSize = Math.round(21 * scaleFactor);
 
   const PROVIDERS = [
     {
@@ -184,9 +161,11 @@ export default function OnboardingScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={lu.gradients.pageHomeNight}
-        style={StyleSheet.absoluteFill}
+      {/* خلفية العميل — مكبّرة من الأعلى (بلا فجوة سوداء) لينزل القلب تحت النص */}
+      <Image
+        source={WELCOME_BG}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: Math.round(H * 1.25) }}
+        contentFit="cover"
       />
 
       <View
@@ -194,7 +173,7 @@ export default function OnboardingScreen() {
           styles.page,
           {
             paddingTop: insets.top + 8 * scaleFactor,
-            paddingBottom: insets.bottom + 10 * scaleFactor,
+            paddingBottom: insets.bottom + 8 * scaleFactor,
           },
         ]}
       >
@@ -210,6 +189,7 @@ export default function OnboardingScreen() {
               <Text style={styles.topBarBtnText}>
                 {lang === 'ar' ? 'العربية' : 'English'}
               </Text>
+              <ChevronDown size={14} color="rgba(255,255,255,0.7)" strokeWidth={2.4} />
             </Pressable>
 
             <Pressable
@@ -222,136 +202,109 @@ export default function OnboardingScreen() {
             </Pressable>
           </View>
 
-          {/* ===== بطاقة المكافأة اليومية ===== */}
-          <View style={[styles.rewardCard, { marginHorizontal: PAD, marginTop: 6 * scaleFactor }]}>
-            <View style={[styles.rewardInner, { paddingVertical: 14 * scaleFactor, paddingHorizontal: 14 * scaleFactor }]}>
-              <View style={styles.rewardTextCol}>
-                <View style={styles.giftChip}>
-                  <Gift size={11 * scaleFactor} color="#FF4D5A" strokeWidth={2.4} />
-                  <Text style={[styles.giftChipText, { fontSize: 10.5 * scaleFactor }]}>
-                    {t('auth.dailyBonus') || 'Daily Gift'}
-                  </Text>
-                </View>
-
-                <View style={styles.titleRow}>
-                  <Text style={[styles.rewardTitle, { fontSize: 21 * scaleFactor }]}>
-                    {t('auth.rewardTitle') || 'Daily Reward'}
-                  </Text>
-                  <Sparkles size={14 * scaleFactor} color="#FF4D5A" style={{ marginHorizontal: 6 }} />
-                </View>
-
-                <Text
-                  style={[
-                    styles.rewardSub,
-                    { fontSize: 12 * scaleFactor, lineHeight: 16 * scaleFactor, marginBottom: 10 * scaleFactor },
-                  ]}
-                >
-                  {t('auth.rewardSubtitle') || 'Claim your reward and win free coins!'}
-                </Text>
-
-                <Pressable
-                  onPress={() => Alert.alert(t('auth.rewardTitle') || 'Daily Reward', t('auth.rewardSubtitle') || 'Log in to claim your daily rewards!')}
-                  style={({ pressed }) => [pressed && { opacity: 0.9 }]}
-                >
-                  <LinearGradient
-                    colors={['#FF4D66', '#C40E2E']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[styles.claimBtn, { paddingVertical: 9 * scaleFactor }]}
-                  >
-                    <Text style={[styles.claimBtnText, { fontSize: 13.5 * scaleFactor }]}>
-                      {t('auth.claimNow') || 'Claim Now'}
-                    </Text>
-                    <Image source={COIN_IMG} style={{ width: 16 * scaleFactor, height: 16 * scaleFactor }} contentFit="contain" />
-                  </LinearGradient>
-                </Pressable>
-              </View>
-
-              <AnimatedExpoImage
-                source={GIFT_IMG}
-                style={[styles.rewardGift, giftStyle, { width: 225 * scaleFactor, height: 175 * scaleFactor, marginVertical: -14 * scaleFactor }]}
-                contentFit="contain"
-              />
-            </View>
-          </View>
-
-          {/* ===== القلب المركزي — أصل العميل ===== */}
-          <View style={styles.heroSlot}>
+          {/* ===== الهوية ===== */}
+          <View style={styles.brandBlock}>
             <Image
-              source={HERO_IMG}
-              style={[StyleSheet.absoluteFill, { transform: [{ scale: 1.18 }, { translateY: 14 }] }]}
-              contentFit="contain"
+              source={LINKUP_MAIN_LOGO}
+              style={{ width: 52 * scaleFactor, height: 52 * scaleFactor, borderRadius: 14 * scaleFactor }}
+              contentFit="cover"
             />
+            <Text style={[styles.wordmark, { fontSize: 36 * scaleFactor }]}>
+              Link<Text style={styles.wordmarkUp}>Up</Text>
+            </Text>
+            <Text style={[styles.tagline, { fontSize: 14.5 * scaleFactor }]}>
+              <Text>{t('auth.welcomeTaglinePrefix')} </Text>
+              <Text style={styles.taglineAccent}>LinkUp.</Text>
+            </Text>
           </View>
 
-          {/* ===== أزرار الدخول ===== */}
-          <View style={{ paddingHorizontal: PAD, paddingTop: 4 * scaleFactor }}>
+          {/* مساحة لمجسّم القلب في الخلفية */}
+          <View style={styles.heroSpace} />
+
+          {/* ===== بطاقة الدخول السفلية ===== */}
+          <View style={[styles.loginCard, { marginHorizontal: PAD - 6, padding: 16 * scaleFactor }]}>
+            <Text style={[styles.cardTitle, { fontSize: 26 * scaleFactor }]}>
+              <Text>{t('auth.welcomeBackPrefix')} </Text>
+              <Text style={styles.cardTitleAccent}>{t('auth.welcomeBackAccent')}</Text>
+            </Text>
+            <Text style={[styles.cardSub, { fontSize: 13.5 * scaleFactor }]}>
+              {t('auth.loginJourney')}
+            </Text>
+
+            {/* Continue with Email */}
             <Pressable
-              onPress={() => handleSocialLogin('google')}
-              disabled={googleBusy}
+              onPress={() => handleSocialLogin('email')}
               style={({ pressed }) => [
+                { marginTop: 14 * scaleFactor },
                 pressed && { opacity: 0.92, transform: [{ scale: 0.98 }] },
-                googleBusy && { opacity: 0.7 },
               ]}
             >
               <LinearGradient
-                colors={['#A31220', '#C40E2E']}
+                colors={['#FF4D5E', '#C40E2E']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={[styles.loginBtn, { height: 54 * scaleFactor }]}
+                style={[styles.emailBtn, { height: 52 * scaleFactor }]}
               >
-                <View style={[styles.loginIconCircle, { width: 34 * scaleFactor, height: 34 * scaleFactor, borderRadius: 17 * scaleFactor }]}>
-                  <GoogleLogo size={19 * scaleFactor} />
-                </View>
-                <Text style={[styles.loginBtnText, { fontSize: 15.5 * scaleFactor }]}>
-                  {t('auth.continueWithGoogle')}
+                <Mail size={19 * scaleFactor} color="#FFFFFF" strokeWidth={2.2} />
+                <Text style={[styles.emailBtnText, { fontSize: 15.5 * scaleFactor }]}>
+                  {t('auth.continueWithEmail')}
                 </Text>
                 <ChevronRight size={18 * scaleFactor} color="#FFFFFF" />
               </LinearGradient>
             </Pressable>
 
-            <Pressable
-              onPress={() => handleSocialLogin('snapchat')}
-              style={({ pressed }) => [
-                { marginTop: 12 * scaleFactor },
-                pressed && { opacity: 0.92, transform: [{ scale: 0.98 }] },
-              ]}
-            >
-              <LinearGradient
-                colors={['#FFFC00', '#FFD900']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.loginBtn, { height: 54 * scaleFactor, shadowColor: '#F7B500' }]}
-              >
-                <View style={[styles.loginIconCircle, { width: 34 * scaleFactor, height: 34 * scaleFactor, borderRadius: 17 * scaleFactor }]}>
-                  <SnapchatLogo size={19 * scaleFactor} color="#FFFC00" />
-                </View>
-                <Text style={[styles.loginBtnText, { fontSize: 15.5 * scaleFactor, color: '#1A1A1A' }]}>
-                  {t('auth.loginWithSnapchat')}
-                </Text>
-                <ChevronRight size={18 * scaleFactor} color="#1A1A1A" />
-              </LinearGradient>
-            </Pressable>
-
-            {/* ♥ فاصل ♥ */}
-            <View style={[styles.divider, { marginTop: 16 * scaleFactor, marginBottom: 14 * scaleFactor }]}>
+            {/* فاصل */}
+            <View style={[styles.divider, { marginVertical: 12 * scaleFactor }]}>
               <View style={styles.dividerLine} />
-              <Heart size={11} color="#FF4D5A" strokeWidth={2.2} />
+              <View style={styles.dividerDot} />
               <Text style={[styles.dividerText, { fontSize: 12 * scaleFactor }]}>
                 {t('auth.text68438') || 'Or log in with'}
               </Text>
-              <Heart size={11} color="#FF4D5A" strokeWidth={2.2} />
+              <View style={styles.dividerDot} />
               <View style={styles.dividerLine} />
             </View>
 
-            <View style={styles.providerRow}>
+            {/* Google أبيض */}
+            <Pressable
+              onPress={() => handleSocialLogin('google')}
+              disabled={googleBusy}
+              style={({ pressed }) => [
+                styles.whiteBtn,
+                { height: 50 * scaleFactor },
+                pressed && { opacity: 0.92, transform: [{ scale: 0.98 }] },
+                googleBusy && { opacity: 0.7 },
+              ]}
+            >
+              <GoogleLogo size={19 * scaleFactor} />
+              <Text style={[styles.whiteBtnText, { fontSize: 15 * scaleFactor }]}>
+                {t('auth.continueWithGoogle')}
+              </Text>
+            </Pressable>
+
+            {/* Snapchat أصفر */}
+            <Pressable
+              onPress={() => handleSocialLogin('snapchat')}
+              style={({ pressed }) => [
+                styles.snapBtn,
+                { height: 50 * scaleFactor, marginTop: 10 * scaleFactor },
+                pressed && { opacity: 0.92, transform: [{ scale: 0.98 }] },
+              ]}
+            >
+              <SnapchatLogo size={19 * scaleFactor} color="#FFFFFF" />
+              <Text style={[styles.snapBtnText, { fontSize: 15 * scaleFactor }]}>
+                {t('auth.continueWithSnapchat')}
+              </Text>
+            </Pressable>
+
+            {/* المزوّدون */}
+            <View style={[styles.providerRow, { marginTop: 14 * scaleFactor }]}>
               {PROVIDERS.map((p) => (
                 <Pressable
                   key={p.key}
                   onPress={() => handleSocialLogin(p.key)}
                   style={({ pressed }) => [
                     styles.providerItem,
-                    { gap: 8 * scaleFactor },
+                    { gap: 7 * scaleFactor },
                     pressed && { opacity: 0.85, transform: [{ scale: 0.95 }] },
                   ]}
                 >
@@ -369,14 +322,25 @@ export default function OnboardingScreen() {
                   >
                     {p.icon}
                   </View>
-                  <Text style={[styles.providerLabel, { fontSize: 12 * scaleFactor }]} numberOfLines={1}>
+                  <Text style={[styles.providerLabel, { fontSize: 11.5 * scaleFactor }]} numberOfLines={1}>
                     {p.label}
                   </Text>
                 </Pressable>
               ))}
             </View>
 
-            <Text style={[styles.termsText, { marginTop: 16 * scaleFactor, fontSize: 11 * scaleFactor, lineHeight: 16 * scaleFactor }]}>
+            {/* إنشاء حساب */}
+            <Pressable
+              onPress={() => router.push('/(auth)/register' as any)}
+              style={({ pressed }) => [styles.registerRow, { marginTop: 14 * scaleFactor }, pressed && { opacity: 0.88 }]}
+            >
+              <Text style={[styles.registerAccent, { fontSize: 13.5 * scaleFactor }]}>
+                {t('auth.text46120')}
+              </Text>
+              <ChevronRight size={16 * scaleFactor} color="#FF4D5A" />
+            </Pressable>
+
+            <Text style={[styles.termsText, { marginTop: 8 * scaleFactor, fontSize: 11 * scaleFactor, lineHeight: 16 * scaleFactor }]}>
               {t('auth.agreeOn') || 'I agree to'}{' '}
               <Text style={styles.termsLink}>{t('auth.termsOfUse') || 'Terms of Use'}</Text>
               {' '}{t('auth.and') || 'and'}{' '}
@@ -392,38 +356,31 @@ export default function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: lu.colors.night0 },
+  container: { flex: 1, backgroundColor: '#0B0507' },
   page: {
     flex: 1,
     alignItems: 'center',
   },
   pageInner: {
     flex: 1,
-    justifyContent: 'space-between',
-  },
-  heroSlot: {
-    flex: 1,
-    width: '100%',
-    minHeight: 80,
-    marginVertical: 4,
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     width: '100%',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   topBarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
+    paddingHorizontal: 13,
     paddingVertical: 8,
     borderRadius: 99,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(20,8,10,0.6)',
     borderWidth: 1,
-    borderColor: 'rgba(255,45,60,0.35)',
+    borderColor: 'rgba(255,77,94,0.4)',
   },
   topBarBtnText: {
     color: '#FFFFFF',
@@ -432,117 +389,96 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
 
-  // بطاقة المكافأة اليومية — سمة Discover
-  rewardCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(255,45,60,0.24)',
-    backgroundColor: lu.colors.nightCard,
-    overflow: 'hidden',
+  brandBlock: {
+    alignItems: 'center',
+    marginTop: -17,
+  },
+  wordmark: {
+    color: '#FFFFFF',
+    fontFamily: lu.fonts.displayHeavy,
+    fontWeight: '900',
+    includeFontPadding: false,
+    writingDirection: 'ltr',
+    marginTop: 4,
+  },
+  wordmarkUp: {
+    color: '#E11414',
+  },
+  tagline: {
+    color: 'rgba(255,255,255,0.78)',
+    fontFamily: lu.fonts.bodySemi,
+    includeFontPadding: false,
+    marginTop: 0,
+    textAlign: 'center',
+  },
+  taglineAccent: {
+    color: '#FF4D5A',
+  },
+
+  heroSpace: {
+    flex: 1,
+    minHeight: 60,
+  },
+
+  loginCard: {
+    borderRadius: 26,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255,45,60,0.35)',
+    backgroundColor: 'rgba(18,8,10,0.82)',
     shadowColor: '#FF1E30',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.25,
     shadowRadius: 14,
     elevation: 8,
   },
-  rewardInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  rewardTextCol: {
-    flex: 1,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-  },
-  giftChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 99,
-    borderWidth: 1,
-    borderColor: 'rgba(255,90,105,0.28)',
-    backgroundColor: 'rgba(255,60,75,0.16)',
-    marginBottom: 8,
-  },
-  giftChipText: {
-    color: '#FFFFFF',
-    fontFamily: lu.fonts.bodyBold,
-    includeFontPadding: false,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  rewardTitle: {
+  cardTitle: {
     color: '#FFFFFF',
     fontFamily: lu.fonts.displayHeavy,
     includeFontPadding: false,
+    textAlign: 'center',
   },
-  rewardSub: {
-    color: 'rgba(255,255,255,0.72)',
+  cardTitleAccent: {
+    color: '#FF3B4E',
+  },
+  cardSub: {
+    color: 'rgba(255,255,255,0.65)',
     fontFamily: lu.fonts.body,
     includeFontPadding: false,
-  },
-  claimBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    borderRadius: 99,
-    gap: 7,
-    shadowColor: '#FF1E30',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  claimBtnText: {
-    color: '#FFFFFF',
-    fontFamily: lu.fonts.bodyHeavy,
-    includeFontPadding: false,
-  },
-  rewardGift: {
-    marginStart: -18,
-    marginEnd: -10,
+    textAlign: 'center',
+    marginTop: 4,
   },
 
-  // أزرار الدخول الكبيرة
-  loginBtn: {
+  emailBtn: {
     borderRadius: 99,
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    gap: 14,
-    shadowColor: '#FF1E30',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  loginIconCircle: {
-    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 18,
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  loginBtnText: {
-    flex: 1,
+  emailBtnText: {
     color: '#FFFFFF',
     fontFamily: lu.fonts.bodyHeavy,
     includeFontPadding: false,
   },
 
-  // الفاصل
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  dividerLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,70,80,0.3)' },
+  dividerLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,70,80,0.35)' },
+  dividerDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#E11414',
+  },
   dividerText: {
     color: 'rgba(255,255,255,0.75)',
     fontFamily: lu.fonts.bodyBold,
@@ -550,11 +486,37 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
   },
 
-  // أزرار المزوّدين الدائرية
+  whiteBtn: {
+    borderRadius: 99,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  whiteBtnText: {
+    color: '#15151A',
+    fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
+  },
+  snapBtn: {
+    borderRadius: 99,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#FFF400',
+  },
+  snapBtnText: {
+    color: '#15151A',
+    fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
+  },
+
   providerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
   },
   providerItem: { alignItems: 'center' },
   providerCircle: {
@@ -571,15 +533,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  registerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  registerAccent: {
+    color: '#FF4D5A',
+    fontFamily: lu.fonts.bodyBold,
+    includeFontPadding: false,
+  },
+
   termsText: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.65)',
     textAlign: 'center',
     fontFamily: lu.fonts.bodySemi,
     includeFontPadding: false,
   },
   termsLink: {
     color: '#FF4D5A',
-    fontFamily: lu.fonts.bodyBold,
     textDecorationLine: 'underline',
+    fontFamily: lu.fonts.bodyBold,
   },
 });
