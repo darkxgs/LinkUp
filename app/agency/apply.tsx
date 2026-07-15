@@ -36,14 +36,17 @@ const MIN_HOSTS = 10;
 
 type ImageKind = 'logo' | 'background' | 'id';
 
-/** يلتقط صورة من المعرض ويعيد URI محلي (بلا رفع) */
-async function pickLocalImage(aspect: [number, number]): Promise<string | null> {
+/**
+ * يلتقط صورة من المعرض ويعيد URI محلي (بلا رفع). مع aspect يُقتصّ لتلك النسبة
+ * (الشعار مربّع)؛ بدونه تُقبل الصورة بأي اتجاه (طولية/عرضية) — الخلفية حرّة.
+ */
+async function pickLocalImage(aspect?: [number, number]): Promise<string | null> {
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!perm.granted) return null;
   const res = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ImagePicker.MediaTypeOptions.Images,
-    allowsEditing: true,
-    aspect,
+    allowsEditing: !!aspect,
+    ...(aspect ? { aspect } : {}),
     quality: 0.9,
   });
   if (res.canceled || !res.assets?.[0]?.uri) return null;
@@ -114,9 +117,10 @@ export default function AgencyApplyScreen() {
     let uri: string | null;
     if (kind === 'id') {
       uri = await captureFacePhoto();
+    } else if (kind === 'logo') {
+      uri = await pickLocalImage([1, 1]); // الشعار/صورة الوكالة مربّعة (أفاتار)
     } else {
-      const aspect: [number, number] = kind === 'logo' ? [1, 1] : [16, 9];
-      uri = await pickLocalImage(aspect);
+      uri = await pickLocalImage(); // الخلفية بأي اتجاه (طولية/عرضية)
     }
     if (!uri) {
       showAlert({ type: 'info', title: t('common.notice'), message: t('agencyApply.permNeeded') });
