@@ -672,7 +672,7 @@ export default function AgencyApplicationsPage() {
                 <div className="agency-modal-section">
                   <div style={{ fontWeight: 700, marginBottom: 8 }}>توثيق الوكالة بالذكاء الاصطناعي</div>
                   <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                    {([[selected.logoUrl, 'الشعار'], [selected.backgroundUrl, 'الخلفية'], [selected.idDocumentUrl, 'صورة الوكيل']] as const).map(([url, label]) => {
+                    {([[selected.logoUrl, 'صورة الوكالة'], [selected.backgroundUrl, 'الخلفية'], [selected.idDocumentUrl, 'صورة الوكيل']] as const).map(([url, label]) => {
                       return url ? (
                         <a key={label} href={url} target="_blank" rel="noreferrer" style={{ textAlign: 'center', textDecoration: 'none', color: 'inherit' }}>
                           <img src={url} alt={label} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)', display: 'block' }} />
