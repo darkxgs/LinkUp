@@ -668,6 +668,49 @@ export default function AgencyApplicationsPage() {
                 )}
               </div>
 
+              {selected.reviewMethod === 'ai' && (
+                <div className="agency-modal-section">
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>توثيق الوكالة بالذكاء الاصطناعي</div>
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                    {([[selected.logoUrl, 'الشعار'], [selected.backgroundUrl, 'الخلفية'], [selected.idDocumentUrl, 'صورة الوكيل']] as const).map(([url, label]) => {
+                      return url ? (
+                        <a key={label} href={url} target="_blank" rel="noreferrer" style={{ textAlign: 'center', textDecoration: 'none', color: 'inherit' }}>
+                          <img src={url} alt={label} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)', display: 'block' }} />
+                          <div style={{ fontSize: 11, marginTop: 2 }}>{label}</div>
+                        </a>
+                      ) : (
+                        <div key={label} style={{ width: 96, height: 96, borderRadius: 8, border: '1px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'var(--text-muted)' }}>{label} —</div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 1.7 }}>
+                    <div>
+                      <strong>قرار الـAI:</strong>{' '}
+                      {selected.aiDecision === 'approve' ? 'قبول آلي' : selected.aiDecision === 'reject' ? 'رفض آلي' : 'مراجعة يدوية'}
+                      {typeof selected.aiConfidence === 'number' ? ` (ثقة ${selected.aiConfidence}%)` : ''}
+                    </div>
+                    <div><strong>السبب:</strong> {selected.aiReason || '—'}</div>
+                  </div>
+                  {Array.isArray(selected.aiChecks) && selected.aiChecks.length > 0 && (
+                    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {selected.aiChecks.map((c, i) => (
+                        <span
+                          key={i}
+                          title={c.note}
+                          style={{
+                            fontSize: 11, padding: '1px 6px', borderRadius: 10,
+                            background: c.pass === true ? '#ECFDF5' : c.pass === false ? '#FEF2F2' : '#F3F4F6',
+                            color: c.pass === true ? '#059669' : c.pass === false ? '#DC2626' : '#6B7280',
+                          }}
+                        >
+                          {c.pass === true ? '✓' : c.pass === false ? '✕' : '•'} {c.key}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {selected.status !== 'active' && selected.status !== 'rejected' && (
                 <>
                   {(() => {
