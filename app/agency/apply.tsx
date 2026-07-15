@@ -1,5 +1,7 @@
 /**
- * تقديم طلب فتح وكالة — تصميم خطوات عربي
+ * تقديم طلب فتح وكالة — تصميم خطوات عربي + توثيق آلي بالذكاء الاصطناعي.
+ * يرفع الوكيل: شعار الوكالة، صورة خلفية (اختياري)، ومستند هويته؛ ثم يُراجَع الطلب
+ * آلياً (Gemini) ويصدر القرار مباشرة: قبول / رفض / مراجعة يدوية.
  */
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -12,22 +14,52 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image as RNImage,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ChevronDown, CheckCircle2 } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { ChevronDown, CheckCircle2, ImagePlus, IdCard, Images } from 'lucide-react-native';
 
 import { Text, useAlert, CountryPickerSheet } from '@/components/ui';
 import { BackChevron } from '@/components/ui/RtlChevron';
 import { getCountryByCode } from '@/data/countries';
 import { useAuth } from '@/hooks/useAuth';
-import { submitAgencyApplication } from '@/services/agencyApplications';
+import { submitAgencyVerification } from '@/services/agencyApplications';
 import { sendAgencyApplicationConfirmation, SUPPORT_UID } from '@/services/supportAccount';
 import { getDisplayAccountId } from '@/services/userIdentifier';
 import { lu } from '@/theme/lu-brand';
 
 const MIN_HOSTS = 10;
+
+type ImageKind = 'logo' | 'background' | 'id';
+
+/** يلتقط صورة من المعرض ويعيد URI محلي (بلا رفع) */
+async function pickLocalImage(aspect: [number, number]): Promise<string | null> {
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!perm.granted) return null;
+  const res = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    allowsEditing: true,
+    aspect,
+    quality: 0.9,
+  });
+  if (res.canceled || !res.assets?.[0]?.uri) return null;
+  return res.assets[0].uri;
+}
+
+/** يضغط الصورة ويعيدها base64 (JPEG) — العرض الأقصى حسب النوع */
+async function uriToBase64(uri: string, maxWidth: number, quality: number): Promise<string> {
+  const out = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: maxWidth } }],
+    { compress: quality, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+  );
+  if (!out.base64) throw new Error('تعذّر تجهيز الصورة');
+  return out.base64;
+}
 
 export default function AgencyApplyScreen() {
   const { t } = useTranslation();
@@ -41,9 +73,13 @@ export default function AgencyApplyScreen() {
   const fromChat = source === 'chat';
 
   const [agencyName, setAgencyName]         = useState('');
+  const [ownerName, setOwnerName]           = useState('');
   const [countryCode, setCountryCode]       = useState('PS');
   const [phone, setPhone]                   = useState('');
   const [minHostsRequired, setMinHostsRequired] = useState(String(MIN_HOSTS));
+  const [logoUri, setLogoUri]               = useState<string | null>(null);
+  const [backgroundUri, setBackgroundUri]   = useState<string | null>(null);
+  const [idUri, setIdUri]                    = useState<string | null>(null);
   const [submitting, setSubmitting]         = useState(false);
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
 
@@ -55,6 +91,19 @@ export default function AgencyApplyScreen() {
     else router.replace('/agency/center' as any);
   };
 
+  const handlePick = async (kind: ImageKind) => {
+    if (submitting) return;
+    const aspect: [number, number] = kind === 'logo' ? [1, 1] : kind === 'background' ? [16, 9] : [16, 10];
+    const uri = await pickLocalImage(aspect);
+    if (!uri) {
+      showAlert({ type: 'info', title: t('common.notice'), message: t('agencyApply.permNeeded') });
+      return;
+    }
+    if (kind === 'logo') setLogoUri(uri);
+    else if (kind === 'background') setBackgroundUri(uri);
+    else setIdUri(uri);
+  };
+
   const handleSubmit = async () => {
     if (!agencyName.trim()) {
       showAlert({ type: 'error', title: t('common.error'), message: t('agencyApply.nameRequired') });
@@ -64,6 +113,14 @@ export default function AgencyApplyScreen() {
       showAlert({ type: 'error', title: t('common.error'), message: t('agencyApply.phoneRequired') });
       return;
     }
+    if (!logoUri) {
+      showAlert({ type: 'error', title: t('common.error'), message: t('agencyApply.logoRequired') });
+      return;
+    }
+    if (!idUri) {
+      showAlert({ type: 'error', title: t('common.error'), message: t('agencyApply.idRequired') });
+      return;
+    }
     if (parsedMinHosts < MIN_HOSTS) {
       showAlert({ type: 'error', title: t('common.error'), message: t('agencyApply.hostsMin', { count: MIN_HOSTS }) });
       return;
@@ -71,35 +128,85 @@ export default function AgencyApplyScreen() {
 
     setSubmitting(true);
     try {
-      await submitAgencyApplication({
+      const [logoBase64, idDocBase64, backgroundBase64] = await Promise.all([
+        uriToBase64(logoUri, 720, 0.82),
+        uriToBase64(idUri, 1400, 0.82),
+        backgroundUri ? uriToBase64(backgroundUri, 1280, 0.78) : Promise.resolve(''),
+      ]);
+
+      const result = await submitAgencyVerification({
         agencyName: agencyName.trim(),
         countryCode: countryCode.trim().toUpperCase(),
         phone: phone.trim(),
         minHostsRequired: parsedMinHosts,
+        ownerName: ownerName.trim() || undefined,
+        logoBase64,
+        idDocBase64,
+        backgroundBase64: backgroundBase64 || undefined,
       });
 
       if (fromChat && user?.uid) {
         await sendAgencyApplicationConfirmation(user.uid);
       }
 
-      showAlert({
-        type: 'success',
-        title: t('agencyApply.sentTitle'),
-        message: t('agencyApply.sentMessage'),
-        buttons: [{
-          text: t('common.ok'),
-          onPress: () => {
-            if (fromChat) router.replace(`/chat/${SUPPORT_UID}` as any);
-            else router.replace('/agency/center' as any);
-          },
-        }],
-      });
+      const goCenter = () => {
+        if (fromChat) router.replace(`/chat/${SUPPORT_UID}` as any);
+        else router.replace('/agency/center' as any);
+      };
+
+      if (result.decision === 'approve') {
+        showAlert({
+          type: 'success',
+          title: t('agencyApply.approvedTitle'),
+          message: t('agencyApply.approvedMessage', { code: result.inviteCode ?? '' }),
+          buttons: [{ text: t('common.ok'), onPress: goCenter }],
+        });
+      } else if (result.decision === 'reject') {
+        // رفض آلي — يبقى المستخدم على الشاشة ليصحّح ويعيد
+        showAlert({
+          type: 'error',
+          title: t('agencyApply.rejectedTitle'),
+          message: result.reason || t('agencyApply.rejectedGeneric'),
+        });
+      } else {
+        showAlert({
+          type: 'info',
+          title: t('agencyApply.pendingTitle'),
+          message: result.reason || t('agencyApply.pendingMessage'),
+          buttons: [{ text: t('common.ok'), onPress: goCenter }],
+        });
+      }
     } catch (e: any) {
       showAlert({ type: 'error', title: t('common.error'), message: e?.message ?? t('common.error') });
     } finally {
       setSubmitting(false);
     }
   };
+
+  const renderUpload = (kind: ImageKind, uri: string | null, label: string, hint: string, Icon: any) => (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <Pressable
+        style={[styles.upload, kind === 'logo' && styles.uploadSquare]}
+        onPress={() => handlePick(kind)}
+      >
+        {uri ? (
+          <>
+            <RNImage source={{ uri }} style={styles.uploadPreview} resizeMode="cover" />
+            <View style={styles.uploadChangeTag}>
+              <Text weight="bold" style={styles.uploadChangeText}>{t('agencyApply.change')}</Text>
+            </View>
+          </>
+        ) : (
+          <View style={styles.uploadEmpty}>
+            <Icon size={26} color={lu.colors.purple} strokeWidth={2} />
+            <Text style={styles.uploadHint}>{hint}</Text>
+            <Text weight="bold" style={styles.uploadCta}>{t('agencyApply.addImage')}</Text>
+          </View>
+        )}
+      </Pressable>
+    </View>
+  );
 
   return (
     <KeyboardAvoidingView
@@ -131,7 +238,7 @@ export default function AgencyApplyScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Step 1 */}
+        {/* Step 1 — بيانات الوكالة */}
         <View style={styles.stepHeader}>
           <View style={styles.stepBadge}>
             <Text weight="bold" style={styles.stepNum}>١</Text>
@@ -163,6 +270,18 @@ export default function AgencyApplyScreen() {
             />
           </View>
 
+          {/* اسم الوكيل */}
+          <View style={styles.field}>
+            <Text style={styles.label}>{t('agencyApply.ownerName')}</Text>
+            <TextInput
+              style={styles.input}
+              value={ownerName}
+              onChangeText={setOwnerName}
+              placeholder={t('agencyApply.ownerNamePh')}
+              placeholderTextColor={lu.colors.muted}
+            />
+          </View>
+
           {/* الدولة */}
           <View style={styles.field}>
             <Text style={styles.label}>{t('agencyApply.country')}</Text>
@@ -190,10 +309,32 @@ export default function AgencyApplyScreen() {
           </View>
         </View>
 
-        {/* Step 2 */}
+        {/* Step 2 — التوثيق الآلي */}
         <View style={styles.stepHeader}>
           <View style={[styles.stepBadge, { backgroundColor: lu.colors.pinkSoft }]}>
             <Text weight="bold" style={[styles.stepNum, { color: lu.colors.pink }]}>٢</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text weight="bold" style={styles.stepTitle}>{t('agencyApply.sectionVerify')}</Text>
+            <Text style={styles.stepHint}>{t('agencyApply.sectionVerifyHint')}</Text>
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          {renderUpload('logo', logoUri, t('agencyApply.logoLabel'), t('agencyApply.logoHint'), ImagePlus)}
+          {renderUpload('background', backgroundUri, t('agencyApply.backgroundLabel'), t('agencyApply.backgroundHint'), Images)}
+          <View style={{ marginBottom: 0 }}>
+            {renderUpload('id', idUri, t('agencyApply.idLabel'), t('agencyApply.idHint'), IdCard)}
+            <View style={styles.infoBox}>
+              <Text style={styles.infoText}>ⓘ {'  '}{t('agencyApply.idPrivacy')}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Step 3 — عدد المضيفات */}
+        <View style={styles.stepHeader}>
+          <View style={[styles.stepBadge, { backgroundColor: lu.colors.purpleSoft }]}>
+            <Text weight="bold" style={styles.stepNum}>٣</Text>
           </View>
           <View style={{ flex: 1 }}>
             <Text weight="bold" style={styles.stepTitle}>{t('agencyApply.hostsTarget')}</Text>
@@ -249,7 +390,10 @@ export default function AgencyApplyScreen() {
             style={StyleSheet.absoluteFill}
           />
           {submitting ? (
-            <ActivityIndicator color="#fff" />
+            <View style={styles.submitBusy}>
+              <ActivityIndicator color="#fff" />
+              <Text weight="bold" style={styles.submitLabel}>{t('agencyApply.reviewing')}</Text>
+            </View>
           ) : (
             <Text weight="bold" style={styles.submitLabel}>
               {t('agencyApply.submit')}
@@ -408,12 +552,66 @@ const styles = StyleSheet.create({
     fontFamily: lu.fonts.body,
   },
 
+  // Upload tiles
+  upload: {
+    backgroundColor: lu.colors.bg2,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: lu.colors.line,
+    borderStyle: 'dashed',
+    overflow: 'hidden',
+    minHeight: 120,
+    justifyContent: 'center',
+  },
+  uploadSquare: {
+    width: 130,
+    height: 130,
+    minHeight: 130,
+    alignSelf: 'flex-start',
+  },
+  uploadEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 18,
+    paddingHorizontal: 10,
+  },
+  uploadHint: {
+    fontSize: 11,
+    color: lu.colors.ink2,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  uploadCta: {
+    fontSize: 12,
+    color: lu.colors.purple,
+  },
+  uploadPreview: {
+    width: '100%',
+    height: '100%',
+    minHeight: 120,
+  },
+  uploadChangeTag: {
+    position: 'absolute',
+    bottom: 8,
+    insetInlineEnd: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  uploadChangeText: {
+    fontSize: 11,
+    color: '#fff',
+  },
+
   // Info box
   infoBox: {
     backgroundColor: lu.colors.purpleSoft,
     borderRadius: 10,
     padding: 12,
-    marginBottom: 12,
+    marginTop: 10,
+    marginBottom: 0,
   },
   infoText: {
     fontSize: 12,
@@ -444,6 +642,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginTop: 18,
     ...lu.shadows.grad,
+  },
+  submitBusy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   submitLabel: {
     fontSize: 15,
