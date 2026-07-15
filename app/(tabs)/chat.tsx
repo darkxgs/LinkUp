@@ -911,9 +911,10 @@ export default function ChatListScreen() {
         }
       />
 
-      {/* شريط إجراءات التحديد المتعدد (b20) */}
+      {/* شريط إجراءات التحديد المتعدد (b20) — يُرفع فوق شريط التبويبات العائم
+          (bottom≈insets.bottom+78، zIndex 100) وإلا اختفى زر الإلغاء تحته */}
       {selectMode ? (
-        <View style={[styles.selectBar, { paddingBottom: insets.bottom + 12 }]}>
+        <View style={[styles.selectBar, { bottom: insets.bottom + 84, paddingBottom: 12 }]}>
           <Pressable onPress={exitSelectMode} style={styles.selectBarBtn} hitSlop={6}>
             <Text style={styles.selectBarCancel}>{t('common.cancel')}</Text>
           </Pressable>
@@ -1904,8 +1905,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 12,
     backgroundColor: '#fff',
+    borderRadius: 16,
+    marginHorizontal: 10,
     borderTopWidth: 1,
     borderTopColor: lu.colors.line,
+    zIndex: 101,
+    ...lu.shadows.card,
+    elevation: 12,
   },
   selectBarBtn: {
     paddingVertical: 8,
