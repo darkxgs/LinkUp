@@ -555,7 +555,9 @@ const styles = StyleSheet.create({
     borderColor: lu.colors.line,
     borderStyle: 'dashed',
     overflow: 'hidden',
-    minHeight: 120,
+    // ارتفاع ثابت — الصورة المرفوعة تُقصّ (cover) داخله بدل أن تتمدّد لطولها
+    // الطبيعي فتكسر تمرير باقي المستندات (باگ صورة الخلفية الطويلة).
+    height: 150,
     justifyContent: 'center',
   },
   uploadSquare: {
@@ -584,7 +586,6 @@ const styles = StyleSheet.create({
   uploadPreview: {
     width: '100%',
     height: '100%',
-    minHeight: 120,
   },
   uploadChangeTag: {
     position: 'absolute',
