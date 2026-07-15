@@ -21,7 +21,8 @@ export function getFramedAvatarContainerSize(avatarDiameter: number): number {
 
 type FramedAvatarProps = {
   avatarUri?: string;
-  frameUri: string;
+  /** رابط الإطار (URL) أو أصل محلي (require) */
+  frameUri: string | number;
   avatarSize: number;
   /** تجاوز اختياري لحجم الحاوية — المقاعد تُكبّر الوجه مع إبقاء مربّع الشبكة ثابتاً */
   containerSize?: number;
@@ -41,7 +42,9 @@ export function FramedAvatar({
 }: FramedAvatarProps) {
   const containerSize = containerSizeProp ?? getFramedAvatarContainerSize(avatarSize);
   const frameSize = Math.round(containerSize * FRAMED_AVATAR_FRAME_RATIO);
-  const frameAnimated = isGifImageUrl(frameUri);
+  // إطار محلّي (require = number) أو بعيد (URL نصّي). المتحرّك يخصّ الروابط فقط.
+  const isRemoteFrame = typeof frameUri === 'string';
+  const frameAnimated = isRemoteFrame && isGifImageUrl(frameUri);
 
   return (
     <View
@@ -83,12 +86,12 @@ export function FramedAvatar({
 
       <View style={[StyleSheet.absoluteFillObject, styles.frameLayer]} pointerEvents="none">
         <Image
-          source={{ uri: frameUri }}
+          source={isRemoteFrame ? { uri: frameUri } : frameUri}
           // الإطار الثابت: دقّة كاملة (sharp) لأنه يُفكّ مرّة واحدة. المتحرّك (GIF):
           // حجم العرض فقط + سماح بالتصغير — يقلّل تكلفة الترميز المستمرّة لكل مقعد.
           style={frameAnimated ? { width: frameSize, height: frameSize } : sharpImageStyle(frameSize, frameSize)}
           contentFit="contain"
-          recyclingKey={frameUri}
+          recyclingKey={isRemoteFrame ? frameUri : undefined}
           autoplay={frameAnimated}
           {...(frameAnimated ? IMG_DECOR_ANIMATED : IMG_DECOR)}
         />

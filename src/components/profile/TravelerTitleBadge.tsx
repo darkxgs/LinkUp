@@ -10,7 +10,6 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Crown } from 'lucide-react-native';
 
 import { Text } from '@/components/ui';
@@ -47,27 +46,22 @@ export function TravelerTitleBadge({ title, size = 'sm', onPress, style, night }
   );
 
   const inner = (
-    <View style={[styles.frame, { height: h }, night && styles.frameNight, style]}>
+    <View style={[styles.frame, { height: h }, night ? styles.frameNight : styles.frameLight, style]}>
       {night ? (
         <View style={[styles.fill, styles.fillNight]}>{content}</View>
       ) : (
-        <LinearGradient
-          colors={['#FFE9A8', '#F5BE37', '#E0930B']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.fill}
-        >
+        <View style={[styles.fill, styles.fillLight]}>
           <View style={styles.iconDisc}>
             <Crown size={iconSize} color="#B8740A" fill="#B8740A" strokeWidth={1.4} />
           </View>
           <Text
             weight="bold"
             numberOfLines={1}
-            style={[styles.title, { fontSize }]}
+            style={[styles.title, styles.titleLight, { fontSize }]}
           >
             {title}
           </Text>
-        </LinearGradient>
+        </View>
       )}
     </View>
   );
@@ -95,6 +89,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
+  frameLight: {
+    borderWidth: 1,
+    borderColor: '#F0BABA',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   fill: {
     flex: 1,
     flexDirection: 'row',
@@ -106,6 +106,12 @@ const styles = StyleSheet.create({
   },
   fillNight: {
     backgroundColor: 'rgba(255,60,75,0.16)',
+  },
+  fillLight: {
+    backgroundColor: 'rgba(225,20,20,0.07)',
+  },
+  titleLight: {
+    color: '#B00E0E',
   },
   iconDisc: {
     width: 19,

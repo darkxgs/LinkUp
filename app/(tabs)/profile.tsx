@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Settings, Share2, Pencil, BadgeCheck, Crown, Copy,
+  Settings, Share2, Pencil, Crown, Copy,
   Users, Heart, Eye, Gift, Trophy, ShoppingBag, Wallet, Gamepad2, Headphones,
   User, Award, Briefcase, MessageCircle, Ban, Lock, ShieldCheck, Info,
 } from 'lucide-react-native';
@@ -36,6 +36,8 @@ import { isAgencyAgent } from '@/services/firebase/hostTasks';
 import { canEarnHostTasks } from '@/utils/genderAccess';
 import { getCachedMyAgency, subscribeToMyAgency } from '@/services/agencyService';
 import { firestore } from '@/services/firebase';
+import { COIN_CURRENCY_ICON } from '@/constants/brandAssets';
+import { getEffectiveVipLevel, isUserVipActive } from '@/services/firebase/vipSystem';
 import { ProfileVipStatusCard } from '@/components/profile/ProfileVipStatusCard';
 import { ProfileBadgesRow } from '@/components/profile/ProfileBadgesRow';
 import { FramedAvatar, getFramedAvatarContainerSize } from '@/components/ui/FramedAvatar';
@@ -44,6 +46,38 @@ import { reconcileSocialCounts, subscribeToSocialCounts } from '@/services/fireb
 import { reconcileVisitorCount, subscribeToProfileVisitorCount } from '@/services/firebase/profileVisitors';
 import { reconcileUserBalances } from '@/utils/userBalance';
 import { subscribeToMyRoomStats } from '@/services/roomFeatures';
+
+/** شعارات SVIP لكل مستوى — أصول العميل كما هي */
+const SVIP_LEVEL_BADGES: Record<number, number> = {
+  1: require('../../assets/images/svip/svip1.webp'),
+  2: require('../../assets/images/svip/svip2.webp'),
+  3: require('../../assets/images/svip/svip3.webp'),
+  4: require('../../assets/images/svip/svip4.webp'),
+  5: require('../../assets/images/svip/svip5.webp'),
+  6: require('../../assets/images/svip/svip6.webp'),
+  7: require('../../assets/images/svip/svip7.webp'),
+  8: require('../../assets/images/svip/svip8.webp'),
+  9: require('../../assets/images/svip/svip9.webp'),
+  10: require('../../assets/images/svip/svip10.webp'),
+  11: require('../../assets/images/svip/svip11.webp'),
+  12: require('../../assets/images/svip/svip12.webp'),
+};
+
+/** إطارات أفاتار SVIP لكل مستوى — أصول العميل كما هي */
+const SVIP_LEVEL_FRAMES: Record<number, number> = {
+  1: require('../../assets/images/svip/frame1.webp'),
+  2: require('../../assets/images/svip/frame2.webp'),
+  3: require('../../assets/images/svip/frame3.webp'),
+  4: require('../../assets/images/svip/frame4.webp'),
+  5: require('../../assets/images/svip/frame5.webp'),
+  6: require('../../assets/images/svip/frame6.webp'),
+  7: require('../../assets/images/svip/frame7.webp'),
+  8: require('../../assets/images/svip/frame8.webp'),
+  9: require('../../assets/images/svip/frame9.webp'),
+  10: require('../../assets/images/svip/frame10.webp'),
+  11: require('../../assets/images/svip/frame11.webp'),
+  12: require('../../assets/images/svip/frame12.webp'),
+};
 
 const DISPLAY = lu.fonts.displayHeavy;
 const HEAVY = lu.fonts.bodyHeavy;
@@ -150,6 +184,14 @@ export default function ProfileScreen() {
   const isAgent = isAgencyAgent(user) || ownsAgency;
   const isHost = !!user?.agencyId && !isAgent;
   const isFemale = user?.profile?.gender === 'female';
+  const isMale = user?.profile?.gender !== 'female';
+  // مستوى SVIP الفعّال فقط عند اشتراك نشط — لا إطار/وسم بدون المستوى فعلاً
+  const vipLevel = isUserVipActive(user) ? getEffectiveVipLevel(user) : 0;
+  const svipCardBadge = SVIP_LEVEL_BADGES[vipLevel] ?? require('../../assets/images/svip_badge.webp');
+  // إطار SVIP على الأفاتار عند غياب إطار المتجر المجهّز
+  const avatarFrame = equippedFrameUrl ?? SVIP_LEVEL_FRAMES[vipLevel];
+  const birthYear = Number(user?.profile?.birthYear ?? 0);
+  const age = birthYear > 1900 ? Math.max(0, new Date().getFullYear() - birthYear) : 0;
   const showHostTasks = canEarnHostTasks(user);
 
   useEffect(() => {
@@ -340,12 +382,12 @@ export default function ProfileScreen() {
         <View style={[styles.identityRow, { flexDirection: ROW, paddingHorizontal: pad }]}>
           <Pressable
             onPress={() => uid && go(`/profile/${uid}`)}
-            style={[styles.avatarWrap, equippedFrameUrl && { width: frameBox, height: frameBox }]}
+            style={[styles.avatarWrap, avatarFrame ? { width: frameBox, height: frameBox } : undefined]}
           >
-            {equippedFrameUrl ? (
+            {avatarFrame ? (
               <FramedAvatar
                 avatarUri={avatar}
-                frameUri={equippedFrameUrl}
+                frameUri={avatarFrame}
                 avatarSize={AVATAR_SIZE}
                 fallbackLetter={name}
               />
@@ -373,44 +415,84 @@ export default function ProfileScreen() {
                 style={[
                   styles.onlineDot,
                   isDark && styles.onlineDotDark,
-                  equippedFrameUrl && styles.onlineDotFramed,
-                  isRtl && !equippedFrameUrl ? { right: undefined, left: 4 } : undefined,
-                  isRtl && equippedFrameUrl ? { right: undefined, left: frameBox * 0.22 } : undefined,
+                  avatarFrame ? styles.onlineDotFramed : undefined,
+                  isRtl && !avatarFrame ? { right: undefined, left: 4 } : undefined,
+                  isRtl && avatarFrame ? { right: undefined, left: 26 } : undefined,
                 ]}
               />
             ) : null}
-            <View style={[styles.crownBadge, equippedFrameUrl && styles.crownBadgeFramed]}>
-              <Crown size={13} color="#FF4D5E" fill="#FF4D5E" />
-            </View>
+            {vipLevel > 0 ? null : (
+              <View style={[styles.crownBadge, avatarFrame ? styles.crownBadgeFramed : undefined]}>
+                <Crown size={13} color="#FF4D5E" fill="#FF4D5E" />
+              </View>
+            )}
           </Pressable>
 
           <View style={styles.identityInfo}>
             <View style={[styles.nameRow, { flexDirection: ROW }]}>
               <Text style={[styles.name, { color: pal.ink }]} numberOfLines={1}>{name}</Text>
-              <BadgeCheck
-                size={20}
-                color={isDark ? '#2A1A1E' : pal.red}
-                fill={isDark ? '#F2F2F5' : '#FFE0E0'}
-              />
+              {age > 0 ? (
+                <LinearGradient
+                  colors={isMale ? ['#4FACFE', '#2563EB'] : ['#FF7EB3', '#E1265E']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.agePill}
+                >
+                  <Text style={styles.agePillText}>
+                    {age} {isMale ? '♂' : '♀'}
+                  </Text>
+                </LinearGradient>
+              ) : null}
             </View>
 
-            <Pressable
-              style={[styles.idChip, { flexDirection: ROW, backgroundColor: isDark ? 'rgba(255,255,255,0.09)' : pal.chipBg }]}
-              onPress={copyAccountId}
-            >
-              <Text style={[styles.idText, { color: isDark ? 'rgba(255,255,255,0.78)' : pal.muted }]}>
-                ID: {accountId}
-              </Text>
-              <Copy size={15} color={isDark ? 'rgba(255,255,255,0.78)' : pal.muted} />
-            </Pressable>
+            <View style={[styles.idRow, { flexDirection: ROW }]}>
+              <Pressable
+                style={[
+                  styles.idChip,
+                  { flexDirection: ROW },
+                  isDark
+                    ? { backgroundColor: 'rgba(255,255,255,0.09)' }
+                    : { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#F0BABA' },
+                ]}
+                onPress={copyAccountId}
+              >
+                <Text style={[styles.idText, { color: isDark ? 'rgba(255,255,255,0.78)' : pal.muted }]}>
+                  ID: {accountId}
+                </Text>
+                <Copy size={15} color={isDark ? 'rgba(255,255,255,0.78)' : pal.muted} />
+              </Pressable>
+              <Image
+                source={require('../../assets/images/sid_badge.webp')}
+                style={styles.sidBadge}
+                contentFit="contain"
+              />
+            </View>
 
             <ProfileBadgesRow
               horizontalPad={0}
               night={isDark}
+              hideTags
               style={[styles.badgesRowWrap, { justifyContent: 'flex-start' }]}
             />
           </View>
         </View>
+
+        {/* وسوم SVIP/الأرستقراطية — صف مستقل بمحاذاة عمود المعلومات */}
+        <ProfileBadgesRow
+          horizontalPad={0}
+          night={isDark}
+          tagsOnly
+          style={[
+            styles.badgesRowWrap,
+            {
+              justifyContent: 'flex-start',
+              marginTop: 8,
+              marginStart: pad + frameBox + 16,
+              marginEnd: pad,
+              width: 'auto',
+            },
+          ]}
+        />
 
         {/* Stats */}
         <View
@@ -506,7 +588,7 @@ export default function ProfileScreen() {
             <View style={styles.walletCol}>
               <View style={[styles.walletBalRow, { flexDirection: ROW }]}>
                 <Image
-                  source={require('../../assets/images/wallet_coin.png')}
+                  source={COIN_CURRENCY_ICON}
                   style={styles.coinImg}
                   contentFit="contain"
                 />
@@ -580,7 +662,7 @@ export default function ProfileScreen() {
               style={[styles.memberCard, { borderColor: 'rgba(255,77,102,0.6)', shadowColor: '#FF1E30' }]}
             >
               <Image
-                source={require('../../assets/images/vip_crown_red.png')}
+                source={svipCardBadge}
                 style={styles.memberCrown}
                 contentFit="contain"
               />
@@ -610,7 +692,7 @@ export default function ProfileScreen() {
               style={[styles.memberCard, { borderColor: 'rgba(168,85,247,0.6)', shadowColor: '#8B5CF6' }]}
             >
               <Image
-                source={require('../../assets/images/vip_crown_purple.png')}
+                source={require('../../assets/images/aristocracy_badge.webp')}
                 style={styles.memberCrown}
                 contentFit="contain"
               />
@@ -710,7 +792,7 @@ const styles = StyleSheet.create({
   avatarFallbackText: { fontSize: 34, fontWeight: '900', color: '#E11414', fontFamily: DISPLAY },
   onlineDot: { position: 'absolute', bottom: 6, right: 6, width: 18, height: 18, borderRadius: 9, backgroundColor: '#10B981', borderWidth: 2.5, borderColor: '#fff' },
   onlineDotDark: { borderColor: '#1D1317' },
-  onlineDotFramed: { bottom: 14, right: 14 },
+  onlineDotFramed: { bottom: 26, right: 26 },
   crownBadge: {
     position: 'absolute', bottom: -7, alignSelf: 'center',
     backgroundColor: '#0B0608', paddingHorizontal: 13, paddingVertical: 3,
@@ -720,7 +802,11 @@ const styles = StyleSheet.create({
 
   nameRow: { alignItems: 'center', gap: 8 },
   name: { fontSize: 24, fontWeight: '900', fontFamily: DISPLAY, flexShrink: 1 },
-  idChip: { alignItems: 'center', gap: 7, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 12, alignSelf: 'flex-start' },
+  idChip: { alignItems: 'center', gap: 7, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 12, alignSelf: 'center' },
+  idRow: { alignItems: 'center', gap: 8, alignSelf: 'flex-start' },
+  sidBadge: { width: 52, height: 52 },
+  agePill: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 99 },
+  agePillText: { fontSize: 12, fontWeight: '800', color: '#fff', fontFamily: HEAVY, includeFontPadding: false, writingDirection: 'ltr' },
   idText: { fontSize: 13.5, fontWeight: '600', fontFamily: SEMI },
 
   badgesRowWrap: { paddingVertical: 0, alignSelf: 'stretch' },
@@ -764,16 +850,16 @@ const styles = StyleSheet.create({
 
   membersCol: { gap: 14, marginTop: 16 },
   memberCard: {
-    borderRadius: 24, padding: 14, borderWidth: 1.2, alignItems: 'flex-start', gap: 10,
-    shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 6,
+    borderRadius: 24, paddingVertical: 18, paddingHorizontal: 12, borderWidth: 1.2, alignItems: 'center', gap: 10,
+    shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.45, shadowRadius: 14, elevation: 6,
   },
-  memberCrown: { width: 62, height: 62 },
-  memberBody: { alignSelf: 'stretch', minWidth: 0, gap: 6, alignItems: 'flex-start' },
-  memberTitle: { fontSize: 16, fontWeight: '900', fontFamily: DISPLAY },
-  memberPerk: { fontSize: 11, color: 'rgba(255,255,255,0.82)', lineHeight: 15, minHeight: 30 },
+  memberCrown: { width: 116, height: 116 },
+  memberBody: { alignSelf: 'stretch', minWidth: 0, gap: 7, alignItems: 'center' },
+  memberTitle: { fontSize: 18, fontWeight: '900', fontFamily: DISPLAY, textAlign: 'center' },
+  memberPerk: { fontSize: 11.5, color: 'rgba(255,255,255,0.72)', lineHeight: 16, minHeight: 32, textAlign: 'center' },
   memberCta: {
-    alignSelf: 'flex-start', alignItems: 'center', gap: 7,
-    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 99, marginTop: 2,
+    alignSelf: 'center', alignItems: 'center', justifyContent: 'center', gap: 7,
+    paddingHorizontal: 24, paddingVertical: 10, borderRadius: 99, marginTop: 4,
   },
   memberCtaText: { fontSize: 13.5, fontWeight: '900', color: '#fff', fontFamily: HEAVY },
 

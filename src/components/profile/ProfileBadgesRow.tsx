@@ -8,11 +8,12 @@ import {
   StyleSheet,
   View,
   Pressable,
+  I18nManager,
+  Image as RNImage,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Infinity as InfinityIcon, Gem, Crown } from 'lucide-react-native';
 import { DecorImage } from '@/components/ui/DecorImage';
 
@@ -22,7 +23,7 @@ import { VerifiedHostBadge } from '@/components/profile/VerifiedHostBadge';
 import { lu } from '@/theme/lu-brand';
 import { useAuth } from '@/hooks/useAuth';
 import { useConfig } from '@/contexts/ConfigContext';
-import { levelDefFor, hasVipPrivilege, resolveVipPrivilegeAsset, getEffectiveVipLevel } from '@/services/firebase/vipSystem';
+import { levelDefFor, hasVipPrivilege, resolveVipPrivilegeAsset, getEffectiveVipLevel, isUserVipActive } from '@/services/firebase/vipSystem';
 import { resolveAristocracyBadgeUrl } from '@/services/firebase/aristocracySystem';
 import {
   resolveAgencyPrinceBadgeForUser,
@@ -32,6 +33,22 @@ import {
   getMyRelationships,
 } from '@/services/firebase/social';
 import { resolveUserWealthLevel } from '@/utils/userBalance';
+
+/** وسوم SVIP لكل مستوى — أصول العميل كما هي */
+const SVIP_LEVEL_TAGS: Record<number, number> = {
+  1: require('../../../assets/images/svip/tag1.webp'),
+  2: require('../../../assets/images/svip/tag2.webp'),
+  3: require('../../../assets/images/svip/tag3.webp'),
+  4: require('../../../assets/images/svip/tag4.webp'),
+  5: require('../../../assets/images/svip/tag5.webp'),
+  6: require('../../../assets/images/svip/tag6.webp'),
+  7: require('../../../assets/images/svip/tag7.webp'),
+  8: require('../../../assets/images/svip/tag8.webp'),
+  9: require('../../../assets/images/svip/tag9.webp'),
+  10: require('../../../assets/images/svip/tag10.webp'),
+  11: require('../../../assets/images/svip/tag11.webp'),
+  12: require('../../../assets/images/svip/tag12.webp'),
+};
 
 /** ارتفاع موحّد لكل الشارات (نص + صور) */
 export const PROFILE_BADGE_H = 30;
@@ -72,6 +89,10 @@ type Props = {
   style?: StyleProp<ViewStyle>;
   /** سمة داكنة — أقراص زجاجية نبيذية موحّدة بدل التدرجات */
   night?: boolean;
+  /** أقراص النص فقط — بدون وسوم SVIP/الأرستقراطية المصوّرة */
+  hideTags?: boolean;
+  /** الوسوم المصوّرة فقط — بدون أقراص النص */
+  tagsOnly?: boolean;
 };
 
 type StatBadgeProps = {
@@ -84,23 +105,15 @@ type StatBadgeProps = {
   night?: boolean;
 };
 
-function StatBadge({ colors, value, icon, onPress, ltr, dark, night }: StatBadgeProps) {
+function StatBadge({ value, icon, onPress, ltr, night }: StatBadgeProps) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.badge, night && styles.badgeNight, pressed && { opacity: 0.9 }]}
+      style={({ pressed }) => [styles.badge, night ? styles.badgeNight : styles.badgeLight, pressed && { opacity: 0.9 }]}
     >
-      {night ? null : (
-        <LinearGradient
-          colors={colors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-      )}
       <Text
         weight="bold"
-        style={[styles.badgeNum, dark && !night && styles.badgeNumDark, ltr && styles.ltr]}
+        style={[styles.badgeNum, !night && styles.badgeNumLight, ltr && styles.ltr]}
         numberOfLines={1}
       >
         {value}
@@ -110,7 +123,7 @@ function StatBadge({ colors, value, icon, onPress, ltr, dark, night }: StatBadge
   );
 }
 
-export function ProfileBadgesRow({ horizontalPad = 20, style, night }: Props) {
+export function ProfileBadgesRow({ horizontalPad = 20, style, night, hideTags, tagsOnly }: Props) {
   const { t } = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
@@ -120,7 +133,7 @@ export function ProfileBadgesRow({ horizontalPad = 20, style, night }: Props) {
 
   const wealthLevel = resolveUserWealthLevel(user);
   // المستوى الفعّال يشمل SVIP الممنوح من الأرستقراطية النشطة (شارة الهوية امتياز SVIP)
-  const vipLevel = getEffectiveVipLevel(user);
+  const vipLevel = isUserVipActive(user) ? getEffectiveVipLevel(user) : 0;
   const isVipBadgeUnlocked = hasVipPrivilege(user, 'vipBadge', vipSystem.privileges);
   const vipDef = vipLevel > 0 ? levelDefFor(vipLevel, vipSystem.levels) : undefined;
   
@@ -171,17 +184,26 @@ export function ProfileBadgesRow({ horizontalPad = 20, style, night }: Props) {
   const titleText = relLevel > 0
     ? t(`relationshipLevels.${relLevel}`, { defaultValue: relTitle ?? '' })
     : t('profile.badgeDefaultTitle');
-  const hasAny = titleText || relLevel > 0 || wealthLevel > 0 || isVipBadgeUnlocked
-    || !!princeBadgeUrl || !!aristocracyBadgeUrl || (user?.isVerified && user?.profile?.gender === 'female');
+  const hasAny = tagsOnly
+    ? !!SVIP_LEVEL_TAGS[vipLevel] || isVipBadgeUnlocked || !!aristocracyBadgeUrl
+    : titleText || relLevel > 0 || wealthLevel > 0 || isVipBadgeUnlocked
+      || !!princeBadgeUrl || !!aristocracyBadgeUrl || (user?.isVerified && user?.profile?.gender === 'female');
   if (!hasAny) return null;
+
+  // عرض وسم SVIP من أبعاد الأصل الفعلية — لا فراغ زائد بعد الرسم
+  const svipTagSrc = SVIP_LEVEL_TAGS[vipLevel];
+  const svipTagDims = svipTagSrc ? RNImage.resolveAssetSource(svipTagSrc) : null;
+  const svipTagW = svipTagDims && svipTagDims.height > 0
+    ? Math.min(130, Math.round((42 * svipTagDims.width) / svipTagDims.height))
+    : 92;
 
   return (
     <View style={[styles.row, { paddingHorizontal: horizontalPad }, style]}>
-      {user?.isVerified && user?.profile?.gender === 'female' ? (
+      {!tagsOnly && user?.isVerified && user?.profile?.gender === 'female' ? (
         <VerifiedHostBadge />
       ) : null}
 
-      {princeBadgeUrl ? (
+      {!tagsOnly && princeBadgeUrl ? (
         <ProfileImageBadge
           uri={princeBadgeUrl}
           wide
@@ -189,7 +211,7 @@ export function ProfileBadgesRow({ horizontalPad = 20, style, night }: Props) {
         />
       ) : null}
 
-      {titleText ? (
+      {!tagsOnly && titleText ? (
         <TravelerTitleBadge
           title={titleText}
           size="sm"
@@ -198,27 +220,42 @@ export function ProfileBadgesRow({ horizontalPad = 20, style, night }: Props) {
         />
       ) : null}
 
-      {relLevel > 0 ? (
+      {!tagsOnly && relLevel > 0 ? (
         <StatBadge
           colors={['#FF6670', '#E11414', '#C40E1E']}
           value={String(relLevel)}
-          icon={<InfinityIcon size={12} color="#fff" strokeWidth={2.6} />}
+          icon={<InfinityIcon size={12} color={night ? '#fff' : '#E11414'} strokeWidth={2.6} />}
           onPress={() => router.push('/relationships' as any)}
           night={night}
         />
       ) : null}
 
-      {wealthLevel > 0 ? (
+      {!tagsOnly && wealthLevel > 0 ? (
         <StatBadge
           colors={['#F16D6D', '#EB3030', '#D61E1E']}
           value={String(wealthLevel)}
-          icon={<Gem size={12} color={night ? '#FF5C6C' : '#fff'} strokeWidth={2.2} />}
+          icon={<Gem size={12} color={night ? '#FF5C6C' : '#E11414'} strokeWidth={2.2} />}
           onPress={() => router.push('/wealth-level' as any)}
           night={night}
         />
       ) : null}
 
-      {isVipBadgeUnlocked ? (
+      {!tagsOnly && !hideTags ? <View style={styles.lineBreak} /> : null}
+
+      {!hideTags && svipTagSrc ? (
+        <Pressable
+          onPress={() => router.push('/vip' as any)}
+          style={({ pressed }) => [styles.imageBadge, { width: svipTagW, height: 42 }, pressed && { opacity: 0.88 }]}
+        >
+          <DecorImage
+            source={svipTagSrc}
+            width={svipTagW}
+            height={42}
+            allowDownscaling
+            contentPosition={I18nManager.isRTL ? 'right center' : 'left center'}
+          />
+        </Pressable>
+      ) : !hideTags && isVipBadgeUnlocked ? (
         vipBadgeUrl ? (
           <ProfileImageBadge uri={vipBadgeUrl} onPress={() => router.push('/vip' as any)} />
         ) : (
@@ -234,11 +271,20 @@ export function ProfileBadgesRow({ horizontalPad = 20, style, night }: Props) {
         )
       ) : null}
 
-      {aristocracyBadgeUrl ? (
-        <ProfileImageBadge
-          uri={aristocracyBadgeUrl}
+      {!hideTags && aristocracyBadgeUrl ? (
+        <Pressable
           onPress={() => router.push('/vip/aristocracy' as any)}
-        />
+          style={({ pressed }) => [styles.imageBadge, { width: 92, height: 42 }, pressed && { opacity: 0.88 }]}
+        >
+          <DecorImage
+            source={{ uri: aristocracyBadgeUrl }}
+            width={92}
+            height={42}
+            allowDownscaling
+            recyclingKey={aristocracyBadgeUrl}
+            contentPosition={I18nManager.isRTL ? 'right center' : 'left center'}
+          />
+        </Pressable>
       ) : null}
 
     </View>
@@ -252,10 +298,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignContent: 'center',
     justifyContent: 'center',
-    gap: 5,
-    rowGap: 5,
+    gap: 4,
+    rowGap: 8,
     paddingVertical: 8,
     width: '100%',
+  },
+  lineBreak: {
+    width: '100%',
+    height: 0,
   },
   badge: {
     flexDirection: 'row',
@@ -263,8 +313,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
     height: PROFILE_BADGE_H,
-    minWidth: 44,
-    paddingHorizontal: 9,
+    minWidth: 40,
+    paddingHorizontal: 7,
     borderRadius: 99,
     overflow: 'hidden',
     ...lu.shadows.card,
@@ -275,6 +325,16 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,90,105,0.28)',
     shadowOpacity: 0,
     elevation: 0,
+  },
+  badgeLight: {
+    backgroundColor: 'rgba(225,20,20,0.07)',
+    borderWidth: 1,
+    borderColor: '#F0BABA',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  badgeNumLight: {
+    color: '#B00E0E',
   },
   badgeNum: {
     fontSize: 11.5,
