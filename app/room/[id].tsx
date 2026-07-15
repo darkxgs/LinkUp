@@ -2196,7 +2196,9 @@ export default function RoomScreen() {
         showAlert({ type: 'error', title: t('roomPk.title'), message: t('roomPk.startFailed') });
         return;
       }
-      if (!isHost) {
+      // المضيف أو المشرف الأصفر يبدأ التحدي (مطابق للباك assertHostCanStart) —
+      // كان الفحص !isHost يحجب المشرف الأصفر رغم أن الباك يسمح له.
+      if (!canStartPk) {
         showAlert({ type: 'warning', title: t('roomPk.title'), message: t('roomPk.hostOnly') });
         return;
       }
