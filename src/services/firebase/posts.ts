@@ -888,6 +888,18 @@ export const toggleCommentLike = async (
   return true;
 };
 
+// حذف تعليق — صاحب التعليق فقط (تسمح القواعد بالحذف وتنقيص العدّاد)
+export const deleteComment = async (postId: string, commentId: string): Promise<void> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('غير مسجل');
+  const commentRef = doc(firestore, `posts/${postId}/comments`, commentId);
+  const snap = await getDoc(commentRef);
+  if (!snap.exists()) return;
+  if (snap.data().uid !== user.uid) throw new Error('لا يمكنك حذف هذا التعليق');
+  await deleteDoc(commentRef);
+  await updateDoc(doc(firestore, 'posts', postId), { comments: increment(-1) });
+};
+
 /** بذور تجريبية — تُستدعى يدوياً من الإعدادات فقط، وليس عند كل تحميل */
 export const seedDemoPosts = async (): Promise<void> => {
   const q = query(collection(firestore, 'posts'), limit(1));

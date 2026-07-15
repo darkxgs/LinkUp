@@ -684,8 +684,11 @@ async function executeBuyAndSendGift(
 
   // معاملة ذرّية: خصم المرسل + إضافة رصيد المستلم + سجل الهدية (مع إعادة محاولة عند الكومبو)
   await runGiftTransaction(async (transaction) => {
-    const userDoc = await transaction.get(userRef);
-    const recipientDoc = await transaction.get(recipientRef);
+    // قراءتان متوازيتان (مسموح قبل أي كتابة) — توفّر ذهاب/إياب شبكي على كل هدية وكل إعادة محاولة
+    const [userDoc, recipientDoc] = await Promise.all([
+      transaction.get(userRef),
+      transaction.get(recipientRef),
+    ]);
     if (!userDoc.exists()) throw new Error('المستخدم غير موجود');
     if (!recipientDoc.exists()) throw new Error('المستلم غير موجود');
 

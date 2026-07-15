@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
-import { ThumbsUp } from 'lucide-react-native';
+import { ThumbsUp, Trash2 } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 
 import { Text } from '@/components/ui';
@@ -27,6 +27,8 @@ export const PostCommentRow = React.memo(function PostCommentRow({
   onAuthorPress,
   frameUri,
   canInteract,
+  currentUid,
+  onDelete,
 }: {
   item: PostComment;
   isReply?: boolean;
@@ -38,9 +40,13 @@ export const PostCommentRow = React.memo(function PostCommentRow({
   onAuthorPress?: (uid: string) => void;
   frameUri?: string;
   canInteract?: boolean;
+  currentUid?: string;
+  onDelete?: (comment: PostComment) => void;
 }) {
   const { t } = useTranslation();
   const isGift = item.type === 'gift';
+  // صاحب التعليق فقط يرى زر الحذف
+  const isAuthor = !!item.uid && item.uid === currentUid;
   const hasImage = Boolean(item.imageUrl?.trim());
   const initial = (item.authorName || '?').charAt(0);
   const [liking, setLiking] = useState(false);
@@ -160,6 +166,15 @@ export const PostCommentRow = React.memo(function PostCommentRow({
             </Pressable>
             <Text style={styles.actionDot}>·</Text>
             <Text style={styles.timeText}>{formatTimeAgo(item.createdAt)}</Text>
+            {isAuthor ? (
+              <>
+                <Text style={styles.actionDot}>·</Text>
+                <Pressable onPress={() => onDelete?.(item)} hitSlop={8} style={styles.actionBtn}>
+                  <Trash2 size={13} color={lu.colors.muted} />
+                  <Text style={styles.actionText}>{t('post.deleteComment')}</Text>
+                </Pressable>
+              </>
+            ) : null}
           </View>
         ) : null}
 

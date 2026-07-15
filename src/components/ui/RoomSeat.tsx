@@ -3,7 +3,7 @@
  * تصميم مستقبلي نيون (Futuristic Neon)
  */
 
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { SeatSoundAura } from '@/components/room/SeatSoundAura';
@@ -31,7 +31,10 @@ function SeatFaceImage({
   fallbackLetter?: string;
 }) {
   const validUri = uri?.trim();
-  if (!validUri) {
+  // فشل تحميل الصورة → نعرض حرف البديل بدل دائرة بيضاء فارغة
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [validUri]); // أعد المحاولة عند تغيّر الرابط
+  if (!validUri || failed) {
     return (
       <View style={[styles.avatarFallback, { width: size, height: size, borderRadius }]}>
         <Text weight="bold" style={{ fontSize: size * 0.38, color: '#fff' }}>
@@ -46,6 +49,7 @@ function SeatFaceImage({
       style={{ width: size, height: size, borderRadius }}
       contentFit="cover"
       recyclingKey={validUri}
+      onError={() => setFailed(true)}
       {...IMG_AVATAR}
     />
   );
@@ -164,7 +168,8 @@ export const RoomSeat = memo(
                       ? 'rgba(59,130,246,0.6)'
                       : pkTeam === 'red'
                         ? 'rgba(255,46,62,0.6)'
-                        : 'rgba(232, 23, 23, 0.25)',
+                        // حلقة أوضح للمقعد الفارغ — 0.25 كانت تختفي على خلفية غرفة مارون داكنة
+                        : 'rgba(255, 90, 92, 0.9)',
                 },
               ]}
             >
@@ -176,14 +181,15 @@ export const RoomSeat = memo(
                       ? ['rgba(59,130,246,0.18)', 'rgba(30,64,175,0.08)']
                       : pkTeam === 'red'
                         ? ['rgba(255,46,62,0.16)', 'rgba(127,29,29,0.08)']
-                        : ['rgba(225, 20, 20,0.15)', 'rgba(232, 23, 23, 0.05)']
+                        // تعبئة داكنة أقوى قليلاً كي يبرز المربّع كرمز واضح على أي خلفية
+                        : ['rgba(232, 23, 23, 0.34)', 'rgba(127, 29, 29, 0.18)']
                 }
                 style={[StyleSheet.absoluteFill, { borderRadius: corner(emptyBoxSize) }]}
               />
               {isLocked ? (
                 <Lock size={s.avatar / 2.8} color="rgba(239,68,68,0.85)" strokeWidth={2.5} />
               ) : (
-                <Plus size={s.avatar / 2.5} color="rgba(232, 23, 23, 0.6)" strokeWidth={2.5} />
+                <Plus size={s.avatar / 2.4} color="rgba(255,255,255,0.92)" strokeWidth={2.75} />
               )}
             </View>
           </View>
@@ -470,8 +476,9 @@ const styles = StyleSheet.create({
     backgroundColor: lu.colors.purple,
   },
   emptySeat: {
-    backgroundColor: 'rgba(27, 8, 8, 0.6)',
-    borderWidth: 1,
+    // تعبئة داكنة أكثر عتامة + حلقة أعرض ليُرى المقعد الفارغ على خلفية مارون داكنة
+    backgroundColor: 'rgba(18, 6, 6, 0.82)',
+    borderWidth: 1.5,
     borderColor: 'rgba(232, 23, 23, 0.25)',
     borderStyle: 'dashed',
     alignItems: 'center',

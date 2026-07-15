@@ -2,7 +2,7 @@
  * صورة مستخدم داخل إطار شفاف — نفس نسب معاينة المتجر.
  * الإطار فوق الصورة ومتمركز؛ الصورة تملأ الفتحة الدائرية.
  */
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ViewStyle, StyleProp } from 'react-native';
 import { Image } from 'expo-image';
 import { Text } from './Text';
@@ -42,6 +42,9 @@ export function FramedAvatar({
 }: FramedAvatarProps) {
   const containerSize = containerSizeProp ?? getFramedAvatarContainerSize(avatarSize);
   const frameSize = Math.round(containerSize * FRAMED_AVATAR_FRAME_RATIO);
+  // فشل تحميل الصورة → نعرض حرف البديل بدل دائرة بيضاء فارغة
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [avatarUri]); // أعد المحاولة عند تغيّر الرابط
   // إطار محلّي (require = number) أو بعيد (URL نصّي). المتحرّك يخصّ الروابط فقط.
   const isRemoteFrame = typeof frameUri === 'string';
   const frameAnimated = isRemoteFrame && isGifImageUrl(frameUri);
@@ -67,12 +70,13 @@ export function FramedAvatar({
           backgroundColor: lu.colors.purple,
         }}
       >
-        {avatarUri ? (
+        {avatarUri && !failed ? (
           <Image
             source={{ uri: avatarUri.trim() }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             recyclingKey={avatarUri.trim()}
+            onError={() => setFailed(true)}
             {...IMG_AVATAR}
           />
         ) : (

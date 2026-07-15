@@ -1156,6 +1156,8 @@
     "likeAction": "Like",
     "likedAction": "Liked",
     "replyAction": "Reply",
+    "deleteComment": "Delete comment",
+    "deleteCommentConfirm": "Delete this comment?",
     "sentGift": "Sent a gift",
     "giftFallback": "Gift",
     "createTitle": "New moment",

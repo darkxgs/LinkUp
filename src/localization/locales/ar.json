@@ -1156,6 +1156,8 @@
     "likeAction": "إعجاب",
     "likedAction": "أعجبني",
     "replyAction": "رد",
+    "deleteComment": "حذف التعليق",
+    "deleteCommentConfirm": "هل تريد حذف هذا التعليق؟",
     "sentGift": "أرسل هدية",
     "giftFallback": "هدية",
     "createTitle": "منشور لحظة جديدة",

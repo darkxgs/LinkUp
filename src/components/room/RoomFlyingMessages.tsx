@@ -14,6 +14,9 @@ type ActiveFlyer = FlyingMessage & { topPct: number };
 
 function Flyer({ msg, onDone }: { msg: ActiveFlyer; onDone: (id: string) => void }) {
   const tx = useRef(new Animated.Value(SCREEN_W)).current;
+  // فشل تحميل الصورة → دائرة بحرف الاسم بدل بقعة بيضاء
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [msg.avatar]); // أعد المحاولة عند تغيّر الرابط
   useEffect(() => {
     Animated.timing(tx, {
       toValue: -SCREEN_W * 1.1,
@@ -35,7 +38,22 @@ function Flyer({ msg, onDone }: { msg: ActiveFlyer; onDone: (id: string) => void
         style={StyleSheet.absoluteFill}
       />
       {msg.avatar ? (
-        <Image source={{ uri: msg.avatar }} style={styles.avatar} contentFit="cover" cachePolicy="memory-disk" recyclingKey={msg.avatar} />
+        failed ? (
+          <View style={[styles.avatar, styles.avatarFallback]}>
+            <Text variant="caption" weight="bold" color="#fff" style={{ fontSize: 11 }}>
+              {(msg.name || '?').trim().charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        ) : (
+          <Image
+            source={{ uri: msg.avatar }}
+            style={styles.avatar}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={msg.avatar}
+            onError={() => setFailed(true)}
+          />
+        )
       ) : null}
       <Text variant="caption" weight="bold" color="#FFD86F" numberOfLines={1} style={styles.name}>
         {msg.name}
@@ -89,7 +107,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     maxWidth: SCREEN_W * 0.8,
   },
-  avatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(255,255,255,0.25)' },
+  avatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,0,0,0.25)' },
+  avatarFallback: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   name: { maxWidth: 90 },
   text: { flexShrink: 1 },
 });

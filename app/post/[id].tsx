@@ -38,6 +38,7 @@ import {
   addComment,
   toggleLike,
   deletePost,
+  deleteComment,
   getLikedPostIds,
   getLikedCommentIds,
   type Post,
@@ -265,6 +266,27 @@ export default function PostDetailScreen() {
     }));
   }, [comments, commentLikeOverrides]);
 
+  const handleDeleteComment = useCallback((comment: PostComment) => {
+    if (!post) return;
+    Alert.alert(t('post.deleteComment'), t('post.deleteCommentConfirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('common.delete'),
+        style: 'destructive',
+        onPress: async () => {
+          // تحديث متفائل — الحذف والعدّاد، ثم يصحّح الاشتراك الحيّ عند الفشل
+          setComments((list) => list.filter((c) => c.id !== comment.id));
+          setPost((p) => (p ? { ...p, comments: Math.max(0, p.comments - 1) } : p));
+          try {
+            await deleteComment(post.id, comment.id);
+          } catch (e: unknown) {
+            Alert.alert(t('common.error'), e instanceof Error ? e.message : t('post.deleteFailed'));
+          }
+        },
+      },
+    ]);
+  }, [post, t]);
+
   const handleDelete = async () => {
     if (!post) return;
     setDeleting(true);
@@ -420,6 +442,8 @@ export default function PostDetailScreen() {
               onAuthorPress={(uid) => router.push(`/profile/${uid}` as any)}
               frameUri={commentFrameByUid[row.item.uid]}
               canInteract={Boolean(user)}
+              currentUid={user?.uid}
+              onDelete={handleDeleteComment}
             />
           )}
           ListEmptyComponent={

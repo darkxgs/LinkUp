@@ -388,13 +388,14 @@ export default function DiscoverScreen() {
         dark={isDark}
         width={cardW}
         currentUid={myUid}
+        isFollowing={!!myUid && followingIds.has(item.uid)}
         presenceTs={presenceMap[item.uid]}
         presenceNow={presenceNow}
         distanceKm={nearbyDistanceMap.get(item.uid)}
         onPress={() => router.push(`/profile/${item.uid}` as any)}
       />
     ),
-    [cardW, myUid, presenceMap, presenceNow, router, nearbyDistanceMap, isDark],
+    [cardW, myUid, followingIds, presenceMap, presenceNow, router, nearbyDistanceMap, isDark],
   );
 
   const ListHeader = (

@@ -128,7 +128,30 @@ export function VideoAddModal({ visible, onClose, roomId, canPublishDirectly = f
           quality: 0.7,
         });
         if (result.canceled || !result.assets?.[0]) return;
-        setPickedVideo(result.assets[0]);
+        const asset = result.assets[0];
+        // نمنع الفيديو الأكبر من الحد قبل أي قراءة للملف — قراءة فيديو ضخم كـ blob
+        // كانت تُفجّر ذاكرة التطبيق وتُغلقه فجأة (native OOM لا يلتقطه try/catch)
+        const MAX_SIZE = 50 * 1024 * 1024;
+        let sizeBytes = asset.fileSize ?? 0;
+        if (!sizeBytes) {
+          try {
+            const FileSystem = await import('expo-file-system');
+            const info = await FileSystem.getInfoAsync(asset.uri);
+            sizeBytes = 'size' in info && typeof info.size === 'number' ? info.size : 0;
+          } catch {
+            // تعذّر قياس الحجم من النظام — يبقى فحص blob.size لاحقاً كشبكة أمان
+          }
+        }
+        if (sizeBytes > MAX_SIZE) {
+          showAlert({ type: 'error', title: 'حجم كبير', message: 'الحد الأقصى لحجم الفيديو 50MB' });
+          return;
+        }
+        // مدة المنتقي بالمِلّي ثانية — الحد 10 دقائق
+        if (asset.duration && asset.duration > 600_000) {
+          showAlert({ type: 'error', title: 'مدة طويلة', message: 'الحد الأقصى لمدة الفيديو 10 دقائق' });
+          return;
+        }
+        setPickedVideo(asset);
       });
     } catch (e: any) {
       showAlert({ type: 'error', title: 'فشل', message: e?.message ?? 'خطأ' });

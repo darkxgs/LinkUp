@@ -3512,10 +3512,10 @@ export default function RoomScreen() {
   }, [roomId, isHost, mySeat, room?.permissions, myUid, myChatMuted, showSeatEmoji, showAlert, t]);
 
   const giftRecipients: GiftPickerRecipient[] = useMemo(() => {
-    // لا يُسمح بإهداء/دعم النفس (يُمنع في buyAndSendGift) — نستبعد النفس من
-    // قائمة المستلمين حتى لا يظهر كخيار ثم يفشل الإرسال
+    // نعرض كل الموجودين على المقاعد بمن فيهم المستخدم نفسه (كـ«أنت») حتى لا تظهر
+    // «لا يوجد أحد على المقاعد» عندما يكون هو الوحيد؛ ومنع إهداء النفس يتم عند الإرسال
     return audienceMembers
-      .filter((m) => m.uid && m.uid !== myUid)
+      .filter((m) => m.uid)
       .map((m) => ({
         uid: m.uid,
         name: resolveDisplayName({ displayName: m.name }, t('rooms.userFallback')),
@@ -3525,7 +3525,7 @@ export default function RoomScreen() {
             ? '★'
             : m.seatIndex
           : undefined,
-        isMe: false,
+        isMe: m.uid === myUid,
       }));
   }, [audienceMembers, myUid, t]);
 
@@ -3582,6 +3582,9 @@ export default function RoomScreen() {
     opts?: { isCombo?: boolean },
   ) => {
     let uids = (Array.isArray(recipientUids) ? recipientUids : [recipientUids]).filter(Boolean);
+    // النفس يظهر في القائمة كـ«أنت» للعرض فقط — نستبعده عند الإرسال («إرسال للجميع»
+    // يتخطّاه بدل أن يفشل بخطأ «لا يمكنك إهداء نفسك»)
+    if (myUid) uids = uids.filter((u) => u !== myUid);
     if (!gift || uids.length === 0 || !user || !roomId) return;
     if (sendingGift && !opts?.isCombo) return;
 
@@ -3739,7 +3742,8 @@ export default function RoomScreen() {
             quantity,
             room?.agencyId ? { agencyId: String(room.agencyId) } : undefined,
           );
-          const supportCoins = giftResult.coinsForRecipient;
+          // حدّث رصيد المُرسِل فور تسوية كل عملية خصم بدل الانتظار لنهاية الدفعة
+          void refreshUser?.();
 
           if (!isGroupGift) {
             const writeComboChat = async () => {
@@ -3851,8 +3855,12 @@ export default function RoomScreen() {
             vipLevel: user.vipLevel,
           });
 
-          if (supportCoins > 0) {
-            void recordRoomGiftSupportReceived(roomId, recipientUid, supportCoins);
+          // ندعم المقعد بقيمة الهدية (totalPer) لا بعائد المستلم (coinsForRecipient) —
+          // حتى لا يعلق الرقم على 0 إن تغيّرت دلالة التحصيل، مع .catch لكشف أي فشل صامت
+          if (totalPer > 0) {
+            void recordRoomGiftSupportReceived(roomId, recipientUid, totalPer).catch((e) =>
+              console.warn('seat support write failed:', e),
+            );
           }
 
           void syncUserSeatLevelInRoom(roomId, recipientUid, giftResult.recipientLevel).catch(() => {});
@@ -6315,6 +6323,9 @@ const ChatMessageAvatar = React.memo(function ChatMessageAvatar({
   frameUri?: string;
   onPress?: () => void;
 }) {
+  // صورة الرسالة قد تفشل بالتحميل (رابط منتهٍ/شبكة) — نُظهر البديل بدل دائرة فارغة
+  const [avatarFailed, setAvatarFailed] = React.useState(false);
+  React.useEffect(() => { setAvatarFailed(false); }, [msg.avatar]);
   if (!msg.uid) return null;
   return (
     <Pressable onPress={onPress} hitSlop={6} style={styles.chatAvatarBtn}>
@@ -6325,13 +6336,14 @@ const ChatMessageAvatar = React.memo(function ChatMessageAvatar({
           avatarSize={CHAT_AVATAR_SIZE}
           fallbackLetter={msg.name}
         />
-      ) : msg.avatar ? (
+      ) : msg.avatar && !avatarFailed ? (
         <Image
           source={{ uri: msg.avatar }}
           style={styles.chatAvatar}
           contentFit="cover"
           cachePolicy="memory-disk"
           recyclingKey={msg.avatar}
+          onError={() => setAvatarFailed(true)}
         />
       ) : (
         <View style={[styles.chatAvatar, styles.chatAvatarFallback]}>

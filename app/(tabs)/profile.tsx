@@ -314,7 +314,6 @@ export default function ProfileScreen() {
   const menu: MenuItem[] = [
     { Icon: User, label: t('profile.myProfile'), route: '/profile/me' },
     { Icon: Award, label: t('profile.myTitle'), route: '/titles' },
-    { Icon: Briefcase, label: t('profile.agency'), route: '/agency/hub' },
   ];
 
   if (isAgent) {
@@ -430,7 +429,14 @@ export default function ProfileScreen() {
 
           <View style={styles.identityInfo}>
             <View style={[styles.nameRow, { flexDirection: ROW }]}>
-              <Text style={[styles.name, { color: pal.ink }]} numberOfLines={1}>{name}</Text>
+              <Text
+                style={[styles.name, { color: pal.ink }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.6}
+              >
+                {name}
+              </Text>
               {age > 0 ? (
                 <LinearGradient
                   colors={isMale ? ['#4FACFE', '#2563EB'] : ['#FF7EB3', '#E1265E']}

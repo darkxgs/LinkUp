@@ -133,6 +133,9 @@ function ChatMsgAvatar({
   frameUri?: string;
   fallbackLetter?: string;
 }) {
+  // فشل تحميل الصورة → دائرة بحرف الاسم بدل فراغ/دائرة بيضاء
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [avatarUri]); // أعد المحاولة عند تغيّر الرابط
   if (frameUri) {
     return (
       <FramedAvatar
@@ -143,7 +146,7 @@ function ChatMsgAvatar({
       />
     );
   }
-  if (avatarUri) {
+  if (avatarUri && !failed) {
     return (
       <Image
         source={{ uri: avatarUri }}
@@ -151,10 +154,21 @@ function ChatMsgAvatar({
         contentFit="cover"
         cachePolicy="memory-disk"
         recyclingKey={avatarUri}
+        onError={() => setFailed(true)}
       />
     );
   }
-  return <View style={styles.msgAvatarSpacer} />;
+  // بديل: أول حرف من الاسم في دائرة ملوّنة (لا بيضاء)
+  const letter = (fallbackLetter?.trim() || '').charAt(0).toUpperCase();
+  return (
+    <View style={[styles.msgAvatar, styles.msgAvatarFallback]}>
+      {letter ? (
+        <Text weight="bold" style={{ fontSize: CHAT_MSG_AVATAR_SIZE * 0.5, color: '#fff' }}>
+          {letter}
+        </Text>
+      ) : null}
+    </View>
+  );
 }
 
 type MediaDraft = {
@@ -1190,6 +1204,12 @@ const styles = StyleSheet.create({
     width: CHAT_MSG_AVATAR_SIZE,
     height: CHAT_MSG_AVATAR_SIZE,
     borderRadius: CHAT_MSG_AVATAR_SIZE / 2,
+  },
+  msgAvatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: lu.colors.purple,
   },
   msgAvatarSpacer: {
     width: CHAT_MSG_AVATAR_SIZE,

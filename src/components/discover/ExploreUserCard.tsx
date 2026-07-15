@@ -63,6 +63,8 @@ export type ExploreUserCardProps = {
   user: UserDoc;
   width: number;
   currentUid?: string;
+  /** حالة المتابعة الحيّة الممرَّرة من الشاشة (followingIds) — تُفادي سباق «+» عند أول رسم */
+  isFollowing?: boolean;
   presenceTs?: number;
   presenceNow: number;
   distanceKm?: number;
@@ -74,6 +76,7 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
   user,
   width,
   currentUid,
+  isFollowing,
   presenceTs,
   presenceNow,
   distanceKm,
@@ -102,7 +105,7 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
     : { uri: photo };
   const cardH = Math.round(width / CARD_ASPECT);
 
-  const [liked, setLiked] = useState(false);
+  const [liked, setLiked] = useState(!!isFollowing);
   const [busy, setBusy] = useState(false);
 
   const cardScale = useSharedValue(1);
@@ -130,9 +133,15 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
   }));
 
   useEffect(() => {
+    // نعتمد الحالة الحيّة الممرَّرة من الشاشة لتفادي سباق «+» عند أول رسم من الكاش؛
+    // ونرجع لفحص لمرة واحدة فقط إن لم تُمرَّر الحالة
+    if (isFollowing !== undefined) {
+      setLiked(isFollowing);
+      return;
+    }
     if (!currentUid || currentUid === user.uid) return;
     checkFollowing(user.uid).then(setLiked).catch(() => {});
-  }, [user.uid, currentUid]);
+  }, [isFollowing, user.uid, currentUid]);
 
   const onHeart = async (e: { stopPropagation?: () => void }) => {
     e?.stopPropagation?.();

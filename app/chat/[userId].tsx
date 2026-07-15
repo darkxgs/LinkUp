@@ -252,6 +252,9 @@ function PersonalChatScreen({ userId }: { userId: string }) {
 
   const listRef = useRef<FlatList>(null);
   const lastGiftMsgIdRef = useRef<string | null>(null);
+  // آخر رسالة أحدث سُلّمت — نمرّر للأسفل فقط عند وصول رسالة أحدث فعلاً (لا على
+  // تحديثات «قُرئت» التي لا تغيّر الترتيب)
+  const lastNewestMsgIdRef = useRef<string | null>(null);
   // مفاتيح ثابتة للقائمة — الرسالة الحقيقية ترث مفتاح نسختها التفاؤلية فلا يُعاد
   // بناء الفقاعة (remount) لحظة وصولها من Firestore (كان يسبب وميضاً/قفزة بالقائمة)
   const pendingKeyByRealIdRef = useRef(new Map<string, string>());
@@ -272,6 +275,23 @@ function PersonalChatScreen({ userId }: { userId: string }) {
       listRef.current?.scrollToOffset({ offset: 0, animated });
     });
   }, []);
+
+  // ⚡ مراجع حيّة للقيم المتغيّرة التي يقرأها مستمع الرسائل — نُبقي المستمع ثابتاً
+  // (تبعياته = هوية المحادثة فقط) فلا يُعاد بناؤه مع كل تغيّر لهذه القيم؛ كل إعادة
+  // بناء تُعيد جلب ١٠٠ مستند وتوقف التسليم الحي = بطء. ونتفادى الإغلاقات القديمة
+  // بقراءة ref.current بدل المتغيّر المُغلق عليه.
+  const catalogGiftsRef = useRef(catalogGifts);
+  const otherUserRef = useRef(otherUser);
+  const tRef = useRef(t);
+  const scrollToLatestRef = useRef(scrollToLatest);
+  const userRef = useRef(user);
+  useEffect(() => {
+    catalogGiftsRef.current = catalogGifts;
+    otherUserRef.current = otherUser;
+    tRef.current = t;
+    scrollToLatestRef.current = scrollToLatest;
+    userRef.current = user;
+  });
 
   // عند فتح الكيبورد يتقلّص ارتفاع القائمة (adjustResize على أندرويد) بلا تغيّر في
   // حجم المحتوى، فلا يُطلق onContentSizeChange وتبقى آخر رسالة مخفية تحت الحقل.
@@ -398,9 +418,14 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     pendingInitialScrollRef.current = true;
     stickToBottomRef.current = true;
     lastGiftMsgIdRef.current = null;
+    lastNewestMsgIdRef.current = null;
     pendingKeyByRealIdRef.current.clear();
   }, [conversationId]);
 
+  // ⚡ تبعيات المستمع = هوية المحادثة فقط ([conversationId, user?.uid])؛ كل القيم
+  // المتغيّرة الأخرى (catalogGifts / otherUser / t / scrollToLatest / user) تُقرأ
+  // عبر المراجع الحيّة أعلاه فلا يُعاد بناء onSnapshot (وإعادة بنائه تُعيد جلب ١٠٠
+  // مستند وتوقف التسليم الحي = بطء ملحوظ وإشعار يسبق ظهور الرسالة).
   useEffect(() => {
     if (!conversationId) return;
     // تصفير فوري عند فتح الشاشة
@@ -413,17 +438,17 @@ function PersonalChatScreen({ userId }: { userId: string }) {
       if (latestGift && latestGift.id !== lastGiftMsgIdRef.current) {
         const hadPriorGift = lastGiftMsgIdRef.current !== null;
         lastGiftMsgIdRef.current = latestGift.id;
-        const isReceived = latestGift.fromUid !== user?.uid;
+        const isReceived = latestGift.fromUid !== userRef.current?.uid;
         const shouldOpen =
           isReceived &&
           (hadPriorGift || latestGift.isRead !== true);
         if (shouldOpen) {
-          const payload = resolveGiftAnimationPayload(catalogGifts, latestGift);
+          const payload = resolveGiftAnimationPayload(catalogGiftsRef.current, latestGift);
           if (payload) {
             setGiftAnimation({
               ...payload,
-              senderName: otherUser?.displayName ?? t('rooms.userFallback'),
-              recipientName: user?.profile?.displayName,
+              senderName: otherUserRef.current?.displayName ?? tRef.current('rooms.userFallback'),
+              recipientName: userRef.current?.profile?.displayName,
               key: Date.now(),
             });
           }
@@ -432,23 +457,29 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         lastGiftMsgIdRef.current = latestGift.id;
       }
 
-      // ⚡ نصفّر فقط عند وجود وارد غير مقروء فعلاً — كان يُنفَّذ على كل snapshot
-      // (حتى عند إرسالي أنا) = قراءة حتى 100 رسالة + كتابة batch مع كل تحديث،
-      // وهو سبب رئيسي لبطء الدردشة الخاصة وتأخر علامتَي القراءة
+      // ⚡ نصفّر فقط عند وجود وارد غير مقروء فعلاً — لا على كل snapshot (حتى عند
+      // إرسالي أنا) = قراءة حتى 100 رسالة + كتابة batch مع كل تحديث، وهو سبب
+      // رئيسي لبطء الدردشة الخاصة وتأخر علامتَي القراءة
       const hasUnreadIncoming = msgs.some(
-        (m) => m.fromUid !== user?.uid && m.isRead !== true,
+        (m) => m.fromUid !== userRef.current?.uid && m.isRead !== true,
       );
       if (hasUnreadIncoming) {
         markConversationAsRead(conversationId, userId).catch(() => {});
       }
+      // ⚡ تمرير موثوق للأحدث: نمرّر فقط عند وصول رسالة أحدث فعلاً (لا على تحديثات
+      // «قُرئت» التي لا تغيّر الترتيب)، وبشرط الالتصاق بالأسفل — فتنزل الرسالة
+      // الجديدة إلى جسم المحادثة فوراً بلا قفز مزعج عند تصفّح السجل
+      const newestId = msgs.length > 0 ? msgs[msgs.length - 1].id : null;
+      const newestChanged = newestId !== null && newestId !== lastNewestMsgIdRef.current;
+      lastNewestMsgIdRef.current = newestId;
       if (pendingInitialScrollRef.current) {
-        scrollToLatest(false);
-      } else if (stickToBottomRef.current) {
-        scrollToLatest(true);
+        scrollToLatestRef.current(false);
+      } else if (newestChanged && stickToBottomRef.current) {
+        scrollToLatestRef.current(true);
       }
     });
     return unsub;
-  }, [conversationId, user?.uid, catalogGifts, otherUser?.displayName, t, scrollToLatest]);
+  }, [conversationId, user?.uid]);
 
   // مطابقة الرسالة التفاؤلية مع الحقيقية — نافذة زمنية + استهلاك رسالة حقيقية
   // واحدة لكل تفاؤلية. (المطابقة بمفتاح المحتوى وحده كانت تُسقط النسختين معاً عند
@@ -1514,14 +1545,15 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     }
 
     setSendingGift(true);
+    // نعرض أنيميشن الهدية فوراً (تفاؤلياً) قبل انتظار الخصم وكتابة الرسالة — كان
+    // المُرسِل لا يرى شيئاً حتى تكتمل العمليتان فيبدو الإرسال بطيئاً (يُلغى عند الفشل)
+    playGiftAnimation(gift, quantity, true);
+    setShowGiftPicker(false);
 
     try {
       await buyAndSendGift(gift, userId, otherUser.displayName, undefined, quantity);
       await sendGiftChatMessage(conversationId, userId, gift, quantity);
-      playGiftAnimation(gift, quantity, true);
-      setShowGiftPicker(false);
       // الهدية وصلت والخصم تم — الزر يتوقف هنا؛ نقاط العلاقة تُحتسب بالخلفية
-      // (كانت تُنتظر فيظل زر الإرسال يدور رغم وصول الهدية)
       setSendingGift(false);
       void refreshUser?.();
 

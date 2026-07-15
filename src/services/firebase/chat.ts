@@ -1333,6 +1333,10 @@ export const subscribeToMessages = (
   conversationId: string,
   callback: (messages: ChatMessage[]) => void,
 ): (() => void) => {
+  // بمجرد تسليم قائمة غير فارغة، لا نمحوها بخطأ عابر أو وميض مصادقة (كانت الرسائل
+  // تختفي ثم تعود عند إعادة الاشتراك)
+  let deliveredNonEmpty = false;
+
   const handleSnapshot = (snap: QuerySnapshot<DocumentData>) => {
     // نقرأ المستخدم لحظة كل snapshot — قراءته مرة عند الاشتراك كانت null في
     // سباق الإقلاع فتتعطّل فلترة «حُذفت لي» (hiddenFor) وتعود الرسائل المحذوفة
@@ -1354,6 +1358,8 @@ export const subscribeToMessages = (
         return true;
       });
     msgs.sort((a, b) => (a.sortAt || a.createdAt || 0) - (b.sortAt || b.createdAt || 0));
+    // فور تسليم قائمة غير فارغة نرفع العلم كي لا نمحوها لاحقاً بخطأ عابر
+    if (msgs.length > 0) deliveredNonEmpty = true;
     callback(msgs);
   };
 
@@ -1389,7 +1395,9 @@ export const subscribeToMessages = (
           return;
         }
         console.error('subscribeToMessages:', err);
-        callback([]);
+        // لا نمحو قائمة معبّأة بخطأ عابر — نُبقي آخر قائمة جيدة، ونسمح فقط
+        // بقائمة فارغة عند التحميل الأول (قبل تسليم أي رسائل)
+        if (!deliveredNonEmpty) callback([]);
       },
     );
   };
@@ -1409,7 +1417,8 @@ export const subscribeToMessages = (
       unsub();
       unsub = () => {};
       attachedUid = null;
-      callback([]);
+      // وميض مصادقة عابر — لا نمحو قائمة معبّأة، نُبقي آخر قائمة جيدة
+      if (!deliveredNonEmpty) callback([]);
     },
   );
 

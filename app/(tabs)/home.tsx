@@ -409,6 +409,8 @@ export default function RoomsScreen() {
   const publicPersonalRooms = useMemo(() => {
     const visible = rooms.filter((r) => {
       if (!isPersonalHostRoom(r)) return false;
+      // إخفاء الغرف الفارغة (الوهمية) من القائمة — عدا غرفة المستخدم نفسه فهي تبقى مثبّتة دائماً
+      if (r.hostUid !== myUid && !isRoomLive(r)) return false;
       if (country !== 'WW' && r.country !== country) return false;
       // #4: الغرف المقفلة (خاصة) تظهر فقط لصاحبها أو لمن يتابع المضيف —
       // لا تظهر غرف أشخاص خارج قائمة متابعتي.
@@ -440,7 +442,7 @@ export default function RoomsScreen() {
     const ids = new Set<string>();
     for (const ag of displayAgencies) {
       const room = agencyRoomMap.get(ag.id);
-      const roomId = room?.id ?? ag.liveRoomId;
+      const roomId = ag.liveRoomId ?? room?.id;
       if (roomId) ids.add(roomId);
     }
     return [...ids];
@@ -543,7 +545,7 @@ export default function RoomsScreen() {
       const agency = item.agency;
       const frameUrl = resolveAgencyCardFrameUrl(agency, agencyFrames);
       const room = agencyRoomMap.get(agency.id);
-      const roomId = room?.id ?? agency.liveRoomId;
+      const roomId = agency.liveRoomId ?? room?.id;
       const presence = roomId ? presenceByRoomId[roomId] : undefined;
       const hasActiveLuckyBag = roomId ? !!luckyBagByRoomId[roomId] : false;
       return (
