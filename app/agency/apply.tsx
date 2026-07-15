@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { ChevronDown, CheckCircle2, ImagePlus, IdCard, Images } from 'lucide-react-native';
+import { ChevronDown, CheckCircle2, ImagePlus, Camera, Images } from 'lucide-react-native';
 
 import { Text, useAlert, CountryPickerSheet } from '@/components/ui';
 import { BackChevron } from '@/components/ui/RtlChevron';
@@ -45,6 +45,23 @@ async function pickLocalImage(aspect: [number, number]): Promise<string | null> 
     allowsEditing: true,
     aspect,
     quality: 0.9,
+  });
+  if (res.canceled || !res.assets?.[0]?.uri) return null;
+  return res.assets[0].uri;
+}
+
+/**
+ * يلتقط صورة وجه حيّة من الكاميرا الأمامية مباشرة (توثيق الوكيل — بلا رفع من
+ * المعرض). المراجعة الآلية تتأكد أنه وجه إنسان حقيقي وليس صورة من شاشة.
+ */
+async function captureFacePhoto(): Promise<string | null> {
+  const perm = await ImagePicker.requestCameraPermissionsAsync();
+  if (!perm.granted) return null;
+  const res = await ImagePicker.launchCameraAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    cameraType: ImagePicker.CameraType.front,
+    allowsEditing: false,
+    quality: 0.85,
   });
   if (res.canceled || !res.assets?.[0]?.uri) return null;
   return res.assets[0].uri;
@@ -93,8 +110,14 @@ export default function AgencyApplyScreen() {
 
   const handlePick = async (kind: ImageKind) => {
     if (submitting) return;
-    const aspect: [number, number] = kind === 'logo' ? [1, 1] : kind === 'background' ? [16, 9] : [16, 10];
-    const uri = await pickLocalImage(aspect);
+    // توثيق الوكيل = صورة وجه حيّة بالكاميرا الأمامية؛ الشعار/الخلفية من المعرض
+    let uri: string | null;
+    if (kind === 'id') {
+      uri = await captureFacePhoto();
+    } else {
+      const aspect: [number, number] = kind === 'logo' ? [1, 1] : [16, 9];
+      uri = await pickLocalImage(aspect);
+    }
     if (!uri) {
       showAlert({ type: 'info', title: t('common.notice'), message: t('agencyApply.permNeeded') });
       return;
@@ -319,7 +342,7 @@ export default function AgencyApplyScreen() {
           {renderUpload('logo', logoUri, t('agencyApply.logoLabel'), t('agencyApply.logoHint'), ImagePlus)}
           {renderUpload('background', backgroundUri, t('agencyApply.backgroundLabel'), t('agencyApply.backgroundHint'), Images)}
           <View style={{ marginBottom: 0 }}>
-            {renderUpload('id', idUri, t('agencyApply.idLabel'), t('agencyApply.idHint'), IdCard)}
+            {renderUpload('id', idUri, t('agencyApply.idLabel'), t('agencyApply.idHint'), Camera)}
             <View style={styles.infoBox}>
               <Text style={styles.infoText}>ⓘ {'  '}{t('agencyApply.idPrivacy')}</Text>
             </View>
