@@ -54,3 +54,28 @@ export function getDefaultProfilePhotos(gender: ProfileGender, count = 3): strin
 export function getDefaultProfileMedia(gender: ProfileGender): { avatar: string; photos: string[] } {
   return { avatar: avatarUrl(gender, randomSeed()), photos: [] };
 }
+
+/** أفاتار الشبح الرسمي حسب الجنس — نفس أيقونات تبويب البروفايل */
+export const GHOST_AVATAR_ASSETS: Record<ProfileGender, number> = {
+  male: require('../../assets/images/tab_profile_male.png'),
+  female: require('../../assets/images/tab_profile_female.png'),
+};
+
+/**
+ * يرفع صورة الشبح المدمجة إلى التخزين ويعيد رابطها — تُستخدم كصورة افتراضية
+ * عند التسجيل. عند أي فشل نعود لأفاتار كرتوني (dicebear) كي لا يتعطّل التسجيل.
+ */
+export async function getGhostAvatarUrl(gender: ProfileGender): Promise<string> {
+  try {
+    const { Asset } = await import('expo-asset');
+    const { uploadImage } = await import('@/services/firebase/storage');
+    const asset = Asset.fromModule(GHOST_AVATAR_ASSETS[gender]);
+    await asset.downloadAsync();
+    const localUri = asset.localUri ?? asset.uri;
+    if (!localUri) throw new Error('ghost asset uri missing');
+    // بلا ضغط — PNG شفاف يبقى شفافاً
+    return await uploadImage(localUri, 'avatars', undefined, true);
+  } catch {
+    return getDefaultAvatar(gender);
+  }
+}

@@ -88,9 +88,11 @@ export const uploadImage = async (
   uri: string,
   folder: 'avatars' | 'posts' | 'banners' | 'albums' | 'rooms' | 'gifts' | 'agencies',
   onProgress?: UploadProgress,
+  /** رفع الملف كما هو دون ضغط/تحويل JPEG — يحفظ شفافية PNG */
+  skipCompress = false,
 ): Promise<string> => {
   const user = await ensureUploadAuth();
-  const preset = COMPRESS_BY_FOLDER[folder];
+  const preset = skipCompress ? undefined : COMPRESS_BY_FOLDER[folder];
   let uploadUri = uri;
   try {
     uploadUri = preset ? await compressImageForUpload(uri, preset) : uri;

@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Mail, Lock, Eye, EyeOff, LogIn } from 'lucide-react-native';
+import { Mail, Lock, Eye, EyeOff, LogIn, ChevronRight } from 'lucide-react-native';
 
 import { useAuth } from '@/hooks/useAuth';
 import { AuthShell, AuthField, AuthPrimaryButton } from '@/components/auth';
@@ -52,7 +52,7 @@ export default function LoginScreen() {
     >
       <AuthField
         label={t('auth.emailLabel')}
-        icon={<Mail size={18} color={lu.colors.muted} strokeWidth={2} />}
+        icon={<Mail size={18} color="#FF4D5A" strokeWidth={2} />}
         value={email}
         onChangeText={setEmail}
         placeholder="example@gmail.com"
@@ -65,7 +65,7 @@ export default function LoginScreen() {
 
       <AuthField
         label={t('auth.passwordLabel')}
-        icon={<Lock size={18} color={lu.colors.muted} strokeWidth={2} />}
+        icon={<Lock size={18} color="#FF4D5A" strokeWidth={2} />}
         value={password}
         onChangeText={setPassword}
         placeholder="••••••••"
@@ -74,9 +74,9 @@ export default function LoginScreen() {
         textAlign="left"
         trailing={
           showPassword ? (
-            <EyeOff size={18} color={lu.colors.muted} strokeWidth={2} />
+            <EyeOff size={18} color="#FF4D5A" strokeWidth={2} />
           ) : (
-            <Eye size={18} color={lu.colors.muted} strokeWidth={2} />
+            <Eye size={18} color="#FF4D5A" strokeWidth={2} />
           )
         }
         onTrailingPress={() => setShowPassword(!showPassword)}
@@ -100,7 +100,9 @@ export default function LoginScreen() {
 
       <View style={styles.divider}>
         <View style={styles.dividerLine} />
+        <View style={styles.dividerDot} />
         <Text style={styles.dividerText}>{t('auth.text52428')}</Text>
+        <View style={styles.dividerDot} />
         <View style={styles.dividerLine} />
       </View>
 
@@ -114,10 +116,11 @@ export default function LoginScreen() {
 
       <Pressable
         onPress={() => router.push('/(auth)/register' as any)}
-        style={[styles.linkRowSecondary, linkDir]}
+        style={({ pressed }) => [styles.registerCard, linkDir, pressed && { opacity: 0.88 }]}
       >
         <Text style={styles.linkMuted}>{t('auth.dontHaveAccount')} </Text>
         <Text style={styles.linkAccent}>{t('auth.text46120')}</Text>
+        <ChevronRight size={17} color="#FF4D5A" style={isAr ? { transform: [{ scaleX: -1 }] } : undefined} />
       </Pressable>
     </AuthShell>
   );
@@ -125,13 +128,13 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   forgotBtn: {
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-end',
     paddingVertical: lu.spacing.sm,
     marginTop: 2,
   },
   forgotText: {
-    fontSize: 13,
-    color: lu.colors.purple,
+    fontSize: 13.5,
+    color: '#FF4D5A',
     fontFamily: lu.fonts.bodyBold,
     includeFontPadding: false,
   },
@@ -145,13 +148,20 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: lu.colors.line,
+    backgroundColor: 'rgba(255,70,80,0.35)',
+  },
+  dividerDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#E11414',
   },
   dividerText: {
-    fontSize: 12,
-    color: lu.colors.muted,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.75)',
     fontFamily: lu.fonts.bodyMedium,
     includeFontPadding: false,
+    marginHorizontal: 2,
   },
   linkRow: {
     flexDirection: 'row',
@@ -159,21 +169,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: lu.spacing.sm,
   },
-  linkRowSecondary: {
+  registerCard: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: lu.spacing.xs,
+    gap: 4,
+    marginTop: lu.spacing.sm,
+    paddingVertical: 12,
   },
   linkMuted: {
     fontSize: 14,
-    color: lu.colors.ink2,
+    color: 'rgba(255,255,255,0.75)',
     fontFamily: lu.fonts.body,
     includeFontPadding: false,
   },
   linkAccent: {
     fontSize: 14,
-    color: lu.colors.pink,
+    color: '#FF4D5A',
     fontFamily: lu.fonts.bodyBold,
     includeFontPadding: false,
   },

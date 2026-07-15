@@ -42,7 +42,7 @@ export function AuthField({
         <TextInput
           {...inputProps}
           style={[styles.input, style]}
-          placeholderTextColor={lu.colors.muted}
+          placeholderTextColor="rgba(255,255,255,0.35)"
         />
         {trailing ? (
           onTrailingPress ? (
@@ -66,8 +66,8 @@ const styles = StyleSheet.create({
   label: {
     marginBottom: lu.spacing.xs,
     paddingHorizontal: 2,
-    fontSize: 13,
-    color: lu.colors.ink2,
+    fontSize: 14,
+    color: '#FFFFFF',
     fontFamily: lu.fonts.bodySemi,
     includeFontPadding: false,
   },
@@ -77,10 +77,10 @@ const styles = StyleSheet.create({
     gap: lu.spacing.sm,
     paddingHorizontal: lu.spacing.md,
     paddingVertical: 13,
-    backgroundColor: lu.colors.card2,
-    borderRadius: lu.radius.sm,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: lu.colors.line,
+    borderColor: 'rgba(255,77,94,0.35)',
   },
   inputRowError: {
     borderColor: lu.colors.live,
@@ -92,7 +92,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 15,
-    color: lu.colors.ink,
+    color: '#FFFFFF',
     fontFamily: lu.fonts.body,
     padding: 0,
     includeFontPadding: false,
