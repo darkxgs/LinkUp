@@ -152,6 +152,17 @@ export function VoiceRecorder({
         throw new Error('PERMISSION_DENIED');
       }
 
+      // حرّر جلسة Agora الصوتية إن لم نكن في مكالمة/غرفة — وإلا يبقى المحرك ماسكاً
+      // المايك فيفشل createAsync («فشل بدء التسجيل»). لا يمسّ مكالمة/غرفة نشطة.
+      try {
+        const { agoraEngine } = await import('@/services/rtc/agoraEngine');
+        if (agoraEngine.releaseIfIdle()) {
+          await new Promise((r) => setTimeout(r, 200)); // مهلة تحرير المايك على مستوى النظام
+        }
+      } catch {
+        /* المحرك غير محمّل — لا تعارض */
+      }
+
       await AV.Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,

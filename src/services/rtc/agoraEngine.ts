@@ -11,7 +11,10 @@
  * - مبدأ الأجيال: joinGeneration متصاعد، وأي حدث/عملية بجيل قديم تُهمل
  *   (نفس روح connectGeneration في roomAudioSession).
  */
-import { Platform } from 'react-native';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
+
+/** تأخير تحرير المحرك بعد دخول الخلفية — يتفادى إعادة الإنشاء عند تبديل سريع للتطبيقات */
+const IDLE_AUDIO_RELEASE_DELAY_MS = 4000;
 
 type AgoraModule = typeof import('react-native-agora');
 type IRtcEngine = import('react-native-agora').IRtcEngine;
@@ -122,6 +125,9 @@ class AgoraEngineManager {
   private sessionGeneration = -1;
   private sessionActive = false;
   private currentChannel = '';
+  /** مؤقّت تحرير المحرك عند الخمول في الخلفية — يُلغى عند العودة للمقدمة */
+  private idleReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+  private appStateSub: { remove: () => void } | null = null;
   private localIdentity = '';
   private localUid = 0;
 
@@ -207,7 +213,50 @@ class AgoraEngineManager {
 
     this.engine = engine;
     this.initializedAppId = appId;
+    this.installIdleAudioRelease();
     return engine;
+  }
+
+  /**
+   * يحرّر محرّك Agora عند دخول التطبيق للخلفية بينما لا يوجد اتصال بقناة.
+   * كان المحرّك يبقى ماسكاً لجلسة صوت الهاتف طوال عمر التطبيق (release لم يُستدعَ
+   * أبداً في الإنتاج) — فيمنع تطبيقات أخرى (واتساب) من الصوت ويستنزف البطارية
+   * ويسخّن الجهاز كأن مكالمة قائمة. أثناء غرفة/مكالمة نشطة (currentChannel مضبوط
+   * أو انضمام جارٍ) لا نحرّر — keep-alive يتكفّل بإبقاء الغرفة في الخلفية. يُعاد
+   * إنشاء المحرّك تلقائياً عند أول انضمام لاحق.
+   */
+  private installIdleAudioRelease(): void {
+    if (this.appStateSub) return;
+    const onChange = (next: AppStateStatus): void => {
+      const backgrounded =
+        next === 'background' || (Platform.OS === 'ios' && next === 'inactive');
+      if (backgrounded) {
+        if (this.idleReleaseTimer) clearTimeout(this.idleReleaseTimer);
+        this.idleReleaseTimer = setTimeout(() => {
+          this.idleReleaseTimer = null;
+          if (this.engine && !this.currentChannel && !this.joinWaiter) {
+            this.release();
+          }
+        }, IDLE_AUDIO_RELEASE_DELAY_MS);
+      } else if (next === 'active' && this.idleReleaseTimer) {
+        clearTimeout(this.idleReleaseTimer);
+        this.idleReleaseTimer = null;
+      }
+    };
+    this.appStateSub = AppState.addEventListener('change', onChange);
+  }
+
+  /**
+   * يحرّر المحرك إن لم يكن في قناة نشطة (غرفة/مكالمة) — لتحرير جلسة الصوت/المايك
+   * لمسجّل الفويس (expo-av) في المحادثات. كان المحرك يمسك المايك فيفشل بدء التسجيل
+   * («فشل بدء التسجيل»). لا يحرّر أثناء مكالمة/غرفة نشطة. يعيد true إن حرّر فعلاً.
+   */
+  releaseIfIdle(): boolean {
+    if (this.engine && !this.currentChannel && !this.joinWaiter) {
+      this.release();
+      return true;
+    }
+    return false;
   }
 
   /** هل الحدث يخص الجلسة الحالية؟ (فلترة الأجيال + القناة) */

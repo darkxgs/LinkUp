@@ -36,18 +36,18 @@ import { resolveUserWealthLevel } from '@/utils/userBalance';
 
 /** وسوم SVIP لكل مستوى — أصول العميل كما هي */
 const SVIP_LEVEL_TAGS: Record<number, number> = {
-  1: require('../../../assets/images/svip/tag1.png'),
-  2: require('../../../assets/images/svip/tag2.png'),
-  3: require('../../../assets/images/svip/tag3.png'),
-  4: require('../../../assets/images/svip/tag4.png'),
-  5: require('../../../assets/images/svip/tag5.png'),
-  6: require('../../../assets/images/svip/tag6.png'),
-  7: require('../../../assets/images/svip/tag7.png'),
-  8: require('../../../assets/images/svip/tag8.png'),
-  9: require('../../../assets/images/svip/tag9.png'),
-  10: require('../../../assets/images/svip/tag10.png'),
-  11: require('../../../assets/images/svip/tag11.png'),
-  12: require('../../../assets/images/svip/tag12.png'),
+  1: require('../../../assets/images/svip/tag1.webp'),
+  2: require('../../../assets/images/svip/tag2.webp'),
+  3: require('../../../assets/images/svip/tag3.webp'),
+  4: require('../../../assets/images/svip/tag4.webp'),
+  5: require('../../../assets/images/svip/tag5.webp'),
+  6: require('../../../assets/images/svip/tag6.webp'),
+  7: require('../../../assets/images/svip/tag7.webp'),
+  8: require('../../../assets/images/svip/tag8.webp'),
+  9: require('../../../assets/images/svip/tag9.webp'),
+  10: require('../../../assets/images/svip/tag10.webp'),
+  11: require('../../../assets/images/svip/tag11.webp'),
+  12: require('../../../assets/images/svip/tag12.webp'),
 };
 
 /** ارتفاع موحّد لكل الشارات (نص + صور) */

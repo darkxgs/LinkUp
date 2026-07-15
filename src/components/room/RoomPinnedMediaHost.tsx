@@ -82,21 +82,12 @@ export function RoomPinnedMediaHost() {
 
   if (!pinned || !roomId) return null;
 
+  // فيديو الروم لا يطفو خارج الغرفة (طلب المالك: «ما يظهر برّه الوكالة») — يُعرض
+  // فقط داخل شاشة الغرفة. تبقى الموسيقى/الصوت مستمرّة عند التصغير (keep-alive).
   return (
     <View style={styles.host} pointerEvents="box-none">
       {music ? (
         <RoomMusicPlaybackHost roomId={roomId} music={music} userUid={user?.uid} />
-      ) : null}
-      {video ? (
-        <RoomVideoPlayer
-          roomId={roomId}
-          video={video}
-          userUid={user?.uid}
-          canControl={canControlVideo}
-          roomHostUid={hostUid}
-          coHosts={coHosts}
-          defaultMuted={videoMuted}
-        />
       ) : null}
     </View>
   );

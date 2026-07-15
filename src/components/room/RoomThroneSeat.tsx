@@ -11,6 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { Text, CoinIcon } from '@/components/ui';
 import { IMG_AVATAR } from '@/utils/imageConfig';
+import { sanitizeDisplayName } from '@/utils/displayName';
 import { type RoomThroneState } from '@/services/roomThrone';
 import { RoomThroneIcon } from './RoomThroneIcon';
 
@@ -86,7 +87,7 @@ export function RoomThroneSeat({ throne, label, price, onPress }: Props) {
 
       {occupied ? (
         <Text variant="caption" color="#FFF" numberOfLines={1} style={styles.name}>
-          {throne.occupantName}
+          {sanitizeDisplayName(throne.occupantName)}
         </Text>
       ) : null}
 

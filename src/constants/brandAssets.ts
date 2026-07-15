@@ -21,10 +21,10 @@ export const LINKUP_SPLASH_WORDMARK_ASPECT = 2098 / 564;
 
 /** أصول تُحمَّل مسبقاً قبل إخفاء شاشة البداية */
 /** خلفية السبلاش - أصل العميل كما هو */
-export const LINKUP_SPLASH_BG = require('../../assets/images/splash_bg.png');
+export const LINKUP_SPLASH_BG = require('../../assets/images/splash_bg.webp');
 
 /** أيقونة السبلاش المركزية (الثنائي والأيقونات) - أصل العميل كما هو */
-export const LINKUP_SPLASH_ICON = require('../../assets/images/splash_icon.png');
+export const LINKUP_SPLASH_ICON = require('../../assets/images/splash_icon.webp');
 
 export const SPLASH_PRELOAD_ASSETS = [
   LINKUP_MAIN_LOGO,

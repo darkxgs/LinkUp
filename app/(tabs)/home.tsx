@@ -45,6 +45,7 @@ import {
   useTabHeaderMetrics,
 } from '@/components/layout/TabScreenHeader';
 import { useAuth } from '@/hooks/useAuth';
+import { subscribeToMyFollowingIds } from '@/services/firebase/follow';
 import { useRooms } from '@/hooks/useRooms';
 import { Room, isRoomLive, isPersonalHostRoom, quickCreateRoom } from '@/services/firebase/rooms';
 import { spacing } from '@/theme';
@@ -182,6 +183,16 @@ export default function RoomsScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [country, setCountry] = useState('WW');
+  // #4: الغرف الشخصية المقفلة (خاصة) لا تظهر إلا لصاحبها أو لمن يتابع المضيف
+  const myUid = user?.uid ?? '';
+  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!myUid) {
+      setFollowingIds(new Set());
+      return;
+    }
+    return subscribeToMyFollowingIds(myUid, setFollowingIds);
+  }, [myUid]);
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [favoriteInterestRooms, setFavoriteInterestRooms] = useState<
     (FavoriteRoom & { isLive: boolean })[]
@@ -399,6 +410,10 @@ export default function RoomsScreen() {
     const visible = rooms.filter((r) => {
       if (!isPersonalHostRoom(r)) return false;
       if (country !== 'WW' && r.country !== country) return false;
+      // #4: الغرف المقفلة (خاصة) تظهر فقط لصاحبها أو لمن يتابع المضيف —
+      // لا تظهر غرف أشخاص خارج قائمة متابعتي.
+      const locked = (r.mode ?? (r.isPrivate ? 'locked' : 'public')) === 'locked';
+      if (locked && r.hostUid !== myUid && !followingIds.has(r.hostUid)) return false;
       return true;
     });
     return visible.sort((a, b) => {
@@ -410,7 +425,7 @@ export default function RoomsScreen() {
       if (audB !== audA) return audB - audA;
       return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
     });
-  }, [rooms, country]);
+  }, [rooms, country, myUid, followingIds]);
 
   const listLoading = loading || agenciesLoading;
   const listData = useMemo((): RoomsListEntry[] => {

@@ -49,34 +49,34 @@ import { subscribeToMyRoomStats } from '@/services/roomFeatures';
 
 /** شعارات SVIP لكل مستوى — أصول العميل كما هي */
 const SVIP_LEVEL_BADGES: Record<number, number> = {
-  1: require('../../assets/images/svip/svip1.png'),
-  2: require('../../assets/images/svip/svip2.png'),
-  3: require('../../assets/images/svip/svip3.png'),
-  4: require('../../assets/images/svip/svip4.png'),
-  5: require('../../assets/images/svip/svip5.png'),
-  6: require('../../assets/images/svip/svip6.png'),
-  7: require('../../assets/images/svip/svip7.png'),
-  8: require('../../assets/images/svip/svip8.png'),
-  9: require('../../assets/images/svip/svip9.png'),
-  10: require('../../assets/images/svip/svip10.png'),
-  11: require('../../assets/images/svip/svip11.png'),
-  12: require('../../assets/images/svip/svip12.png'),
+  1: require('../../assets/images/svip/svip1.webp'),
+  2: require('../../assets/images/svip/svip2.webp'),
+  3: require('../../assets/images/svip/svip3.webp'),
+  4: require('../../assets/images/svip/svip4.webp'),
+  5: require('../../assets/images/svip/svip5.webp'),
+  6: require('../../assets/images/svip/svip6.webp'),
+  7: require('../../assets/images/svip/svip7.webp'),
+  8: require('../../assets/images/svip/svip8.webp'),
+  9: require('../../assets/images/svip/svip9.webp'),
+  10: require('../../assets/images/svip/svip10.webp'),
+  11: require('../../assets/images/svip/svip11.webp'),
+  12: require('../../assets/images/svip/svip12.webp'),
 };
 
 /** إطارات أفاتار SVIP لكل مستوى — أصول العميل كما هي */
 const SVIP_LEVEL_FRAMES: Record<number, number> = {
-  1: require('../../assets/images/svip/frame1.png'),
-  2: require('../../assets/images/svip/frame2.png'),
-  3: require('../../assets/images/svip/frame3.png'),
-  4: require('../../assets/images/svip/frame4.png'),
-  5: require('../../assets/images/svip/frame5.png'),
-  6: require('../../assets/images/svip/frame6.png'),
-  7: require('../../assets/images/svip/frame7.png'),
-  8: require('../../assets/images/svip/frame8.png'),
-  9: require('../../assets/images/svip/frame9.png'),
-  10: require('../../assets/images/svip/frame10.png'),
-  11: require('../../assets/images/svip/frame11.png'),
-  12: require('../../assets/images/svip/frame12.png'),
+  1: require('../../assets/images/svip/frame1.webp'),
+  2: require('../../assets/images/svip/frame2.webp'),
+  3: require('../../assets/images/svip/frame3.webp'),
+  4: require('../../assets/images/svip/frame4.webp'),
+  5: require('../../assets/images/svip/frame5.webp'),
+  6: require('../../assets/images/svip/frame6.webp'),
+  7: require('../../assets/images/svip/frame7.webp'),
+  8: require('../../assets/images/svip/frame8.webp'),
+  9: require('../../assets/images/svip/frame9.webp'),
+  10: require('../../assets/images/svip/frame10.webp'),
+  11: require('../../assets/images/svip/frame11.webp'),
+  12: require('../../assets/images/svip/frame12.webp'),
 };
 
 const DISPLAY = lu.fonts.displayHeavy;
@@ -187,7 +187,7 @@ export default function ProfileScreen() {
   const isMale = user?.profile?.gender !== 'female';
   // مستوى SVIP الفعّال فقط عند اشتراك نشط — لا إطار/وسم بدون المستوى فعلاً
   const vipLevel = isUserVipActive(user) ? getEffectiveVipLevel(user) : 0;
-  const svipCardBadge = SVIP_LEVEL_BADGES[vipLevel] ?? require('../../assets/images/svip_badge.png');
+  const svipCardBadge = SVIP_LEVEL_BADGES[vipLevel] ?? require('../../assets/images/svip_badge.webp');
   // إطار SVIP على الأفاتار عند غياب إطار المتجر المجهّز
   const avatarFrame = equippedFrameUrl ?? SVIP_LEVEL_FRAMES[vipLevel];
   const birthYear = Number(user?.profile?.birthYear ?? 0);
@@ -462,7 +462,7 @@ export default function ProfileScreen() {
                 <Copy size={15} color={isDark ? 'rgba(255,255,255,0.78)' : pal.muted} />
               </Pressable>
               <Image
-                source={require('../../assets/images/sid_badge.png')}
+                source={require('../../assets/images/sid_badge.webp')}
                 style={styles.sidBadge}
                 contentFit="contain"
               />
@@ -692,7 +692,7 @@ export default function ProfileScreen() {
               style={[styles.memberCard, { borderColor: 'rgba(168,85,247,0.6)', shadowColor: '#8B5CF6' }]}
             >
               <Image
-                source={require('../../assets/images/aristocracy_badge.png')}
+                source={require('../../assets/images/aristocracy_badge.webp')}
                 style={styles.memberCrown}
                 contentFit="contain"
               />

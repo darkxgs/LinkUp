@@ -21,7 +21,7 @@ export function getFramedAvatarContainerSize(avatarDiameter: number): number {
 
 type FramedAvatarProps = {
   avatarUri?: string;
-  /** رابط الإطار أو أصل محلي (require) */
+  /** رابط الإطار (URL) أو أصل محلي (require) */
   frameUri: string | number;
   avatarSize: number;
   /** تجاوز اختياري لحجم الحاوية — المقاعد تُكبّر الوجه مع إبقاء مربّع الشبكة ثابتاً */
@@ -42,6 +42,7 @@ export function FramedAvatar({
 }: FramedAvatarProps) {
   const containerSize = containerSizeProp ?? getFramedAvatarContainerSize(avatarSize);
   const frameSize = Math.round(containerSize * FRAMED_AVATAR_FRAME_RATIO);
+  // إطار محلّي (require = number) أو بعيد (URL نصّي). المتحرّك يخصّ الروابط فقط.
   const isRemoteFrame = typeof frameUri === 'string';
   const frameAnimated = isRemoteFrame && isGifImageUrl(frameUri);
 

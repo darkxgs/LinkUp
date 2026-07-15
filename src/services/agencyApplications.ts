@@ -102,6 +102,70 @@ export const submitAgencyApplication = async (input: {
   }
 };
 
+export type AgencyVerificationDecision = 'approve' | 'reject' | 'uncertain';
+
+export interface AgencyVerificationResult {
+  ok: boolean;
+  applicationId: string;
+  /** awaiting_hosts (قُبل) | rejected | pending (مراجعة يدوية) */
+  status: 'awaiting_hosts' | 'rejected' | 'pending';
+  decision: AgencyVerificationDecision;
+  reason?: string;
+  agencyId?: string;
+  inviteCode?: string;
+}
+
+/**
+ * توثيق الوكالة بالذكاء الاصطناعي — يرسل بيانات الوكالة + الصور (base64) للمراجعة الآلية.
+ * يعيد قرار الـ AI مباشرة: قبول (awaiting_hosts) / رفض / مراجعة يدوية (pending).
+ */
+export const submitAgencyVerification = async (input: {
+  agencyName: string;
+  countryCode: string;
+  phone: string;
+  minHostsRequired?: number;
+  ownerName?: string;
+  logoBase64: string;
+  backgroundBase64?: string;
+  idDocBase64: string;
+  source?: 'app' | 'support_bot';
+}): Promise<AgencyVerificationResult> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('يجب تسجيل الدخول');
+
+  const fn = httpsCallable<
+    {
+      agencyName: string;
+      countryCode: string;
+      phone: string;
+      minHostsRequired?: number;
+      ownerName?: string;
+      logoBase64: string;
+      backgroundBase64?: string;
+      idDocBase64: string;
+      source?: 'app' | 'support_bot';
+    },
+    AgencyVerificationResult
+  >(functions, 'submitAgencyVerification');
+
+  try {
+    const res = await fn({
+      agencyName: input.agencyName.trim(),
+      countryCode: input.countryCode.trim().toUpperCase(),
+      phone: input.phone.trim(),
+      minHostsRequired: Math.max(MIN_HOSTS, input.minHostsRequired ?? MIN_HOSTS),
+      ownerName: input.ownerName?.trim() || undefined,
+      logoBase64: input.logoBase64,
+      backgroundBase64: input.backgroundBase64 || undefined,
+      idDocBase64: input.idDocBase64,
+      source: input.source ?? 'app',
+    });
+    return res.data;
+  } catch (e) {
+    throw mapCallableError(e);
+  }
+};
+
 export const getMyAgencyApplication = async (): Promise<AgencyApplication | null> => {
   const user = auth.currentUser;
   if (!user) return null;
