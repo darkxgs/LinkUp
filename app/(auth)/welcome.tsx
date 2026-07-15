@@ -16,7 +16,17 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
-import { Phone, ChevronRight, ChevronDown, Mail, Facebook, Languages, HelpCircle } from 'lucide-react-native';
+import { Phone, ChevronRight, ChevronDown, Mail, Facebook, Languages, HelpCircle, Heart } from 'lucide-react-native';
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { lu } from '@/theme/lu-brand';
 import { GoogleLogo, TikTokLogo, XLogo, SnapchatLogo } from '@/components/brand/LuBrand';
@@ -29,6 +39,45 @@ import { useAuth } from '@/hooks/useAuth';
 
 const WELCOME_BG = require('../../assets/images/welcome_bg.png');
 
+/** قلب عائم يصعد ويتلاشى في حلقة — لمسة حيوية فوق الخلفية */
+function FloatingHeart({
+  x,
+  size,
+  delay,
+  duration,
+  screenH,
+}: {
+  x: number;
+  size: number;
+  delay: number;
+  duration: number;
+  screenH: number;
+}) {
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withDelay(
+      delay,
+      withRepeat(withTiming(1, { duration, easing: Easing.linear }), -1, false),
+    );
+  }, [delay, duration, progress]);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: interpolate(progress.value, [0, 1], [screenH * 0.62, screenH * 0.1]) },
+      { translateX: interpolate(progress.value, [0, 0.5, 1], [0, 12, -8]) },
+      { scale: interpolate(progress.value, [0, 0.2, 1], [0.6, 1, 0.9]) },
+    ],
+    opacity: interpolate(progress.value, [0, 0.15, 0.7, 1], [0, 0.55, 0.35, 0]),
+  }));
+
+  return (
+    <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: x }, style]}>
+      <Heart size={size} color="#FF3B4E" fill="#FF3B4E" strokeWidth={0} />
+    </Animated.View>
+  );
+}
+
 export default function OnboardingScreen() {
   const { t } = useTranslation();
   const { lang } = useAppLanguage();
@@ -40,6 +89,54 @@ export default function OnboardingScreen() {
   const [showLangSheet, setShowLangSheet] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const { promptGoogleSignIn, isReady: googleReady } = useGoogleSignIn();
+
+  // حركات: نبض الخلفية + دخول العناصر + نبض زر البريد
+  const bgBreathe = useSharedValue(0);
+  const brandReveal = useSharedValue(0);
+  const cardRise = useSharedValue(0);
+  const ctaPulse = useSharedValue(0);
+
+  useEffect(() => {
+    bgBreathe.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 2600, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 2600, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      false,
+    );
+    brandReveal.value = withTiming(1, { duration: 700, easing: Easing.out(Easing.cubic) });
+    cardRise.value = withDelay(
+      250,
+      withTiming(1, { duration: 750, easing: Easing.out(Easing.cubic) }),
+    );
+    ctaPulse.value = withDelay(
+      1100,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+        ),
+        -1,
+        false,
+      ),
+    );
+  }, [bgBreathe, brandReveal, cardRise, ctaPulse]);
+
+  const bgStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: interpolate(bgBreathe.value, [0, 1], [1, 1.035]) }],
+  }));
+  const brandStyle = useAnimatedStyle(() => ({
+    opacity: brandReveal.value,
+    transform: [{ translateY: interpolate(brandReveal.value, [0, 1], [-18, 0]) }],
+  }));
+  const cardStyle = useAnimatedStyle(() => ({
+    opacity: cardRise.value,
+    transform: [{ translateY: interpolate(cardRise.value, [0, 1], [46, 0]) }],
+  }));
+  const ctaStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: interpolate(ctaPulse.value, [0, 1], [1, 1.02]) }],
+  }));
 
   useEffect(() => {
     void markOnboardingSeen();
@@ -161,12 +258,22 @@ export default function OnboardingScreen() {
 
   return (
     <View style={styles.container}>
-      {/* خلفية العميل — مكبّرة من الأعلى (بلا فجوة سوداء) لينزل القلب تحت النص */}
-      <Image
-        source={WELCOME_BG}
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: Math.round(H * 1.25) }}
-        contentFit="cover"
-      />
+      {/* خلفية العميل — مكبّرة من الأعلى (بلا فجوة سوداء) لينزل القلب تحت النص + نبض بطيء */}
+      <Animated.View
+        style={[
+          { position: 'absolute', top: 0, left: 0, right: 0, height: Math.round(H * 1.25) },
+          bgStyle,
+        ]}
+      >
+        <Image source={WELCOME_BG} style={StyleSheet.absoluteFill} contentFit="cover" />
+      </Animated.View>
+
+      {/* قلوب عائمة */}
+      <FloatingHeart x={W * 0.12} size={16} delay={0} duration={5200} screenH={H} />
+      <FloatingHeart x={W * 0.26} size={11} delay={1600} duration={6200} screenH={H} />
+      <FloatingHeart x={W * 0.52} size={13} delay={3000} duration={5600} screenH={H} />
+      <FloatingHeart x={W * 0.74} size={17} delay={800} duration={6600} screenH={H} />
+      <FloatingHeart x={W * 0.88} size={12} delay={2300} duration={5000} screenH={H} />
 
       <View
         style={[
@@ -203,7 +310,7 @@ export default function OnboardingScreen() {
           </View>
 
           {/* ===== الهوية ===== */}
-          <View style={styles.brandBlock}>
+          <Animated.View style={[styles.brandBlock, brandStyle]}>
             <Image
               source={LINKUP_MAIN_LOGO}
               style={{ width: 52 * scaleFactor, height: 52 * scaleFactor, borderRadius: 14 * scaleFactor }}
@@ -216,13 +323,13 @@ export default function OnboardingScreen() {
               <Text>{t('auth.welcomeTaglinePrefix')} </Text>
               <Text style={styles.taglineAccent}>LinkUp.</Text>
             </Text>
-          </View>
+          </Animated.View>
 
           {/* مساحة لمجسّم القلب في الخلفية */}
           <View style={styles.heroSpace} />
 
           {/* ===== بطاقة الدخول السفلية ===== */}
-          <View style={[styles.loginCard, { marginHorizontal: PAD - 6, padding: 16 * scaleFactor }]}>
+          <Animated.View style={[styles.loginCard, { marginHorizontal: PAD - 6, padding: 16 * scaleFactor }, cardStyle]}>
             <Text style={[styles.cardTitle, { fontSize: 26 * scaleFactor }]}>
               <Text>{t('auth.welcomeBackPrefix')} </Text>
               <Text style={styles.cardTitleAccent}>{t('auth.welcomeBackAccent')}</Text>
@@ -231,11 +338,11 @@ export default function OnboardingScreen() {
               {t('auth.loginJourney')}
             </Text>
 
-            {/* Continue with Email */}
+            {/* Continue with Email — نبض خفيف */}
+            <Animated.View style={[{ marginTop: 14 * scaleFactor }, ctaStyle]}>
             <Pressable
               onPress={() => handleSocialLogin('email')}
               style={({ pressed }) => [
-                { marginTop: 14 * scaleFactor },
                 pressed && { opacity: 0.92, transform: [{ scale: 0.98 }] },
               ]}
             >
@@ -252,6 +359,7 @@ export default function OnboardingScreen() {
                 <ChevronRight size={18 * scaleFactor} color="#FFFFFF" />
               </LinearGradient>
             </Pressable>
+            </Animated.View>
 
             {/* فاصل */}
             <View style={[styles.divider, { marginVertical: 12 * scaleFactor }]}>
@@ -346,7 +454,7 @@ export default function OnboardingScreen() {
               {' '}{t('auth.and') || 'and'}{' '}
               <Text style={styles.termsLink}>{t('auth.privacyPolicy') || 'Privacy Policy'}</Text>
             </Text>
-          </View>
+          </Animated.View>
         </View>
       </View>
 
