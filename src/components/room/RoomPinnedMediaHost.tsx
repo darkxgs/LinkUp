@@ -6,7 +6,6 @@ import { View, StyleSheet } from 'react-native';
 
 import { useAuth } from '@/hooks/useAuth';
 import { RoomMusicPlaybackHost } from '@/components/room/RoomMusicPlaybackHost';
-import { RoomVideoPlayer } from '@/components/room/RoomVideoPlayer';
 import { subscribeToRoomMusic, type RoomMusic } from '@/services/roomMusic';
 import { subscribeToRoomVideo, type RoomVideo, canControlRoomVideo, isAgencyManagerForRoom } from '@/services/roomVideo';
 import { ref, onValue, off, type DataSnapshot } from 'firebase/database';

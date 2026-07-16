@@ -19,7 +19,6 @@ import {
   RoomPartyIcon,
 } from '@/components/room/RoomDesignIcons';
 import { RoomMediaPlayingPill, type RoomMediaPlayingKind } from '@/components/room/RoomMediaPlayingPill';
-import { MusicPulseWidget } from '@/components/room/MusicPulseWidget';
 import { RoomRocketFloatingBadge } from '@/components/room/RoomRocketFloatingBadge';
 import { LuckyBagFloatingBadge } from '@/components/room/LuckyBagFloatingBadge';
 import type { RoomRocketLaunch } from '@/services/roomRocket';
@@ -69,11 +68,8 @@ type Props = {
   mediaPlayingKind?: RoomMediaPlayingKind;
   mediaPlayingLabel?: string;
   mediaPlayingTitle?: string;
-  /** نبض موسيقى تحت «حفلة» — الضغط يلغي الصوت */
-  showMusicPulse?: boolean;
-  musicPlaying?: boolean;
+  /** فتح ورقة الموسيقى عند الضغط على حبّة الموسيقى — المدخل الوحيد للجمهور خارج المقاعد */
   onMusicPress?: () => void;
-  musicA11yLabel?: string;
   showRoomEventBadges?: boolean;
   rocketLaunch?: RoomRocketLaunch | null;
   onRocketPress?: () => void;
@@ -120,10 +116,7 @@ export function RoomLiveHeader({
   mediaPlayingKind,
   mediaPlayingLabel,
   mediaPlayingTitle,
-  showMusicPulse,
-  musicPlaying = false,
   onMusicPress,
-  musicA11yLabel,
   showRoomEventBadges = false,
   rocketLaunch = null,
   onRocketPress,
@@ -298,20 +291,20 @@ export function RoomLiveHeader({
               <Text style={styles.partyBadgeText}>{partyBadgeLabel}</Text>
             </Pressable>
           ) : null}
-          {showMusicPulse ? (
-            <MusicPulseWidget
-              size={42}
-              playing={musicPlaying}
-              onPress={onMusicPress}
-              accessibilityLabel={musicA11yLabel}
-            />
-          ) : null}
-          {mediaPlayingKind === 'video' ? (
-            <RoomMediaPlayingPill
-              kind={mediaPlayingKind}
-              label={mediaPlayingLabel}
-              title={mediaPlayingTitle}
-            />
+          {mediaPlayingKind ? (
+            // الموسيقى تأخذ نفس معاملة الفيديو: حبّة صغيرة بدل نبض الترددات الأحمر.
+            // حبّة الموسيقى قابلة للضغط (تفتح ورقة الموسيقى) — المدخل الوحيد
+            // للجمهور خارج المقاعد لتحكم الاستماع/مستوى الصوت.
+            <Pressable
+              onPress={mediaPlayingKind === 'music' ? onMusicPress : undefined}
+              disabled={mediaPlayingKind !== 'music'}
+            >
+              <RoomMediaPlayingPill
+                kind={mediaPlayingKind}
+                label={mediaPlayingLabel}
+                title={mediaPlayingTitle}
+              />
+            </Pressable>
           ) : null}
         </View>
       </View>

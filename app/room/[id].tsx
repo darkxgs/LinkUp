@@ -3119,6 +3119,8 @@ export default function RoomScreen() {
   const musicBroadcasterUid =
     roomMusic?.isPlaying ? roomMusic.addedBy : null;
 
+  const musicUiDismissed = useRoomMusicUiStore((s) => s.localDismissed);
+
   const headerMediaStatus = useMemo(() => {
     if (roomVideo?.isPlaying) {
       return {
@@ -3127,10 +3129,17 @@ export default function RoomScreen() {
         title: roomVideo.title,
       };
     }
+    // الموسيقى: نفس معاملة الفيديو — حبّة صغيرة أعلى الروم بدل نبض الترددات
+    // الأحمر الكبير (طلب المالك «ساوي زيها»). الفيديو له الأولوية عند التزامن.
+    if (roomMusic?.isPlaying && !musicUiDismissed) {
+      return {
+        kind: 'music' as const,
+        label: t('room.mediaMusicLive'),
+        title: roomMusic.title,
+      };
+    }
     return null;
-  }, [roomVideo, t]);
-
-  const musicUiDismissed = useRoomMusicUiStore((s) => s.localDismissed);
+  }, [roomVideo, roomMusic, musicUiDismissed, t]);
 
   const handleOpenMusicSheet = useCallback(() => {
     setShowMusicSheet(true);
@@ -5119,10 +5128,7 @@ export default function RoomScreen() {
         mediaPlayingKind={headerMediaStatus?.kind}
         mediaPlayingLabel={headerMediaStatus?.label}
         mediaPlayingTitle={headerMediaStatus?.title}
-        showMusicPulse={!!roomMusic && !musicUiDismissed}
-        musicPlaying={roomMusic?.isPlaying === true}
         onMusicPress={handleOpenMusicSheet}
-        musicA11yLabel={t('room.musicLibTitle')}
       />
 
       {rocketLaunchAnim ? (

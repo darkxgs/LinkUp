@@ -57,7 +57,6 @@ import { RoomPasswordGateHost } from '@/components/room/RoomPasswordGateHost';
 import { RoomPinnedBackgroundHost } from '@/components/room/RoomPinnedBackgroundHost';
 import { RoomPinnedMediaHost } from '@/components/room/RoomPinnedMediaHost';
 import { RoomBackgroundKeepAlive } from '@/components/room/RoomBackgroundKeepAlive';
-import { LazyRoomMusicOverlay } from '@/components/room/LazyRoomMusicOverlay';
 import { DeepLinkHandler } from '@/components/DeepLinkHandler';
 import { DeferredMount } from '@/components/DeferredMount';
 import { LocationUpdater } from '@/components/LocationUpdater';
@@ -264,7 +263,9 @@ export default function RootLayout() {
                 الأب مع Stack. على أندرويد elevation: 30 + renderToHardwareTextureAndroid
                 تضمن الظهور فوق react-native-screens على الأجهزة الحقيقية. */}
             <RoomFloatingOverlay />
-            <LazyRoomMusicOverlay />
+            {/* أُزيلت فقاعة الموسيقى الحمراء العائمة (طلب المالك 2026-07-16): الموسيقى
+                تستمر بالتشغيل عبر roomMusicPlaybackManager/RoomMusicPlaybackHost —
+                لا مؤشر موسيقى يلاحق المستخدم خارج الروم؛ فقاعة الروم وحدها تكفي. */}
             <LazyCallFloatingOverlay />
             <OfflineBanner />
             {/* بانر لحظي لصاحب المنشور عند وصول هدية على منشوره */}

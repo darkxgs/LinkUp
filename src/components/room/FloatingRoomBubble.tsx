@@ -24,13 +24,11 @@ import { Image } from 'expo-image';
 import { X, Radio } from 'lucide-react-native';
 
 import { useRoomSessionStore } from '@/stores/roomSessionStore';
-import { useRoomMusicUiStore } from '@/stores/roomMusicUiStore';
 import { completeRoomLeave } from '@/services/roomLeave';
 import { auth } from '@/services/firebase';
 import { lu } from '@/theme/lu-brand';
 
 const BUBBLE_SIZE = 64;
-const GLOW_SIZE = BUBBLE_SIZE + 22;
 const DRAG_THRESHOLD = 6;
 
 export function FloatingRoomBubble() {
@@ -44,12 +42,7 @@ export function FloatingRoomBubble() {
   const roomId = useRoomSessionStore((s) => s.roomId);
   const roomBanner = useRoomSessionStore((s) => s.roomBanner);
 
-  const musicActiveRoomId = useRoomMusicUiStore((s) => s.activeRoomId);
-  const musicDismissed = useRoomMusicUiStore((s) => s.localDismissed);
-  const hasMusicPlaying = !!roomId && musicActiveRoomId === roomId && !musicDismissed;
-
   const pulse = useRef(new Animated.Value(1)).current;
-  const musicGlow = useRef(new Animated.Value(0)).current;
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const positionedRef = useRef(false);
   const draggingRef = useRef(false);
@@ -84,21 +77,6 @@ export function FloatingRoomBubble() {
     pulseLoop.start();
     return () => pulseLoop.stop();
   }, [showBubble, pulse]);
-
-  useEffect(() => {
-    if (!hasMusicPlaying) {
-      Animated.timing(musicGlow, { toValue: 0, duration: 300, useNativeDriver: true }).start();
-      return;
-    }
-    const glowLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(musicGlow, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(musicGlow, { toValue: 0.3, duration: 700, useNativeDriver: true }),
-      ]),
-    );
-    glowLoop.start();
-    return () => glowLoop.stop();
-  }, [hasMusicPlaying, musicGlow]);
 
   const openRoom = useCallback(() => {
     if (!roomId || draggingRef.current) return;
@@ -154,11 +132,6 @@ export function FloatingRoomBubble() {
 
   if (!showBubble) return null;
 
-  const glowScale = musicGlow.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.35],
-  });
-
   return (
     <View
       style={styles.overlayRoot}
@@ -188,14 +161,8 @@ export function FloatingRoomBubble() {
           style={styles.bubblePressable}
         >
           <Animated.View style={{ transform: [{ scale: pulse }] }}>
-            {hasMusicPlaying ? (
-              <Animated.View
-                style={[
-                  styles.musicGlowRing,
-                  { opacity: musicGlow, transform: [{ scale: glowScale }] },
-                ]}
-              />
-            ) : null}
+            {/* أُزيلت حلقة توهّج الموسيقى الحمراء (طلب المالك): لا مؤشر موسيقى أحمر
+                خارج الروم — الموسيقى تستمر والفقاعة تبقى بمظهرها العادي. */}
             <LinearGradient colors={lu.gradients.brand} style={styles.ring}>
               <View style={styles.inner}>
                 {roomBanner ? (
@@ -254,20 +221,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 16,
     ...(Platform.OS === 'android' ? { elevation: 16 } : null),
-  },
-  musicGlowRing: {
-    position: 'absolute',
-    width: GLOW_SIZE,
-    height: GLOW_SIZE,
-    borderRadius: GLOW_SIZE / 2,
-    backgroundColor: 'rgba(225, 20, 20, 0.35)',
-    top: (BUBBLE_SIZE - GLOW_SIZE) / 2,
-    left: (BUBBLE_SIZE - GLOW_SIZE) / 2,
-    shadowColor: '#E11414',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.7,
-    shadowRadius: 14,
-    elevation: 4,
   },
   ring: {
     width: BUBBLE_SIZE,
