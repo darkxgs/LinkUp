@@ -63,47 +63,48 @@ function geohashPrecisionForRadius(radiusKm: number): number {
   return 3;
 }
 
+// جداول الجار القياسية لخوارزمية geohash-adjacent (المرجعية المعروفة) —
+// نسخة PR #13 الأصلية كانت بجداول مبتورة وفهرسة خاطئة فتعيد خلية المركز غالباً.
 const NEIGHBOR_TABLE = {
   right: {
     even: 'bc01fg45238967deuvhjyznpkmstqrwx',
-    odd: '238967debc01fg45kmstqrwxuvhjyznp',
+    odd: 'p0r21436x8zb9dcf5h7kjnmqesgutwvy',
   },
   left: {
     even: '238967debc01fg45kmstqrwxuvhjyznp',
-    odd: 'bc01fg45238967deuvhjyznpkmstqrwx',
+    odd: '14365h7k9dcfesgujnmqp0r2twvyx8zb',
   },
   top: {
-    even: 'p0r28b942zc',
-    odd: '14365h7k9qrtwcmmb',
+    even: 'p0r21436x8zb9dcf5h7kjnmqesgutwvy',
+    odd: 'bc01fg45238967deuvhjyznpkmstqrwx',
   },
   bottom: {
-    even: '14365h7k9qrtwcmmb',
-    odd: 'p0r28b942zc',
+    even: '14365h7k9dcfesgujnmqp0r2twvyx8zb',
+    odd: '238967debc01fg45kmstqrwxuvhjyznp',
   },
 } as const;
 
 const BORDER_TABLE = {
-  right: { even: 'bcfguvyz', odd: '0145hjnp' },
-  left: { even: '0145hjnp', odd: 'bcfguvyz' },
-  top: { even: 'prxz', odd: '028b' },
-  bottom: { even: '028b', odd: 'prxz' },
+  right: { even: 'bcfguvyz', odd: 'prxz' },
+  left: { even: '0145hjnp', odd: '028b' },
+  top: { even: 'prxz', odd: 'bcfguvyz' },
+  bottom: { even: '028b', odd: '0145hjnp' },
 } as const;
 
 type GeoDirection = keyof typeof NEIGHBOR_TABLE;
 
 function geohashAdjacent(hash: string, direction: GeoDirection): string {
   if (!hash) return hash;
-  const type = hash.length % 2 === 0 ? 'even' : 'odd';
+  // «odd» عندما يكون الطول فردياً — مطابق للتنفيذ المرجعي
+  const type = hash.length % 2 === 1 ? 'odd' : 'even';
   const last = hash.slice(-1);
-  const parent = hash.slice(0, -1);
-  const border = BORDER_TABLE[direction][type];
-  const neighbor = NEIGHBOR_TABLE[direction][type];
-  const idx = border.indexOf(last);
-  if (idx === -1) return hash;
-  const parentPrefix = parent && border.includes(last)
-    ? geohashAdjacent(parent, direction)
-    : parent;
-  return parentPrefix + neighbor.charAt(idx);
+  let parent = hash.slice(0, -1);
+  if (BORDER_TABLE[direction][type].indexOf(last) !== -1 && parent !== '') {
+    parent = geohashAdjacent(parent, direction);
+  }
+  const idx = NEIGHBOR_TABLE[direction][type].indexOf(last);
+  if (idx === -1) return hash; // حرف خارج base32 — لا جار
+  return parent + BASE32.charAt(idx);
 }
 
 /** Center cell + 8 neighbors — single lexicographic range misses boundary users */
