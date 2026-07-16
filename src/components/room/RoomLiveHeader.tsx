@@ -193,9 +193,9 @@ export function RoomLiveHeader({
               // (مرجع LV9). في التدفق العادي كي لا تُقصّها حدود البيل المدوّرة.
               <View style={styles.levelPillWrap} pointerEvents="none">
                 <LinearGradient
-                  colors={['#8B5CF6', '#5B21B6']}
+                  colors={['#46D3FF', '#0A8DFF']}
                   start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
+                  end={{ x: 1, y: 0 }}
                   style={styles.levelPill}
                 >
                   <Text style={styles.levelPillText}>{levelLabel}</Text>
@@ -394,18 +394,22 @@ const styles = StyleSheet.create({
   levelPill: {
     paddingHorizontal: 7,
     paddingVertical: 1.5,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.55)',
-    overflow: 'hidden',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#008CFF',
+    shadowOpacity: 0.33,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   levelPillText: {
     color: '#fff',
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '900',
     fontFamily: lu.fonts.bodyHeavy,
     includeFontPadding: false,
-    letterSpacing: 0.3,
+    letterSpacing: 0.6,
   },
   hostAvatarImg: {
     width: AVATAR,

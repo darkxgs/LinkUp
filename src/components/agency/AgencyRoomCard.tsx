@@ -89,13 +89,13 @@ function AudienceStat({
   );
 }
 
-/** شارة مستوى الوكالة أسفل صورة الوكالة (مثل LV9) */
+/** شارة مستوى الوكالة أسفل صورة الوكالة (مثل LV9) — تدرّج أزرق بتوهّج (مرجع المالك) */
 function LevelPill({ label }: { label: string }) {
   return (
     <LinearGradient
-      colors={['#8B5CF6', '#5B21B6']}
+      colors={['#46D3FF', '#0A8DFF']}
       start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
+      end={{ x: 1, y: 0 }}
       style={styles.levelPill}
     >
       <RNText style={styles.levelPillText}>{label}</RNText>
@@ -462,19 +462,25 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   levelPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.55)',
+    minWidth: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#008CFF',
+    shadowOpacity: 0.33,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   levelPillText: {
     color: '#fff',
-    fontSize: 9.5,
+    fontSize: 11,
     fontWeight: '900',
     fontFamily: lu.fonts.bodyHeavy,
     includeFontPadding: false,
-    letterSpacing: 0.3,
+    letterSpacing: 0.6,
   },
   gridFooter: {
     flexDirection: 'row',
