@@ -42,6 +42,8 @@ type Props = {
   vanityId?: string;
   hostName?: string;
   hostAvatar?: string;
+  /** شارة مستوى الوكالة أسفل صورة الروم (مثل "LV9") — تُخفى إن غابت */
+  levelLabel?: string;
   hostFrameUri?: string;
   /** إطار بطاقة الوكالة (مستطيل) أو إطار مستخدم (دائري) */
   headerFrameStyle?: 'avatar' | 'agencyCard';
@@ -93,6 +95,7 @@ export function RoomLiveHeader({
   vanityId,
   hostName,
   hostAvatar,
+  levelLabel,
   hostFrameUri,
   headerFrameStyle = 'avatar',
   presenceCount,
@@ -141,48 +144,58 @@ export function RoomLiveHeader({
           ]}
         >
           <GlassLayers />
-          {hostFrameUri ? (
-            headerFrameStyle === 'agencyCard' ? (
-              <FramedAgencyCover
-                imageUri={hostAvatar}
-                frameUri={hostFrameUri}
-                width={avatarSize}
-                aspect={1}
-                borderRadius={avatarSize / 2}
-                fallbackGrad={['#E11414', '#8A0E0E']}
+          <View>
+            {hostFrameUri ? (
+              headerFrameStyle === 'agencyCard' ? (
+                <FramedAgencyCover
+                  imageUri={hostAvatar}
+                  frameUri={hostFrameUri}
+                  width={avatarSize}
+                  aspect={1}
+                  borderRadius={avatarSize / 2}
+                  fallbackGrad={['#E11414', '#8A0E0E']}
+                />
+              ) : (
+                <FramedAvatar
+                  avatarUri={hostAvatar}
+                  frameUri={hostFrameUri}
+                  avatarSize={avatarSize}
+                  fallbackLetter={hostName}
+                />
+              )
+            ) : hostAvatar ? (
+              <Image
+                source={{ uri: hostAvatar }}
+                style={[
+                  styles.hostAvatarImg,
+                  { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
+                ]}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={hostAvatar}
+                transition={150}
               />
             ) : (
-              <FramedAvatar
-                avatarUri={hostAvatar}
-                frameUri={hostFrameUri}
-                avatarSize={avatarSize}
-                fallbackLetter={hostName}
-              />
-            )
-          ) : hostAvatar ? (
-            <Image
-              source={{ uri: hostAvatar }}
-              style={[
-                styles.hostAvatarImg,
-                { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
-              ]}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              recyclingKey={hostAvatar}
-              transition={150}
-            />
-          ) : (
-            <View
-              style={[
-                styles.hostFallback,
-                { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
-              ]}
-            >
-              <Text style={[styles.hostFallbackLetter, isAgencyCard && styles.hostFallbackLetterAgency]}>
-                {(hostName ?? '?').charAt(0)}
-              </Text>
-            </View>
-          )}
+              <View
+                style={[
+                  styles.hostFallback,
+                  { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
+                ]}
+              >
+                <Text style={[styles.hostFallbackLetter, isAgencyCard && styles.hostFallbackLetterAgency]}>
+                  {(hostName ?? '?').charAt(0)}
+                </Text>
+              </View>
+            )}
+            {levelLabel ? (
+              // شارة مستوى الوكالة أسفل صورة الروم — كمرجع LV9 (طلب المالك)
+              <View style={styles.levelPillWrap} pointerEvents="none">
+                <View style={styles.levelPill}>
+                  <Text style={styles.levelPillText}>{levelLabel}</Text>
+                </View>
+              </View>
+            ) : null}
+          </View>
           <View style={[styles.roomPillText, isAgencyCard && styles.roomPillTextAgency]}>
             <Text
               style={[styles.roomName, isAgencyCard && styles.roomNameAgency]}
@@ -361,6 +374,31 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingEnd: 8,
     gap: 10,
+  },
+  // شارة مستوى الوكالة أسفل صورة الروم (مرجع LV9)
+  levelPillWrap: {
+    position: 'absolute',
+    bottom: -4,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  levelPill: {
+    backgroundColor: '#7C3AED',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+  },
+  levelPillText: {
+    color: '#fff',
+    fontSize: 8.5,
+    fontWeight: '900',
+    fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
+    letterSpacing: 0.3,
   },
   hostAvatarImg: {
     width: AVATAR,

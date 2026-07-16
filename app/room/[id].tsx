@@ -5053,6 +5053,12 @@ export default function RoomScreen() {
         roomName={room.name ?? t('room.voiceRoom')}
         roomId={roomId ?? ''}
         vanityId={room.vanityId || agencyInviteCode}
+        levelLabel={
+          // شارة مستوى الوكالة أسفل صورة الروم (يزامنه الخادم على عقدة الروم)
+          isAgencyRoom && Number(room.agencyPeriodLevel) >= 1
+            ? `LV${Number(room.agencyPeriodLevel)}`
+            : undefined
+        }
         hostName={
           isAgencyRoom
             ? agencyHeaderName
