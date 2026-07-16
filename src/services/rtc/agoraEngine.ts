@@ -552,6 +552,14 @@ class AgoraEngineManager {
         Math.max(0, Math.round(opts?.startPosMs ?? 0)),
       );
       if (code !== 0) return false;
+      // Stereo tracks: prefer dual-mono auto so vocals are not lost in downmix (#9)
+      try {
+        const dualMono = (this.engine as { setAudioMixingDualMonoMode?: (mode: number) => number })
+          ?.setAudioMixingDualMonoMode;
+        if (typeof dualMono === 'function') dualMono(1);
+      } catch {
+        // SDK may not expose this — safe to ignore
+      }
     } catch {
       return false;
     }

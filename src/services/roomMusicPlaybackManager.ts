@@ -448,6 +448,9 @@ class RoomMusicPlaybackManager {
 
   /** انتهى المقطع (طبيعياً أو بفشل) — التالية من الطابور أو مسح العقدة */
   private advanceAfterEnd(roomId: string): void {
+    void import('@/utils/roomMediaPickerGuard').then(({ extendRoomMediaPickerGuard }) => {
+      extendRoomMediaPickerGuard();
+    }).catch(() => {});
     advanceRoomMusicQueue(roomId)
       .then((advanced) => {
         if (!advanced) return removeMusicFromRoom(roomId).catch(() => {});
