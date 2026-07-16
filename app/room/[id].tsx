@@ -5083,7 +5083,7 @@ export default function RoomScreen() {
                   )
                 : undefined) ??
               (Number(room.agencyPeriodLevel) >= 1
-                ? `LV${Number(room.agencyPeriodLevel)}`
+                ? `LVL ${Number(room.agencyPeriodLevel)}`
                 : undefined))
             : undefined
         }

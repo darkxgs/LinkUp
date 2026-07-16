@@ -26,7 +26,7 @@ import type { RoomRocketLaunch } from '@/services/roomRocket';
 import type { LuckyBag } from '@/services/luckyBag';
 
 const AVATAR = 22;
-const AGENCY_AVATAR = 28;
+const AGENCY_AVATAR = 44;
 const ICON_BTN = 32;
 
 export type RoomLiveHeaderAudience = {
@@ -131,6 +131,9 @@ export function RoomLiveHeader({
   const displayId = vanityId?.trim() || shortId;
   const isAgencyCard = headerFrameStyle === 'agencyCard';
   const avatarSize = isAgencyCard ? AGENCY_AVATAR : AVATAR;
+  // بطاقة الوكالة: صورة مربّعة بإطار أبيض (مرجع المالك) — الداخل أصغر بسماكة الإطار
+  const avatarInner = isAgencyCard ? avatarSize - 4 : avatarSize;
+  const avatarRadius = isAgencyCard ? 11 : avatarSize / 2;
 
   return (
     <View style={[styles.wrap, { paddingTop: topInset }]}>
@@ -144,16 +147,26 @@ export function RoomLiveHeader({
             onRoomPress && pressed && { opacity: 0.88 },
           ]}
         >
-          <GlassLayers />
-          <View style={styles.avatarCol}>
+          {isAgencyCard ? (
+            // خلفية بطاقة الوكالة — تدرّج وردي-رمادي (مرجع المالك)
+            <LinearGradient
+              colors={['rgba(185,164,165,0.95)', 'rgba(153,133,133,0.90)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : (
+            <GlassLayers />
+          )}
+          <View style={isAgencyCard ? styles.avatarFrameAgency : undefined}>
             {hostFrameUri ? (
               headerFrameStyle === 'agencyCard' ? (
                 <FramedAgencyCover
                   imageUri={hostAvatar}
                   frameUri={hostFrameUri}
-                  width={avatarSize}
+                  width={avatarInner}
                   aspect={1}
-                  borderRadius={avatarSize / 2}
+                  borderRadius={avatarRadius}
                   fallbackGrad={['#E11414', '#8A0E0E']}
                 />
               ) : (
@@ -169,7 +182,7 @@ export function RoomLiveHeader({
                 source={{ uri: hostAvatar }}
                 style={[
                   styles.hostAvatarImg,
-                  { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
+                  { width: avatarInner, height: avatarInner, borderRadius: avatarRadius },
                 ]}
                 contentFit="cover"
                 cachePolicy="memory-disk"
@@ -180,7 +193,7 @@ export function RoomLiveHeader({
               <View
                 style={[
                   styles.hostFallback,
-                  { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
+                  { width: avatarInner, height: avatarInner, borderRadius: avatarRadius },
                 ]}
               >
                 <Text style={[styles.hostFallbackLetter, isAgencyCard && styles.hostFallbackLetterAgency]}>
@@ -188,29 +201,32 @@ export function RoomLiveHeader({
                 </Text>
               </View>
             )}
-            {levelLabel ? (
-              // شارة مستوى الوكالة أسفل صورة الروم — نفس عائلة شارة بطاقات الرئيسية
-              // (مرجع LV9). في التدفق العادي كي لا تُقصّها حدود البيل المدوّرة.
-              <View style={styles.levelPillWrap} pointerEvents="none">
-                <LinearGradient
-                  colors={['#46D3FF', '#0A8DFF']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.levelPill}
-                >
-                  <Text style={styles.levelPillText}>{levelLabel}</Text>
-                </LinearGradient>
-              </View>
-            ) : null}
           </View>
           <View style={[styles.roomPillText, isAgencyCard && styles.roomPillTextAgency]}>
             <Text
               style={[styles.roomName, isAgencyCard && styles.roomNameAgency]}
-              numberOfLines={isAgencyCard ? 2 : 1}
+              numberOfLines={1}
             >
               {roomName}
             </Text>
-            {showRoomIdOnCard ? (
+            {isAgencyCard && levelLabel ? (
+              // شارة LVL تحت الاسم (مرجع المالك) — تدرّج أزرق ثلاثي بتوهّج + الـID بجانبها
+              <View style={styles.metaRowAgency}>
+                <LinearGradient
+                  colors={['#57D7FF', '#1EA6FF', '#0068E6']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={styles.levelPill}
+                >
+                  <Text style={styles.levelPillText}>{levelLabel}</Text>
+                </LinearGradient>
+                {showRoomIdOnCard ? (
+                  <Text style={styles.roomId} numberOfLines={1}>
+                    ID: {displayId}
+                  </Text>
+                ) : null}
+              </View>
+            ) : showRoomIdOnCard ? (
               <View style={styles.idRow}>
                 <Text style={styles.roomId} numberOfLines={1}>
                   ID: {displayId}
@@ -377,35 +393,61 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     maxWidth: '100%',
   },
+  // بطاقة غرفة الوكالة (مرجع المالك): زوايا 18، ظل ناعم، تدرّج الخلفية يُرسم كطبقة
   roomPillAgency: {
-    paddingVertical: 4,
-    paddingEnd: 8,
+    paddingVertical: 7,
+    paddingStart: 7,
+    paddingEnd: 10,
     gap: 10,
+    borderRadius: 18,
+    borderWidth: 0,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
-  // عمود الصورة + شارة المستوى — الشارة تتراكب على الحافة السفلية للصورة
-  avatarCol: {
-    alignItems: 'center',
-  },
-  // شارة مستوى الوكالة أسفل صورة الروم (مرجع LV9)
-  levelPillWrap: {
-    marginTop: -7,
-    zIndex: 5,
-  },
-  levelPill: {
-    paddingHorizontal: 7,
-    paddingVertical: 1.5,
-    borderRadius: 8,
+  // إطار الصورة المربّعة — حد أبيض 2 وظل خلفها (مرجع المالك)
+  avatarFrameAgency: {
+    width: AGENCY_AVATAR,
+    height: AGENCY_AVATAR,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#008CFF',
-    shadowOpacity: 0.33,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  // صف الشارة + الـID تحت الاسم
+  metaRowAgency: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  // شارة LVL — تدرّج أزرق ثلاثي عمودي بحد لامع وتوهّج (مرجع المالك)
+  levelPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#2DBFFF',
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
   },
   levelPillText: {
     color: '#fff',
-    fontSize: 9,
+    fontSize: 10.5,
     fontWeight: '900',
     fontFamily: lu.fonts.bodyHeavy,
     includeFontPadding: false,
@@ -432,7 +474,7 @@ const styles = StyleSheet.create({
     fontFamily: lu.fonts.body,
   },
   hostFallbackLetterAgency: {
-    fontSize: 14,
+    fontSize: 18,
   },
   roomPillText: {
     flexShrink: 1,
@@ -462,8 +504,9 @@ const styles = StyleSheet.create({
     fontFamily: lu.fonts.body,
   },
   roomNameAgency: {
-    fontSize: 12,
-    lineHeight: 15,
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 17,
     fontWeight: '700',
   },
   roomId: {

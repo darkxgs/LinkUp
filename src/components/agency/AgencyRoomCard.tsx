@@ -93,9 +93,9 @@ function AudienceStat({
 function LevelPill({ label }: { label: string }) {
   return (
     <LinearGradient
-      colors={['#46D3FF', '#0A8DFF']}
+      colors={['#57D7FF', '#1EA6FF', '#0068E6']}
       start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 0 }}
+      end={{ x: 0, y: 1 }}
       style={styles.levelPill}
     >
       <RNText style={styles.levelPillText}>{label}</RNText>
@@ -466,12 +466,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#008CFF',
-    shadowOpacity: 0.33,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    shadowColor: '#2DBFFF',
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
     elevation: 4,
   },
   levelPillText: {

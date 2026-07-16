@@ -287,7 +287,7 @@ export function resolveAgencyLevelLabelFromFields(
   const coins = Math.max(0, Number(lifetimeSupportCoins) || 0);
   const idx = resolveAgencyPeriodLevelIndex(coins, periodLevel, periodLevelManual, cfg);
   const level = idx >= 0 ? cfg.levels[idx]?.level ?? 0 : 0;
-  return level >= 1 ? `LV${level}` : undefined;
+  return level >= 1 ? `LVL ${level}` : undefined;
 }
 
 export function isAgencyThroneUnlockedByLevel(
