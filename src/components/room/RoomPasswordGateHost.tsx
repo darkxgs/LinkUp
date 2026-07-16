@@ -16,7 +16,7 @@ export function RoomPasswordGateHost() {
   return (
     <RoomPasswordGateModal
       visible={visible}
-      isAgencyRoom={Boolean(room?.isAgencyRoom || room?.agencyId)}
+      isAgencyRoom={Boolean(room?.isAgencyRoom || room?.agencyId || room?.premiumStyle)}
       error={passwordError ? t(passwordError) : ''}
       onSubmit={submitPassword}
       onCancel={cancel}

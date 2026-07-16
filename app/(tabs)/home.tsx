@@ -445,13 +445,11 @@ export default function RoomsScreen() {
   const publicPersonalRooms = useMemo(() => {
     const visible = rooms.filter((r) => {
       if (!isPersonalHostRoom(r)) return false;
-      // إخفاء الغرف الفارغة (الوهمية) من القائمة — عدا غرفة المستخدم نفسه فهي تبقى مثبّتة دائماً
-      if (r.hostUid !== myUid && !isRoomLive(r)) return false;
+      // قرار المالك (2026-07-16): الغرف الشخصية لا تُعرض علناً في الرئيسية إطلاقاً —
+      // الدخول حصراً عبر دعوة صاحب الغرفة أو التتبع أو الـID. تبقى بطاقة غرفة
+      // المستخدم نفسه فقط (اختصاره السريع لغرفته).
+      if (r.hostUid !== myUid) return false;
       if (country !== 'WW' && r.country !== country) return false;
-      // #4: الغرف المقفلة (خاصة) تظهر فقط لصاحبها أو لمن يتابع المضيف —
-      // لا تظهر غرف أشخاص خارج قائمة متابعتي.
-      const locked = (r.mode ?? (r.isPrivate ? 'locked' : 'public')) === 'locked';
-      if (locked && r.hostUid !== myUid && !followingIds.has(r.hostUid)) return false;
       return true;
     });
     return visible.sort((a, b) => {

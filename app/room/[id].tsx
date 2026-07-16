@@ -151,6 +151,7 @@ import {
   endRoom,
   archiveRoom,
   isAgencyLiveRoom,
+  hasAgencyRoomLook,
   isRoomLive,
   kickUserFromRoom,
   hostRemoveUserFromMic,
@@ -947,15 +948,15 @@ export default function RoomScreen() {
     clearSessionMusicLibrary(roomId, user.uid);
   }, [roomId, user?.uid]);
 
-  // Subscribe للرسائل المثبتة (غير وكالات — الوكالات تستخدم رسالة ترحيب ثابتة)
+  // Subscribe للرسائل المثبتة (غير وكالات/مميزة — تلك تستخدم رسالة ترحيب ثابتة)
   useEffect(() => {
-    if (!roomId || isAgencyLiveRoom(room)) {
+    if (!roomId || hasAgencyRoomLook(room)) {
       setPinnedMessages([]);
       return;
     }
     const unsub = subscribeToPinnedMessages(roomId, setPinnedMessages);
     return unsub;
-  }, [roomId, room?.agencyId, room?.isAgencyRoom]);
+  }, [roomId, room?.agencyId, room?.isAgencyRoom, room?.premiumStyle]);
 
   // تحميل مسبق لمحرك الصوت + توكني الاستماع والنشر فور معرفة الغرفة
   useEffect(() => {
@@ -1407,6 +1408,9 @@ export default function RoomScreen() {
     [room, myUid, room?.permissions, room?.coHosts, room?.hostUid],
   );
   const isAgencyRoom = isAgencyLiveRoom(room);
+  // «مظهر الوكالة»: وكالة حقيقية أو غرفة مميزة (premiumStyle من لوحة التحكم) —
+  // يقود بوابات الشكل/المزايا فقط؛ كل الاقتصاد يبقى على isAgencyRoom/agencyId
+  const agencyLook = hasAgencyRoomLook(room);
   const canManageAgencyParty = useMemo(
     () =>
       Boolean(
@@ -1492,14 +1496,17 @@ export default function RoomScreen() {
   }, [roomId, myUid, canReviewVideoRequests, showAlert, t]);
 
   const agencyHeaderAvatar = useMemo(() => {
-    if (!isAgencyRoom) return undefined;
+    if (!agencyLook) return undefined;
+    // غرفة مميزة (بلا وكالة): بانر الغرفة ثم صورة المضيف
+    if (!isAgencyRoom) return room?.banner || room?.hostAvatar || undefined;
     return resolveAgencyLogoImage(linkedAgency, { roomBanner: room?.banner });
-  }, [isAgencyRoom, linkedAgency, room?.banner]);
+  }, [agencyLook, isAgencyRoom, linkedAgency, room?.banner, room?.hostAvatar]);
 
   const agencyHeaderName = useMemo(() => {
-    if (!isAgencyRoom) return undefined;
+    if (!agencyLook) return undefined;
+    if (!isAgencyRoom) return room?.name;
     return linkedAgency?.name?.trim() || room?.name;
-  }, [isAgencyRoom, linkedAgency?.name, room?.name]);
+  }, [agencyLook, isAgencyRoom, linkedAgency?.name, room?.name]);
 
   const isRoomMicMember = useMemo(
     () =>
@@ -2542,7 +2549,7 @@ export default function RoomScreen() {
   const chatHeaderEl = useMemo(
     () => (
       <View style={styles.systemMsg}>
-        {isAgencyRoom ? (
+        {agencyLook ? (
           <>
             <Text style={styles.systemMsgTitle}>
               {getAgencyRoomWelcomeTitle(agencyHeaderName ?? room?.name ?? 'LinkUp')}
@@ -2563,7 +2570,7 @@ export default function RoomScreen() {
         )}
       </View>
     ),
-    [isAgencyRoom, agencyHeaderName, room?.name, (room as any)?.welcomeMessage, t],
+    [agencyLook, agencyHeaderName, room?.name, (room as any)?.welcomeMessage, t],
   );
 
   // قائمة مقلوبة (الأحدث أولاً) — تُستخدم مع FlatList inverted ليثبت الشات على آخر رسالة
@@ -3269,7 +3276,7 @@ export default function RoomScreen() {
           showAlert({
             type: 'warning',
             title: t('room.hostSeat'),
-            message: isAgencyRoom ? t('room.hostSeatLocked') : t('room.hostSeatRestricted'),
+            message: agencyLook ? t('room.hostSeatLocked') : t('room.hostSeatRestricted'),
           });
           return;
         }
@@ -4066,7 +4073,7 @@ export default function RoomScreen() {
       const bubbleImage = isAgencyRoom
         ? resolveAgencyLogoImage(linkedAgency, { roomBanner: room?.banner }) ||
           room?.banner
-        : room?.banner || hostAvatar;
+        : room?.banner || hostAvatar; // الغرفة المميزة: بانر/صورة المضيف (لا وكالة)
       keepRoomAliveRef.current = true;
       useRoomMusicUiStore.getState().setActive(roomId);
       useRoomMusicUiStore.getState().resetDismiss();
@@ -4387,7 +4394,7 @@ export default function RoomScreen() {
         return;
       }
       if (action === 'notice') {
-        if (isAgencyRoom) return;
+        if (agencyLook) return;
         const canPin = supervisorPerms.pinMessages;
         if (!canPin) {
           showAlert({
@@ -4528,6 +4535,7 @@ export default function RoomScreen() {
       handleShareRoom,
       showPermissionDenied,
       isAgencyRoom,
+      agencyLook,
       isHost,
       openPkFlow,
       openRocketTools,
@@ -4724,7 +4732,7 @@ export default function RoomScreen() {
       });
     } else {
       const locked = lockedSeatSet.has(seatNum);
-      if (isAgencyRoom && (canUseHostSeat || canInviteToMicTool)) {
+      if (agencyLook && (canUseHostSeat || canInviteToMicTool)) {
         setEmptySeatSheet({ seatIdx: seatNum, locked });
         return;
       }
@@ -4768,7 +4776,7 @@ export default function RoomScreen() {
     showAlert({
       type: 'warning',
       title: t('room.hostSeat'),
-      message: isAgencyRoom ? t('room.hostSeatLocked') : t('room.hostSeatRestricted'),
+      message: agencyLook ? t('room.hostSeatLocked') : t('room.hostSeatRestricted'),
     });
   };
   const handleHostSeatPress = useCallback(() => hostSeatPressRef.current(), []);
@@ -4842,7 +4850,7 @@ export default function RoomScreen() {
     );
   }
 
-  const hostSeatLabel = isAgencyRoom ? undefined : t('room.hostSeat');
+  const hostSeatLabel = agencyLook ? undefined : t('room.hostSeat');
 
   const renderHostSeat = () => {
     const hostSeatEl = (
@@ -4853,7 +4861,7 @@ export default function RoomScreen() {
           frameUri={resolveSeatFrameUri(hostDisplay?.uid, hostDisplay)}
           displayName={hostDisplay?.displayName}
           emptySeatLabel={hostSeatLabel}
-          hideEmptySeatLabel={isAgencyRoom}
+          hideEmptySeatLabel={agencyLook}
           isHost
           isMuted={hostOnSeat ? hostSeat?.isMuted : true}
           isSpeaking={
@@ -4886,8 +4894,8 @@ export default function RoomScreen() {
           avatar={secondHostSeat?.avatar}
           frameUri={resolveSeatFrameUri(secondHostSeat?.uid, secondHostSeat)}
           displayName={secondHostSeat?.displayName}
-          emptySeatLabel={isAgencyRoom ? undefined : t('room.secondHostSeat')}
-          hideEmptySeatLabel={isAgencyRoom}
+          emptySeatLabel={agencyLook ? undefined : t('room.secondHostSeat')}
+          hideEmptySeatLabel={agencyLook}
           isMuted={secondHostSeat?.uid ? secondHostSeat?.isMuted : true}
           isSpeaking={
             !!secondHostSeat?.uid &&
@@ -4927,7 +4935,7 @@ export default function RoomScreen() {
     return (
       // مسافة سفلية كبيرة فقط عند وجود العرش (الكرسي ينزل أسفل المضيف)؛ بدونه نرفع المقاعد للأعلى
       <View style={[styles.hostSeatSection, { marginBottom: throneActive ? 34 : 6 }]}>
-        {!isAgencyRoom && hostSeatLabel ? (
+        {!agencyLook && hostSeatLabel ? (
           <View style={styles.hostSeatBadge}>
             <Crown size={10} color={lu.colors.gold} fill={lu.colors.gold} strokeWidth={0} />
             <Text variant="caption" color={lu.colors.gold} weight="bold" style={{ fontSize: 10 }}>
@@ -5009,7 +5017,7 @@ export default function RoomScreen() {
         // والمشغول دائرياً (طلب المالك: الكل مدوّر)
         shape="circle"
         empty={!isOccupied}
-        emptySeatLabel={isAgencyRoom ? String(seatNum) : undefined}
+        emptySeatLabel={agencyLook ? String(seatNum) : undefined}
         isLocked={!isOccupied && lockedSeatSet.has(seatNum)}
         overlayEmoji={occupant?.uid ? seatEmojiByUid[occupant.uid] : undefined}
         overlayGift={occupant?.uid ? seatGiftByUid[occupant.uid] : undefined}
@@ -5025,7 +5033,7 @@ export default function RoomScreen() {
           <RoomPasswordGateModal
             embedded
             visible
-            isAgencyRoom={isAgencyRoom}
+            isAgencyRoom={agencyLook}
             error={pwError}
             onSubmit={submitPassword}
             onCancel={() => void leaveRoomAndNavigate()}
@@ -5066,30 +5074,30 @@ export default function RoomScreen() {
             : undefined
         }
         hostName={
-          isAgencyRoom
+          agencyLook
             ? agencyHeaderName
             : hostMicSeat?.displayName ?? hostSeat?.displayName ?? room.hostName
         }
         hostAvatar={
-          isAgencyRoom
+          agencyLook
             ? agencyHeaderAvatar
             : hostMicSeat?.avatar ?? hostSeat?.avatar ?? room.hostAvatar
         }
         hostFrameUri={
-          isAgencyRoom
+          agencyLook
             ? agencyCardFrameUrl
             : (hostMicSeat?.uid ?? hostSeat?.uid)
               ? userFrameByUid[hostMicSeat?.uid ?? hostSeat?.uid ?? '']
               : undefined
         }
-        headerFrameStyle={(isAgencyRoom ? 'agencyCard' : 'avatar') as 'avatar' | 'agencyCard'}
+        headerFrameStyle={(agencyLook ? 'agencyCard' : 'avatar') as 'avatar' | 'agencyCard'}
         hostLevel={hostMicSeat?.level ?? hostSeat?.level ?? 1}
         presenceCount={presenceCount}
         audience={audienceMembers}
         contributionLabel={t('room.contributionList')}
         onExit={handleExit}
         onAudience={() => setShowAudienceModal(true)}
-        showRoomIdOnCard={!isAgencyRoom}
+        showRoomIdOnCard={!agencyLook}
         onContribution={() => setShowContribution(true)}
         onRoomPress={() => {
           if (isAgencyRoom) {
@@ -5285,7 +5293,7 @@ export default function RoomScreen() {
       {/* Chat area */}
       <View style={styles.chatArea}>
         {/* ===== الرسائل المثبتة — تطفو فوق الشات بدون تأثير على المايكات ===== */}
-        {!isAgencyRoom ? (
+        {!agencyLook ? (
           <PinnedMessagesBanner
             roomId={roomId!}
             pins={pinnedMessages}
@@ -5423,7 +5431,7 @@ export default function RoomScreen() {
         showMusic
         showShare={canSendRoomInviteTool}
         showResetMicSupport={supervisorPerms.resetMicSupport}
-        showPinNotice={!isAgencyRoom}
+        showPinNotice={!agencyLook}
         simpleScreenActive={simpleScreen}
         effectsActive={roomEffectsSettings.animations || roomEffectsSettings.soundEffects}
       />
@@ -5566,7 +5574,7 @@ export default function RoomScreen() {
         myUid={myUid}
       />
 
-      {isAgencyRoom && emptySeatSheet ? (
+      {agencyLook && emptySeatSheet ? (
         <AgencyEmptySeatSheet
           visible
           seatIdx={emptySeatSheet.seatIdx}
@@ -5924,16 +5932,16 @@ export default function RoomScreen() {
         }
         showAgencyInvite={canShowAgencyInviteForUser(seatUser?.uid)}
         onCancelMembership={
-          isAgencyRoom
+          agencyLook
           && supervisorPerms.cancelMembership
           && canManageAgencyTarget(seatUser?.uid, 'cancelMembership')
             ? handleCancelMembership
             : undefined
         }
         onManageRole={
-          // مصطلحات العضوية/الإشراف خاصة بغرف الوكالة فقط — لا تظهر في الغرف الشخصية
-          // (اتساقاً مع بوابة handleCancelMembership أعلاه)
-          isAgencyRoom &&
+          // مصطلحات العضوية/الإشراف لغرف الوكالة والغرف المميزة (مظهر الوكالة) —
+          // لا تظهر في الغرف الشخصية العادية
+          agencyLook &&
           roomId &&
           seatUser?.uid &&
           seatUser.uid !== myUid &&
@@ -6212,8 +6220,8 @@ export default function RoomScreen() {
         />
       ) : null}
 
-      {/* ===== Pin Custom Message Modal (غير الوكالات) ===== */}
-      {!isAgencyRoom ? (
+      {/* ===== Pin Custom Message Modal (غير الوكالات/المميزة) ===== */}
+      {!agencyLook ? (
         <PinCustomMessageModal
           visible={showPinModal}
           onClose={() => setShowPinModal(false)}
@@ -6317,7 +6325,7 @@ export default function RoomScreen() {
           visible={!!actionSheetMsg}
           onClose={() => setActionSheetMsg(null)}
           roomId={roomId!}
-          canManagePins={!isAgencyRoom && supervisorPerms.pinMessages}
+          canManagePins={!agencyLook && supervisorPerms.pinMessages}
           message={{
             id: actionSheetMsg.id,
             uid: actionSheetMsg.uid,

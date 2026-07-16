@@ -525,7 +525,9 @@ export function isAgencyRoomSupervisorUid(
 }
 
 function isAgencyManagedRoom(roomData: Record<string, unknown>): boolean {
-  return Boolean(roomData.agencyId || roomData.isAgencyRoom);
+  // الغرفة المميزة (premiumStyle) تُدار بنفس هرمية إشراف غرف الوكالة —
+  // مظهر ومزايا فقط؛ لا اقتصاد وكالة (لا agencyId على عقدتها)
+  return Boolean(roomData.agencyId || roomData.isAgencyRoom || roomData.premiumStyle === true);
 }
 
 /** سبب الرفض بالعربية — null = مسموح */

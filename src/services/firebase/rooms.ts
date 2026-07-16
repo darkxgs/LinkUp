@@ -524,6 +524,7 @@ export function normalizeRoomFromRtdb(id: string, raw: Record<string, unknown>):
     isActive: raw.isActive !== false,
     agencyId: raw.agencyId ? String(raw.agencyId) : undefined,
     isAgencyRoom: raw.isAgencyRoom === true || !!raw.agencyId,
+    premiumStyle: raw.premiumStyle === true,
     coHosts: Array.isArray(raw.coHosts)
       ? (raw.coHosts as unknown[]).map((id) => String(id)).filter(Boolean)
       : [],
@@ -599,6 +600,22 @@ export const setRoomVanityId = async (roomId: string, vanityId: string): Promise
 
 export function isAgencyLiveRoom(room: Pick<Room, 'isAgencyRoom' | 'agencyId'> | null | undefined): boolean {
   return !!room && (room.isAgencyRoom === true || !!room.agencyId);
+}
+
+/** غرفة مميزة: شكل/مزايا غرفة الوكالة بلا أي اقتصاد وكالة (لا agencyId إطلاقاً —
+ *  كل مسارات الدعم/المحفظة/اللآلئ تُقفل من عدم وجوده). تُمنح من لوحة التحكم فقط
+ *  (premiumStyle:true على عقدة الغرفة؛ قرار المالك 2026-07-16). */
+export function isPremiumStyleRoom(
+  room: Pick<Room, 'isAgencyRoom' | 'agencyId' | 'premiumStyle'> | null | undefined,
+): boolean {
+  return !!room && room.premiumStyle === true && !isAgencyLiveRoom(room);
+}
+
+/** «مظهر غرفة الوكالة» — وكالة حقيقية أو غرفة مميزة (بوابات الشكل فقط، لا الاقتصاد) */
+export function hasAgencyRoomLook(
+  room: Pick<Room, 'isAgencyRoom' | 'agencyId' | 'premiumStyle'> | null | undefined,
+): boolean {
+  return isAgencyLiveRoom(room) || isPremiumStyleRoom(room);
 }
 
 /** غرفة مضيف شخصية — ليست غرفة وكالة */
@@ -733,6 +750,8 @@ export interface Room {
   /** غرفة البث الرسمية لوكالة */
   agencyId?: string;
   isAgencyRoom?: boolean;
+  /** غرفة مميزة — مظهر غرفة الوكالة بلا اقتصادها (تُمنح من لوحة التحكم) */
+  premiumStyle?: boolean;
   /** مشرفو الغرفة — يُسمح لهم بمقعد المضيف مع صاحب الغرفة/الوكالة */
   coHosts?: string[];
   /** تخصيص: خلفية الروم (رابط صورة) */
