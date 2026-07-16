@@ -160,7 +160,8 @@
         }
       ],
       "./plugins/withForcedRTL",
-      "./plugins/withRoomForegroundService"
+      "./plugins/withRoomForegroundService",
+      "./plugins/withJitpackExclusive"
     ],
     "experiments": {
       "typedRoutes": true
