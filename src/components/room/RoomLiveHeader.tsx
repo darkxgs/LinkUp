@@ -26,7 +26,7 @@ import type { RoomRocketLaunch } from '@/services/roomRocket';
 import type { LuckyBag } from '@/services/luckyBag';
 
 const AVATAR = 22;
-const AGENCY_AVATAR = 44;
+const AGENCY_AVATAR = 60;
 const ICON_BTN = 32;
 
 export type RoomLiveHeaderAudience = {
@@ -133,7 +133,7 @@ export function RoomLiveHeader({
   const avatarSize = isAgencyCard ? AGENCY_AVATAR : AVATAR;
   // بطاقة الوكالة: صورة مربّعة بإطار أبيض (مرجع المالك) — الداخل أصغر بسماكة الإطار
   const avatarInner = isAgencyCard ? avatarSize - 4 : avatarSize;
-  const avatarRadius = isAgencyCard ? 11 : avatarSize / 2;
+  const avatarRadius = isAgencyCard ? 14 : avatarSize / 2;
 
   return (
     <View style={[styles.wrap, { paddingTop: topInset }]}>
@@ -158,8 +158,9 @@ export function RoomLiveHeader({
           ) : (
             <GlassLayers />
           )}
-          <View style={isAgencyCard ? styles.avatarFrameAgency : undefined}>
-            {hostFrameUri ? (
+          <View style={isAgencyCard ? styles.avatarColAgency : undefined}>
+            <View style={isAgencyCard ? styles.avatarFrameAgency : undefined}>
+              {hostFrameUri ? (
               headerFrameStyle === 'agencyCard' ? (
                 <FramedAgencyCover
                   imageUri={hostAvatar}
@@ -201,6 +202,18 @@ export function RoomLiveHeader({
                 </Text>
               </View>
             )}
+            </View>
+            {isAgencyCard && levelLabel ? (
+              // شارة LVL تحت الصورة مباشرة (مرجع المالك v3) — تدرّج أزرق ثلاثي عمودي
+              <LinearGradient
+                colors={['#57D7FF', '#1EA6FF', '#0068E6']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0, y: 1 }}
+                style={styles.levelPill}
+              >
+                <Text style={styles.levelPillText}>{levelLabel}</Text>
+              </LinearGradient>
+            ) : null}
           </View>
           <View style={[styles.roomPillText, isAgencyCard && styles.roomPillTextAgency]}>
             <Text
@@ -209,29 +222,18 @@ export function RoomLiveHeader({
             >
               {roomName}
             </Text>
-            {isAgencyCard && levelLabel ? (
-              // شارة LVL تحت الاسم (مرجع المالك) — تدرّج أزرق ثلاثي بتوهّج + الـID بجانبها
-              <View style={styles.metaRowAgency}>
-                <LinearGradient
-                  colors={['#57D7FF', '#1EA6FF', '#0068E6']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 1 }}
-                  style={styles.levelPill}
-                >
-                  <Text style={styles.levelPillText}>{levelLabel}</Text>
-                </LinearGradient>
-                {showRoomIdOnCard ? (
+            {showRoomIdOnCard ? (
+              isAgencyCard ? (
+                <Text style={styles.roomIdAgency} numberOfLines={1}>
+                  ID: {displayId}
+                </Text>
+              ) : (
+                <View style={styles.idRow}>
                   <Text style={styles.roomId} numberOfLines={1}>
                     ID: {displayId}
                   </Text>
-                ) : null}
-              </View>
-            ) : showRoomIdOnCard ? (
-              <View style={styles.idRow}>
-                <Text style={styles.roomId} numberOfLines={1}>
-                  ID: {displayId}
-                </Text>
-              </View>
+                </View>
+              )
             ) : null}
           </View>
           {showEdit ? (
@@ -393,13 +395,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     maxWidth: '100%',
   },
-  // بطاقة غرفة الوكالة (مرجع المالك): زوايا 18، ظل ناعم، تدرّج الخلفية يُرسم كطبقة
+  // بطاقة غرفة الوكالة (مرجع المالك v3): زوايا 24، حواف أوسع، ظل ناعم
   roomPillAgency: {
-    paddingVertical: 7,
-    paddingStart: 7,
-    paddingEnd: 10,
-    gap: 10,
-    borderRadius: 18,
+    paddingVertical: 14,
+    paddingStart: 18,
+    paddingEnd: 18,
+    gap: 16,
+    borderRadius: 24,
     borderWidth: 0,
     shadowColor: '#000',
     shadowOpacity: 0.18,
@@ -407,11 +409,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
   },
+  // عمود الصورة + شارة LVL تحتها (مرجع المالك v3)
+  avatarColAgency: {
+    alignItems: 'center',
+    gap: 6,
+  },
   // إطار الصورة المربّعة — حد أبيض 2 وظل خلفها (مرجع المالك)
   avatarFrameAgency: {
     width: AGENCY_AVATAR,
     height: AGENCY_AVATAR,
-    borderRadius: 13,
+    borderRadius: 16,
     borderWidth: 2,
     borderColor: '#fff',
     alignItems: 'center',
@@ -423,35 +430,22 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
-  // صف الشارة + الـID تحت الاسم
-  metaRowAgency: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-  },
-  // شارة LVL — تدرّج أزرق ثلاثي عمودي بحد لامع وتوهّج (مرجع المالك)
+  // شارة LVL — تدرّج أزرق ثلاثي عمودي بحد لامع (مرجع المالك v3)
   levelPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
+    borderColor: 'rgba(255,255,255,0.24)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#2DBFFF',
-    shadowOpacity: 0.45,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 4,
   },
   levelPillText: {
     color: '#fff',
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '900',
     fontFamily: lu.fonts.bodyHeavy,
     includeFontPadding: false,
-    letterSpacing: 0.6,
   },
   hostAvatarImg: {
     width: AVATAR,
@@ -482,8 +476,9 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   roomPillTextAgency: {
-    maxWidth: 168,
-    gap: 0,
+    maxWidth: 190,
+    gap: 4,
+    justifyContent: 'center',
   },
   idRow: {
     flexDirection: 'row',
@@ -505,9 +500,18 @@ const styles = StyleSheet.create({
   },
   roomNameAgency: {
     color: '#fff',
-    fontSize: 14,
-    lineHeight: 17,
+    fontSize: 16,
+    lineHeight: 19,
     fontWeight: '700',
+  },
+  // سطر الـID تحت الاسم (مرجع المالك v3 — مثل @username)
+  roomIdAgency: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '600',
+    fontFamily: lu.fonts.body,
+    letterSpacing: 0.5,
   },
   roomId: {
     color: ROOM_DESIGN.textPrimary,

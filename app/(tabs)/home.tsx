@@ -47,7 +47,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeToMyFollowingIds } from '@/services/firebase/follow';
 import { useRooms } from '@/hooks/useRooms';
-import { Room, isRoomLive, isPersonalHostRoom, quickCreateRoom } from '@/services/firebase/rooms';
+import { Room, isRoomLive, quickCreateRoom } from '@/services/firebase/rooms';
 import { spacing } from '@/theme';
 import { lu } from '@/theme/lu-brand';
 import { useThemeMode } from '@/stores/themeStore';
@@ -438,36 +438,14 @@ export default function RoomsScreen() {
     return list;
   }, [filteredAgencies, agencyRoomMap]);
 
-  // #29: الغرف الشخصية (عامة + مقفلة) تظهر مع الوكالات — الدخول للمقفلة عبر بوابة كلمة المرور
-  const publicPersonalRooms = useMemo(() => {
-    const visible = rooms.filter((r) => {
-      if (!isPersonalHostRoom(r)) return false;
-      // قرار المالك (2026-07-16): الغرف الشخصية لا تُعرض علناً في الرئيسية إطلاقاً —
-      // الدخول حصراً عبر دعوة صاحب الغرفة أو التتبع أو الـID. تبقى بطاقة غرفة
-      // المستخدم نفسه فقط (اختصاره السريع لغرفته).
-      if (r.hostUid !== myUid) return false;
-      if (country !== 'WW' && r.country !== country) return false;
-      return true;
-    });
-    return visible.sort((a, b) => {
-      const liveA = isRoomLive(a) ? 1 : 0;
-      const liveB = isRoomLive(b) ? 1 : 0;
-      if (liveB !== liveA) return liveB - liveA;
-      const audA = toSafeInt(a.audienceCount);
-      const audB = toSafeInt(b.audienceCount);
-      if (audB !== audA) return audB - audA;
-      return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
-    });
-  }, [rooms, country, myUid, followingIds]);
-
+  // قرار المالك (2026-07-16 مساءً): الرئيسية وكالات فقط — لا غرف شخصية ولا خاصة
+  // إطلاقاً (حتى بطاقة غرفة المستخدم نفسه). الدخول للغرف الشخصية حصراً عبر
+  // دعوة صاحب الغرفة أو التتبع أو الـID.
   const listLoading = loading || agenciesLoading;
   const listData = useMemo((): RoomsListEntry[] => {
     if (listLoading) return [];
-    return [
-      ...displayAgencies.map((agency): RoomsListEntry => ({ kind: 'agency', agency })),
-      ...publicPersonalRooms.map((room): RoomsListEntry => ({ kind: 'room', room })),
-    ];
-  }, [listLoading, displayAgencies, publicPersonalRooms]);
+    return displayAgencies.map((agency): RoomsListEntry => ({ kind: 'agency', agency }));
+  }, [listLoading, displayAgencies]);
 
   const agencyLiveRoomIds = useMemo(() => {
     const ids = new Set<string>();
