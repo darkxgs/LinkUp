@@ -234,7 +234,10 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
       }}
       style={{ width, height: cardH }}
     >
-      <Animated.View entering={FadeInUp.duration(380)} style={[styles.card, !dark && styles.cardLight, cardAnimatedStyle, { width: '100%', height: '100%' }]}>
+      {/* طبقتان منفصلتان: الخارجية لأنيميشن الدخول (layout) والداخلية لسكيل الضغط —
+          دمجهما بواحدة كان يُطلق تحذير Reanimated «transform may be overwritten» لكل بطاقة */}
+      <Animated.View entering={FadeInUp.duration(380)} style={{ width: '100%', height: '100%' }}>
+      <Animated.View style={[styles.card, !dark && styles.cardLight, cardAnimatedStyle, { width: '100%', height: '100%' }]}>
         <LinearGradient
           colors={grad}
           start={{ x: 0, y: 0 }}
@@ -328,6 +331,7 @@ export const ExploreUserCard = React.memo(function ExploreUserCard({
             </Text>
           ) : null}
         </View>
+      </Animated.View>
       </Animated.View>
     </Pressable>
   );
