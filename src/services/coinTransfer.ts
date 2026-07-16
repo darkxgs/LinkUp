@@ -15,7 +15,6 @@
 import {
   doc,
   getDoc,
-  runTransaction,
   collection,
   addDoc,
   increment,
@@ -25,6 +24,7 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import { firestore, auth } from './firebase/index';
+import { runTxWithRetry } from '@/utils/firestoreTx';
 import {
   statsFromFirestoreDoc,
   buildBalanceIncrementPatch,
@@ -97,7 +97,8 @@ export const transferCurrency = async (
 
   // التحقق من وجود المستلم + الرصيد + الخصم/الإضافة كله في transaction واحدة
   let recipientName = 'مستخدم';
-  await runTransaction(firestore, async (tx) => {
+  // إعادة محاولة على تعارض نسخة users/{uid} الساخن بدل تسريب الخطأ الخام للمستخدم
+  await runTxWithRetry(async (tx) => {
     const meSnap = await tx.get(meRef);
     const toSnap = await tx.get(toRef);
 

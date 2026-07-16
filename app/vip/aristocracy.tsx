@@ -62,22 +62,44 @@ function formatCoins(n: number): string {
   return n.toLocaleString('en-US');
 }
 
-/** فيديو امتياز صغير يعمل تلقائياً بصمت وتكرار (مثل دخولية الفيديو) */
-function PrivilegeVideo({ uri, size }: { uri: string; size: number }) {
+/** رابط يبدو فيديو (mp4/mov/webm) — أحياناً يُوضع خطأً في حقل imageUrl */
+const VIDEO_URL_RE = /\.(mp4|mov|webm|m4v)(\?|$)/i;
+
+/** فيديو امتياز صغير يعمل تلقائياً بصمت وتكرار (مثل دخولية الفيديو).
+ *  نضع صورة بديلة (poster) خلفه حتى لا يظهر مربّع أسود حين يكون فيديو الدخولية
+ *  ملء الشاشة داخل معاينة صغيرة بأشرطة سوداء أو أثناء تحميله. */
+function PrivilegeVideo({
+  uri,
+  size,
+  poster,
+}: {
+  uri: string;
+  size: number;
+  poster?: (typeof ARISTOCRACY_ASSETS)[AristocracyAssetKey];
+}) {
   const player = useVideoPlayer(uri, (p) => {
     p.loop = true;
     p.muted = true;
     p.play();
   });
   return (
-    <VideoView
-      player={player}
-      style={{ width: size, height: size }}
-      contentFit="contain"
-      nativeControls={false}
-      allowsFullscreen={false}
-      allowsPictureInPicture={false}
-    />
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      {poster != null ? (
+        <Image
+          source={poster}
+          style={{ position: 'absolute', width: size, height: size }}
+          contentFit="contain"
+        />
+      ) : null}
+      <VideoView
+        player={player}
+        style={{ width: size, height: size, backgroundColor: 'transparent' }}
+        contentFit="contain"
+        nativeControls={false}
+        allowsFullscreen={false}
+        allowsPictureInPicture={false}
+      />
+    </View>
   );
 }
 
@@ -90,7 +112,10 @@ function PrivilegeImage({
   size: number;
   accent: string;
 }) {
-  if (privilege.imageUrl) {
+  const posterAsset =
+    ARISTOCRACY_ASSETS[privilege.assetKey as AristocracyAssetKey] ?? ARISTOCRACY_ASSETS.emblem;
+  // صورة ثابتة فعلية (وليست mp4 وُضع خطأً في imageUrl)
+  if (privilege.imageUrl && !VIDEO_URL_RE.test(privilege.imageUrl)) {
     return (
       <Image
         source={{ uri: privilege.imageUrl }}
@@ -100,12 +125,14 @@ function PrivilegeImage({
       />
     );
   }
-  const video = privilege.videoUrl || privilege.videoUrlMp4;
+  const video =
+    (privilege.imageUrl && VIDEO_URL_RE.test(privilege.imageUrl) ? privilege.imageUrl : '') ||
+    privilege.videoUrl ||
+    privilege.videoUrlMp4;
   if (video) {
-    return <PrivilegeVideo uri={video} size={size} />;
+    return <PrivilegeVideo uri={video} size={size} poster={posterAsset} />;
   }
-  const asset = ARISTOCRACY_ASSETS[privilege.assetKey as AristocracyAssetKey] ?? ARISTOCRACY_ASSETS.emblem;
-  return <Image source={asset} style={{ width: size, height: size }} contentFit="contain" />;
+  return <Image source={posterAsset} style={{ width: size, height: size }} contentFit="contain" />;
 }
 
 export default function AristocracyScreen() {

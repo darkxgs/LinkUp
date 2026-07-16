@@ -93,30 +93,57 @@ export function IncomingCallModal() {
     };
   }, [call?.id]);
 
+  // عند ظهور مكالمة واردة: اجلب توكن Agora مسبقاً وسخّن المحرّك بينما يرنّ الهاتف
+  // (كاش التوكن 4 دقائق، ونافذة الرنين ~أقل) حتى لا يُدفع زمنهما بعد الضغط على «رد»
+  // فيقصر «جاري الاتصال». تحسين أداء فقط — أي فشل يُتجاهَل ويكمل المسار العادي.
+  useEffect(() => {
+    if (!call) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { getAgoraTokenCached } = await import('@/services/rtc/agoraToken');
+        const result = await getAgoraTokenCached(call.channelName, true, call.from);
+        if (cancelled || !result?.appId) return;
+        const { agoraEngine } = await import('@/services/rtc/agoraEngine');
+        await agoraEngine.ensureEngine(result.appId);
+      } catch {
+        // تحسين أداء فقط — نتجاهل الفشل
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [call?.id]);
+
   if (!call) return null;
 
   if (user && !canUserMakeCalls(user)) return null;
 
   const isVideo = call.type === 'video';
 
-  const handleAnswer = async () => {
+  const handleAnswer = () => {
     Vibration.cancel();
     const channel = encodeURIComponent(call.channelName);
     const type = call.type;
-    await answerCall(call.id);
+    const callId = call.id;
+    const fromUid = call.from;
+    // ننتقل لشاشة المكالمة فوراً ونكتب إشارة القبول بعدها (fire-and-forget) بدل
+    // انتظار كتابة Firestore — كان الزرّ يعلّق على زمن الشبكة. مسار الاتصال RTC
+    // لا يعتمد على اكتمال هذه الكتابة.
     setCall(null);
     if (type === 'video') {
-      router.push(`/call/video/${call.from}?channel=${channel}` as any);
+      router.push(`/call/video/${fromUid}?channel=${channel}` as any);
     } else {
-      router.push(`/call/${call.from}?channel=${channel}` as any);
+      router.push(`/call/${fromUid}?channel=${channel}` as any);
     }
+    void answerCall(callId).catch(() => {});
   };
 
-  const handleReject = async () => {
+  const handleReject = () => {
     Vibration.cancel();
     const rejected = call;
-    await rejectCall(call.id);
     setCall(null);
+    void rejectCall(rejected.id).catch(() => {});
     if (rejected?.from && rejected.channelName && user?.uid) {
       void logChatCallMessage({
         callerUid: rejected.from,

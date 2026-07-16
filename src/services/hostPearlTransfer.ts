@@ -9,11 +9,11 @@ import {
   query,
   where,
   limit,
-  runTransaction,
   increment,
   addDoc,
 } from 'firebase/firestore';
 import { firestore, auth } from './firebase/index';
+import { runTxWithRetry } from '@/utils/firestoreTx';
 import { parseWalletRules, validateHostWithdrawAmount } from './walletRules';
 import {
   buildBalanceIncrementPatch,
@@ -69,7 +69,7 @@ export const transferPearlsToAgent = async (amount: number): Promise<void> => {
   const agentRef = doc(firestore, 'users', agentUid);
   const memberRef = doc(firestore, 'agencyMembers', memberId);
 
-  await runTransaction(firestore, async (tx) => {
+  await runTxWithRetry(async (tx) => {
     const hostSnap = await tx.get(hostRef);
     if (!hostSnap.exists()) throw new Error('حسابك غير موجود');
 

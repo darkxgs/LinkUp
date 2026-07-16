@@ -38,9 +38,24 @@ function reportCrash(error: Error, componentStack?: string | null) {
   })();
 }
 
+/**
+ * تعارض معاملة Firestore حميد (سباق نسخة تفاؤلي) — رسالة الخادم الخام:
+ * "the stored version (…) does not match the required base version (…)".
+ * هذا خطأ عابر لا يجوز أبداً أن يُنهي التطبيق؛ نبتلعه في المعالج العام.
+ */
+function isBenignFirestoreContention(error: unknown): boolean {
+  const code = (error as { code?: string })?.code ?? '';
+  const msg = String((error as { message?: string })?.message ?? '');
+  return (
+    code === 'aborted' ||
+    code === 'failed-precondition' ||
+    /does not match the required base version/i.test(msg)
+  );
+}
+
 // تسجيل الأخطاء القاتلة خارج شجرة React (معالجات الأحداث/الأكواد غير المتزامنة)
-// — لا نغيّر السلوك الافتراضي، فقط نسجّل قبل تمرير الخطأ للمعالج الأصلي حتى
-// نعرف سبب «التطبيق يطلع برا» من clientCrashLogs.
+// — نسجّل قبل تمرير الخطأ للمعالج الأصلي؛ لكن تعارض معاملة Firestore الحميد
+// نبتلعه ولا نمرّره حتى لا يُخرج المستخدم من التطبيق («يطلعني من البرنامج كله»).
 try {
   const globalErrorUtils = (global as { ErrorUtils?: {
     getGlobalHandler: () => (error: Error, isFatal?: boolean) => void;
@@ -49,6 +64,11 @@ try {
   if (globalErrorUtils?.getGlobalHandler && globalErrorUtils?.setGlobalHandler) {
     const previousHandler = globalErrorUtils.getGlobalHandler();
     globalErrorUtils.setGlobalHandler((error, isFatal) => {
+      if (isBenignFirestoreContention(error)) {
+        // نسجّل فقط للتشخيص ولا نُسقط التطبيق على سباق معاملة عابر
+        reportCrash(error, 'globalHandler(swallowed-firestore-contention)');
+        return;
+      }
       if (isFatal) reportCrash(error, 'globalHandler(fatal)');
       previousHandler?.(error, isFatal);
     });
