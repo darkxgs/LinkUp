@@ -3560,6 +3560,22 @@
     "text1392": "Hide",
     "text54218": "Show more"
   },
+  "wealthRules": {
+    "title": "Rules Explanation",
+    "whatTitle": "What is the Wealth Level?",
+    "whatBody": "The wealth level is a system that recognizes users' long-term contribution and engagement in the app. It reflects your interaction and contribution in LinkUp, and you can upgrade your wealth level and unlock many privileges by collecting EXP points",
+    "howTitle": "How do you earn EXP?",
+    "howIntro": "Earn EXP points in the following ways",
+    "how1": "Sending gifts in the app / buying items from the store increases your EXP",
+    "how2": "Completing daily missions grants extra EXP",
+    "wayGifts": "Sending gifts — 1 coin = 1 EXP",
+    "wayStore": "Store purchases — 1 coin = 1 EXP",
+    "lockTitle": "Level locked",
+    "lockBody": "If no recharge is made for 30 consecutive days, the wealth level is locked and already-activated privileges become unavailable. Recharging any amount restores your identity and privileges",
+    "dailyTitle": "Daily missions",
+    "daily1": "Complete the daily missions to automatically receive the corresponding EXP rewards",
+    "daily2": "Missions refresh daily at midnight UTC"
+  },
   "charmLevel": {
     "title": "Charm Level",
     "expNeeded": "You need {{count}} EXP to level up",
