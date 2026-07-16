@@ -18,7 +18,7 @@ import {
   User as FirebaseUser,
 } from '@firebase/auth';
 import { generatePublicAccountId } from '@/utils/publicAccountId';
-import { getDefaultProfileMedia } from '@/constants/defaultAvatars';
+import { getGhostAvatarUrl } from '@/constants/defaultAvatars';
 import { signInWithPublicAccountId as signInWithPublicAccountIdFn } from '@/services/firebase/accountLogin';
 import { normalizePublicId, syncPublicAccountIndex } from '@/services/publicAccountIndex';
 import { requestAccountDeletion, cancelAccountDeletion } from '@/services/accountSecurity';
@@ -528,7 +528,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const fbUser = cred.user;
 
       // 2. تحديث الاسم في Firebase Auth
-      const { avatar, photos: defaultPhotos } = getDefaultProfileMedia(data.gender);
+      // صورة افتراضية: شبح LinkUp حسب الجنس (نفس أيقونات التبويب) — تُرفع للتخزين مرة عند التسجيل
+      const avatar = await getGhostAvatarUrl(data.gender);
+      const defaultPhotos: string[] = [];
       await updateFirebaseProfile(fbUser, {
         displayName: data.displayName,
         photoURL: avatar,

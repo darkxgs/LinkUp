@@ -218,7 +218,7 @@
     "birthYearLabel": "سنة الميلاد",
     "yearsAge": "{{count}} سنة",
     "text68438": "أو سجّل الدخول عبر",
-    "continueWithGoogle": "تسجيل الدخول عبر Google",
+    "continueWithGoogle": "المتابعة عبر Google",
     "loginWithSnapchat": "تسجيل الدخول عبر سناب شات",
     "rewardTitle": "مكافأة يومية",
     "rewardSubtitle": "احصل على مكافأتك واربح عملات مجانية!",
@@ -250,7 +250,15 @@
     "accountIdNotFound": "لا يوجد حساب بهذا المعرّف",
     "accountIdNoEmail": "هذا الحساب غير مرتبط ببريد إلكتروني",
     "loginWithEmailInstead": "تفضّل البريد؟",
-    "loginWithIdInstead": "تفضّل المعرّف؟"
+    "loginWithIdInstead": "تفضّل المعرّف؟",
+    "welcomeTagline": "تواصل. طابق. لينك أب.",
+    "welcomeBack": "مرحباً بعودتك",
+    "loginJourney": "سجّل الدخول لمواصلة رحلتك",
+    "continueWithEmail": "المتابعة بالبريد الإلكتروني",
+    "welcomeTaglinePrefix": "تواصل. طابق.",
+    "welcomeBackPrefix": "مرحباً",
+    "welcomeBackAccent": "بعودتك",
+    "continueWithSnapchat": "المتابعة عبر سناب شات"
   },
   "tabs": {
     "home": "اكتشف",

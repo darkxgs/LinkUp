@@ -46,7 +46,7 @@ export function AuthPrimaryButton({
       ]}
     >
       <LinearGradient
-        colors={inactive ? ['#E0CACA', '#A8A6AE'] : [...lu.gradients.brand]}
+        colors={inactive ? ['#6B3A42', '#4A2830'] : ['#FF4D5E', '#C40E2E']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={StyleSheet.absoluteFill}
@@ -66,7 +66,12 @@ export function AuthPrimaryButton({
 const styles = StyleSheet.create({
   btn: {
     height: 54,
-    borderRadius: lu.radius.base,
+    borderRadius: 99,
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

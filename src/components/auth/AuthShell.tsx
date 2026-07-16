@@ -16,9 +16,13 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Image } from 'expo-image';
+
 import { BackButton } from '@/components/ui';
-import { LuLogo } from '@/components/brand/LuBrand';
 import { lu } from '@/theme/lu-brand';
+import { LINKUP_MAIN_LOGO } from '@/constants/brandAssets';
+
+const LOGIN_BG = require('../../../assets/images/login_bg.png');
 
 type AuthShellProps = {
   title: string;
@@ -33,25 +37,8 @@ export function AuthShell({ title, subtitle, children, footer, contentStyle }: A
 
   return (
     <View style={styles.root}>
-      <LinearGradient
-        colors={[...lu.gradients.pageOnboarding]}
-        locations={[0, 0.45, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-
-      {/* Soft brand orbs */}
-      <View style={styles.orbPink} pointerEvents="none">
-        <LinearGradient
-          colors={['rgba(255,46,62,0.32)', 'rgba(255,46,62,0)']}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
-      <View style={styles.orbBlue} pointerEvents="none">
-        <LinearGradient
-          colors={['rgba(236, 62, 62, 0.28)', 'rgba(236, 62, 62, 0)']}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
+      {/* خلفية العميل — كما هي */}
+      <Image source={LOGIN_BG} style={StyleSheet.absoluteFill} contentFit="cover" />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -70,12 +57,25 @@ export function AuthShell({ title, subtitle, children, footer, contentStyle }: A
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.topBar}>
-            <BackButton color={lu.colors.ink} bg="rgba(255,255,255,0.92)" />
+            <BackButton color="#FFFFFF" bg="rgba(255,255,255,0.08)" />
           </View>
 
           <View style={styles.hero}>
-            <LuLogo size={42} />
-            <Text style={styles.title}>{title}</Text>
+            <Image
+              source={LINKUP_MAIN_LOGO}
+              style={styles.heroLogo}
+              contentFit="cover"
+            />
+            <Text style={styles.wordmark}>
+              Link<Text style={styles.wordmarkUp}>Up</Text>
+            </Text>
+            <View style={styles.titleRow}>
+              <View style={styles.titleLine} />
+              <View style={styles.titleDot} />
+              <Text style={styles.title}>{title}</Text>
+              <View style={styles.titleDot} />
+              <View style={styles.titleLine} />
+            </View>
             {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
           </View>
 
@@ -88,28 +88,9 @@ export function AuthShell({ title, subtitle, children, footer, contentStyle }: A
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: lu.colors.bg },
+  root: { flex: 1, backgroundColor: '#0C0709' },
   flex: { flex: 1 },
   scroll: { flexGrow: 1 },
-
-  orbPink: {
-    position: 'absolute',
-    top: -40,
-    end: -60,
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    overflow: 'hidden',
-  },
-  orbBlue: {
-    position: 'absolute',
-    top: 120,
-    start: -80,
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    overflow: 'hidden',
-  },
 
   topBar: {
     paddingHorizontal: lu.spacing.md,
@@ -120,20 +101,55 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: lu.spacing.lg,
     marginBottom: lu.spacing.lg,
-    gap: lu.spacing.sm,
+    gap: 6,
+  },
+  heroLogo: {
+    width: 88,
+    height: 88,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,77,94,0.5)',
+  },
+  wordmark: {
+    fontSize: 40,
+    color: '#FFFFFF',
+    fontFamily: lu.fonts.displayHeavy,
+    fontWeight: '900',
+    includeFontPadding: false,
+    writingDirection: 'ltr',
+  },
+  wordmarkUp: {
+    color: '#E11414',
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  titleLine: {
+    width: 42,
+    height: 1,
+    backgroundColor: 'rgba(255,70,80,0.45)',
+  },
+  titleDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#E11414',
   },
   title: {
-    marginTop: lu.spacing.sm,
     fontSize: 28,
-    color: lu.colors.ink,
+    color: '#FFF0F0',
     fontFamily: lu.fonts.displayBold,
     textAlign: 'center',
     includeFontPadding: false,
+    marginHorizontal: 4,
   },
   subtitle: {
     fontSize: 15,
     lineHeight: 22,
-    color: lu.colors.ink2,
+    color: 'rgba(255,255,255,0.6)',
     fontFamily: lu.fonts.body,
     textAlign: 'center',
     includeFontPadding: false,
@@ -143,10 +159,14 @@ const styles = StyleSheet.create({
   formCard: {
     marginHorizontal: lu.spacing.md,
     padding: lu.spacing.lg,
-    backgroundColor: lu.colors.card,
-    borderRadius: lu.radius.lg,
-    borderWidth: 1,
-    borderColor: lu.colors.line,
-    ...lu.shadows.card,
+    backgroundColor: 'rgba(22,10,13,0.72)',
+    borderRadius: 24,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255,45,60,0.4)',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    elevation: 8,
   },
 });

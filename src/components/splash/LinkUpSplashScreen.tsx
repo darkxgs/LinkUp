@@ -198,10 +198,10 @@ export function LinkUpSplashScreen() {
             }}
             contentFit="cover"
           />
-          <View style={styles.wordmarkRow}>
-            <Text style={styles.wordmarkLink}>Link</Text>
-            <Text style={styles.wordmarkUp}>Up</Text>
-          </View>
+          {/* نص متداخل — يحافظ على ترتيب Link ثم Up في RTL */}
+          <Text style={[styles.wordmarkLink, { marginTop: 10 }]}>
+            Link<Text style={styles.wordmarkUp}>Up</Text>
+          </Text>
           <Text style={styles.tagline}>{t('splash.tagline')}</Text>
 
           <View style={styles.dividerRow}>
@@ -271,11 +271,6 @@ const styles = StyleSheet.create({
   },
   brandBlock: {
     alignItems: 'center',
-  },
-  wordmarkRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginTop: 10,
   },
   wordmarkLink: {
     fontSize: 58,
