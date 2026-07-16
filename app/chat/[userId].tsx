@@ -62,6 +62,8 @@ import {
   resolveChatBackgroundId,
   isChatBackgroundUnlocked,
   getChatBackground,
+  DEFAULT_CHAT_BACKGROUND_ID,
+  LIGHT_DEFAULT_CHAT_BACKGROUND,
 } from '@/constants/chatBackgrounds';
 import { ChatGiftBubble } from '@/components/chat/ChatGiftBubble';
 import { ChatCallBubble } from '@/components/chat/ChatCallBubble';
@@ -127,6 +129,7 @@ import { resolveDisplayName } from '@/utils/displayName';
 import { SupportChatScreen } from '@/components/support/SupportChatScreen';
 import { getChatMessagePrice, getMinutePrice } from '@/services/firebase/callPricingConfig';
 import { isAgencyAgent } from '@/services/firebase/hostTasks';
+import { useThemeMode } from '@/stores/themeStore';
 import { navigateToRoom } from '@/utils/navigateToRoom';
 
 function getMessagePreviewText(
@@ -164,15 +167,17 @@ const SWIPE_REPLY_MAX = 72;
 
 function ChatMsgAvatar({
   avatarUri,
+  night = true,
 }: {
   avatarUri?: string;
+  night?: boolean;
 }) {
   // Profile/message frames are live-room only — 1:1 chat uses plain avatars.
   if (avatarUri) {
     return (
       <Image
         source={{ uri: avatarUri }}
-        style={styles.msgAvatar}
+        style={[styles.msgAvatar, !night && { borderColor: '#F0BABA', backgroundColor: '#FFF' }]}
         contentFit="cover"
         cachePolicy="memory-disk"
         recyclingKey={avatarUri}
@@ -184,6 +189,7 @@ function ChatMsgAvatar({
 
 function PersonalChatScreen({ userId }: { userId: string }) {
   const { t, i18n } = useTranslation();
+  const { isDark } = useThemeMode();
   const timeLocale = i18n.language === 'ar' ? 'ar-SA' : 'en-US';
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -603,7 +609,12 @@ function PersonalChatScreen({ userId }: { userId: string }) {
 
   const bondLevel = relationship?.level ?? 1;
   const activeBackgroundId = resolveChatBackgroundId(chatBackgroundId, bondLevel, chatBackgrounds);
-  const activeBackground = getChatBackground(activeBackgroundId, chatBackgrounds);
+  const activeBackgroundRaw = getChatBackground(activeBackgroundId, chatBackgrounds);
+  // الافتراضي يتبع وضع السمة — داكن ليلاً وفاتح نهاراً؛ الخلفيات المخصّصة تُحترم كما هي
+  const activeBackground =
+    !isDark && activeBackgroundRaw.id === DEFAULT_CHAT_BACKGROUND_ID
+      ? LIGHT_DEFAULT_CHAT_BACKGROUND
+      : activeBackgroundRaw;
 
   const handleSelectChatBackground = async (backgroundId: string) => {
     if (!conversationId || savingBackground) return;
@@ -1115,7 +1126,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
           {!isMe && (
             showAvatar ? (
-              <ChatMsgAvatar avatarUri={avatarUri} />
+              <ChatMsgAvatar avatarUri={avatarUri} night={isDark} />
             ) : (
               <View style={styles.msgAvatarSpacer} />
             )
@@ -1127,13 +1138,14 @@ function PersonalChatScreen({ userId }: { userId: string }) {
               <ChatCallBubble
                 msg={item}
                 isMine={isMe}
+                night={isDark}
                 onPress={() => handleCall(item.callType === 'video' ? 'video' : 'voice')}
               />
               <View style={styles.msgMetaRow}>
                 <Text
                   variant="caption"
-                  color={isMe ? lu.colors.muted : colors.text.tertiary}
-                  style={{ fontSize: 10 }}
+                  color={isDark ? (isMe ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.5)') : '#6B7280'}
+                  style={{ fontSize: 11 }}
                 >
                   {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
                     hour: '2-digit',
@@ -1141,7 +1153,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
                   })}
                 </Text>
                 {isMe ? (
-                  <MessageReadTicks isRead={isMessageReadByPeer(item)} />
+                  <MessageReadTicks isRead={isMessageReadByPeer(item)} onLight={!isDark} />
                 ) : null}
               </View>
             </Pressable>
@@ -1156,12 +1168,13 @@ function PersonalChatScreen({ userId }: { userId: string }) {
                 msg={item}
                 gift={catalogGifts.find((g) => g.id === item.giftId) ?? null}
                 isMine={isMe}
+                night={isDark}
               />
               <View style={styles.msgMetaRow}>
                 <Text
                   variant="caption"
-                  color={isMe ? lu.colors.muted : colors.text.tertiary}
-                  style={{ fontSize: 10 }}
+                  color={isDark ? (isMe ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.5)') : '#6B7280'}
+                  style={{ fontSize: 11 }}
                 >
                   {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
                     hour: '2-digit',
@@ -1169,7 +1182,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
                   })}
                 </Text>
                 {isMe ? (
-                  <MessageReadTicks isRead={isMessageReadByPeer(item)} />
+                  <MessageReadTicks isRead={isMessageReadByPeer(item)} onLight={!isDark} />
                 ) : null}
               </View>
             </Pressable>
@@ -1179,8 +1192,8 @@ function PersonalChatScreen({ userId }: { userId: string }) {
               <View style={styles.msgMetaRow}>
                 <Text
                   variant="caption"
-                  color={isMe ? lu.colors.muted : colors.text.tertiary}
-                  style={{ fontSize: 10 }}
+                  color={isDark ? (isMe ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.5)') : '#6B7280'}
+                  style={{ fontSize: 11 }}
                 >
                   {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
                     hour: '2-digit',
@@ -1188,7 +1201,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
                   })}
                 </Text>
                 {isMe ? (
-                  <MessageReadTicks isRead={isMessageReadByPeer(item)} />
+                  <MessageReadTicks isRead={isMessageReadByPeer(item)} onLight={!isDark} />
                 ) : null}
               </View>
             </View>
@@ -1198,8 +1211,8 @@ function PersonalChatScreen({ userId }: { userId: string }) {
               <View style={styles.msgMetaRow}>
                 <Text
                   variant="caption"
-                  color={isMe ? lu.colors.muted : colors.text.tertiary}
-                  style={{ fontSize: 10 }}
+                  color={isDark ? (isMe ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.5)') : '#6B7280'}
+                  style={{ fontSize: 11 }}
                 >
                   {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
                     hour: '2-digit',
@@ -1207,7 +1220,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
                   })}
                 </Text>
                 {isMe ? (
-                  <MessageReadTicks isRead={isMessageReadByPeer(item)} />
+                  <MessageReadTicks isRead={isMessageReadByPeer(item)} onLight={!isDark} />
                 ) : null}
               </View>
             </View>
@@ -1224,11 +1237,17 @@ function PersonalChatScreen({ userId }: { userId: string }) {
             disabled={isPendingUpload}
             style={[
               styles.msgBubble,
-              isMe ? styles.msgBubbleMe : styles.msgBubbleOther,
+              isMe ? styles.msgBubbleMe : isDark ? styles.msgBubbleOther : styles.msgBubbleOtherLight,
               (item.type === 'image' || item.type === 'video') && { padding: 4 },
               isPendingUpload && styles.msgBubbleUploading,
             ]}
           >
+            <LinearGradient
+              colors={isMe ? ['#E01330', '#8E0A1C'] : isDark ? ['#3A2129', '#221318'] : ['#FFFFFF', '#FFF3F3']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0.6, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
             {(item.type === 'image' || item.type === 'voice' || item.type === 'video') ? (
               <LockedMediaBubble
                 msg={item}
@@ -1253,7 +1272,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
                 ) : null}
                 <Text
                   variant="bodySmall"
-                  color={isMe ? '#FFFFFF' : lu.colors.ink}
+                  color={isMe || isDark ? '#FFFFFF' : lu.colors.ink}
                   style={{ lineHeight: 22, fontSize: 14 }}
                 >
                   {item.text}
@@ -1263,8 +1282,8 @@ function PersonalChatScreen({ userId }: { userId: string }) {
             <View style={styles.msgMetaRow}>
               <Text
                 variant="caption"
-                color={isMe ? 'rgba(255,255,255,0.7)' : colors.text.tertiary}
-                style={{ fontSize: 10 }}
+                color={isMe ? 'rgba(255,255,255,0.7)' : isDark ? 'rgba(255,255,255,0.5)' : '#9CA3AF'}
+                style={{ fontSize: 11 }}
               >
                 {new Date(item.createdAt).toLocaleTimeString(timeLocale, {
                   hour: '2-digit',
@@ -1291,7 +1310,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
           ) : null}
           {isMe ? (
             showAvatar ? (
-              <ChatMsgAvatar avatarUri={avatarUri} />
+              <ChatMsgAvatar avatarUri={avatarUri} night={isDark} />
             ) : (
               // فاصل بعرض الصورة — بدونه فقاعات المجموعة الواحدة لا تصطفّ على
               // حافة واحدة فتبدو الصورة وكأنها «تقفز» مع كل رسالة جديدة
@@ -1304,6 +1323,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     [
       invertedMessages,
       user,
+      isDark,
       otherAvatarUri,
       timeLocale,
       catalogGifts,
@@ -1320,7 +1340,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, !isDark && { backgroundColor: '#FBEAEA' }]}>
         <ActivityIndicator size="large" color={colors.brand.primary} />
       </View>
     );
@@ -1595,7 +1615,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: isDark ? '#161114' : '#FBEAEA' }]}>
       <ChatBackgroundLayer background={activeBackground} />
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -1603,11 +1623,11 @@ function PersonalChatScreen({ userId }: { userId: string }) {
     >
       {/* ===== Header ===== */}
       <View style={[styles.convHeader, { paddingTop: insets.top + 10 }]}>
-        <Pressable onPress={() => router.back()} style={styles.backPill} hitSlop={10}>
-          <BackChevron size={18} color={lu.colors.ink} />
+        <Pressable onPress={() => router.back()} style={[styles.backPill, !isDark && styles.backPillLight]} hitSlop={10}>
+          <BackChevron size={18} color={isDark ? '#FFFFFF' : lu.colors.ink} />
           {relationship ? (
             <LinearGradient
-              colors={lu.gradients.blue}
+              colors={['#FF4D5E', '#C40E2E']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.levelBadge}
@@ -1617,12 +1637,13 @@ function PersonalChatScreen({ userId }: { userId: string }) {
           ) : null}
         </Pressable>
         <View style={{ flex: 1 }} />
-        <Pressable onPress={handleMoreMenu} style={styles.circBtnWhite} hitSlop={10}>
-          <LuMoreIcon size={20} color={lu.colors.ink} />
+        <Pressable onPress={handleMoreMenu} style={[styles.circBtnWhite, !isDark && styles.circBtnLight]} hitSlop={10}>
+          <LuMoreIcon size={20} color={isDark ? '#FFFFFF' : lu.colors.ink} />
         </Pressable>
       </View>
 
       <ChatProfileCard
+        night={isDark}
         displayName={isSupportAccount(userId ?? '') ? SUPPORT_CHAT_DISPLAY_NAME : otherUser.displayName}
         avatarUri={otherAvatarUri}
         points={relationship?.intimacyPoints ?? 0}
@@ -1670,10 +1691,10 @@ function PersonalChatScreen({ userId }: { userId: string }) {
             style={({ pressed }) => [pressed && { opacity: 0.9, transform: [{ scale: 0.95 }] }]}
           >
             <LinearGradient
-              colors={lu.gradients.blue}
+              colors={['#FF4D5E', '#C40E2E']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={[styles.callCircle, { shadowColor: lu.colors.blue }]}
+              style={[styles.callCircle, { shadowColor: '#FF1E30' }]}
             >
               <Phone size={18} color="#fff" fill="#fff" strokeWidth={0} />
             </LinearGradient>
@@ -1684,16 +1705,16 @@ function PersonalChatScreen({ userId }: { userId: string }) {
             style={({ pressed }) => [pressed && { opacity: 0.9, transform: [{ scale: 0.95 }] }]}
           >
             <LinearGradient
-              colors={lu.gradients.brand}
+              colors={['#FF6B5E', '#A50E1E']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={[styles.callCircle, { shadowColor: lu.colors.purple }]}
+              style={[styles.callCircle, { shadowColor: '#FF1E30' }]}
             >
               <Video size={19} color="#fff" strokeWidth={2.3} />
             </LinearGradient>
           </Pressable>
           <View style={{ flex: 1 }} />
-          <RNText style={[styles.onlineHint, isOnline && styles.onlineHintLive]}>
+          <RNText style={[styles.onlineHint, !isDark && styles.onlineHintLight, isOnline && styles.onlineHintLive]}>
             {presenceLabel}
           </RNText>
         </View>
@@ -1775,13 +1796,13 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         contentContainerStyle={styles.messagesContent}
         ListEmptyComponent={
           <View style={styles.emptyChat}>
-            <View style={styles.emptyChatIcon}>
-              <Sparkles size={32} color={lu.colors.purple} strokeWidth={2} />
+            <View style={[styles.emptyChatIcon, !isDark && { backgroundColor: 'rgba(225,20,20,0.08)' }]}>
+              <Sparkles size={32} color="#FF4D5A" strokeWidth={2} />
             </View>
-            <Text variant="body" weight="semibold" align="center" style={{ marginTop: spacing.base }}>
+            <Text variant="body" weight="semibold" align="center" color={isDark ? '#FFFFFF' : lu.colors.ink} style={{ marginTop: spacing.base }}>
               {t('chat.startConversation')}
             </Text>
-            <Text variant="caption" color={colors.text.secondary} align="center" style={{ marginTop: 4 }}>
+            <Text variant="caption" color={isDark ? 'rgba(255,255,255,0.55)' : '#9CA3AF'} align="center" style={{ marginTop: 4 }}>
               {t('chat.sayHello')}
             </Text>
           </View>
@@ -1791,24 +1812,24 @@ function PersonalChatScreen({ userId }: { userId: string }) {
       {chatBlocked && !isSupportAccount(userId ?? '') ? (
         <View style={styles.blockedBanner}>
           <Ban size={16} color="#EF4444" strokeWidth={2.5} />
-          <Text variant="caption" color="#B91C1C" weight="semibold" style={{ flex: 1 }}>
+          <Text variant="caption" color="#FF8A93" weight="semibold" style={{ flex: 1 }}>
             {t('chat.blockedNotice')}
           </Text>
         </View>
       ) : null}
 
       {!chatBlocked && sameAgencyFreeChat ? (
-        <View style={styles.pricingHint}>
-          <Text variant="caption" color={lu.colors.muted} style={{ textAlign: 'center' }}>
+        <View style={[styles.pricingHint, !isDark && styles.pricingHintLight]}>
+          <Text variant="caption" color={isDark ? 'rgba(255,255,255,0.55)' : '#B00E0E'} style={{ textAlign: 'center' }}>
             {t('chat.sameAgencyFreeHint', 'الدردشة مجانية — أنتما ضمن وكالة واحدة، لا تُخصم عملات على الرسائل')}
           </Text>
         </View>
       ) : null}
 
       {!chatBlocked && !isAgencyAgent(user) && !isAgencyAgent(otherUser) && !sameAgencyFreeChat ? (
-        <View style={styles.pricingHint}>
+        <View style={[styles.pricingHint, !isDark && styles.pricingHintLight]}>
           {callPricing.messages?.enabled ? (
-            <Text variant="caption" color={lu.colors.muted} style={{ textAlign: 'center' }}>
+            <Text variant="caption" color={isDark ? 'rgba(255,255,255,0.55)' : '#B00E0E'} style={{ textAlign: 'center' }}>
               {t('chat.messagePricingHint', {
                 text: getChatMessagePrice(callPricing, 'text'),
                 voice: getChatMessagePrice(callPricing, 'voice'),
@@ -1818,7 +1839,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
           ) : null}
           <Text
             variant="caption"
-            color={lu.colors.muted}
+            color={isDark ? 'rgba(255,255,255,0.55)' : '#B00E0E'}
             style={{ textAlign: 'center', marginTop: callPricing.messages?.enabled ? 4 : 0 }}
           >
             {t('chat.callPricingHint', {
@@ -1852,34 +1873,34 @@ function PersonalChatScreen({ userId }: { userId: string }) {
             {!voiceRecording && (
               <>
                 <Pressable
-                  style={styles.toolBtn}
+                  style={[styles.toolBtn, !isDark && styles.toolBtnLight]}
                   onPress={() => setShowGiftPicker(true)}
                 >
-                  <LuGiftIcon size={20} color={TAB_DESIGN.ink} />
+                  <LuGiftIcon size={20} color={isDark ? '#FFFFFF' : '#E11414'} />
                 </Pressable>
                 <Pressable
-                  style={styles.toolBtn}
+                  style={[styles.toolBtn, !isDark && styles.toolBtnLight]}
                   onPress={() => setShowMediaPicker(true)}
                 >
-                  <LuFileAttachIcon size={20} color={TAB_DESIGN.ink} />
+                  <LuFileAttachIcon size={20} color={isDark ? '#FFFFFF' : '#E11414'} />
                 </Pressable>
 
-                <View style={styles.inputPill}>
+                <View style={[styles.inputPill, !isDark && styles.inputPillLight]}>
                   <Pressable
                     style={styles.emojiBtn}
                     onPress={() => setShowEmoji((v) => !v)}
                   >
                     <LuEmojiIcon
                       size={20}
-                      color={showEmoji ? TAB_DESIGN.purple : lu.colors.muted}
+                      color={showEmoji ? '#FF4D5A' : isDark ? 'rgba(255,255,255,0.55)' : '#9CA3AF'}
                     />
                   </Pressable>
                   <TextInput
-                    style={styles.inputField}
+                    style={[styles.inputField, !isDark && { color: lu.colors.ink }]}
                     value={inputText}
                     onChangeText={setInputText}
                     placeholder={t('chat.saySomething')}
-                    placeholderTextColor={lu.colors.muted}
+                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF'}
                     multiline
                     maxLength={500}
                     onFocus={() => setShowEmoji(false)}
@@ -1919,7 +1940,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
           <EmojiPicker
             onSelect={handleEmojiSelect}
             onClose={() => setShowEmoji(false)}
-            variant="light"
+            variant={isDark ? 'dark' : 'light'}
             height={300}
           />
         </View>
@@ -1952,22 +1973,22 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         onDismiss={runPendingMediaAction}
       >
         <Pressable style={styles.pickerBackdrop} onPress={() => setShowMediaPicker(false)}>
-          <Pressable style={styles.pickerSheet} onPress={() => {}}>
-            <View style={styles.pickerHandle} />
+          <Pressable style={[styles.pickerSheet, !isDark && styles.pickerSheetLight]} onPress={() => {}}>
+            <View style={[styles.pickerHandle, !isDark && { backgroundColor: lu.colors.line }]} />
 
             <View style={styles.pickerHeader}>
               <Pressable
                 onPress={() => setShowMediaPicker(false)}
-                style={styles.pickerCloseBtn}
+                style={[styles.pickerCloseBtn, !isDark && { backgroundColor: lu.colors.bg }]}
                 hitSlop={10}
               >
-                <X size={18} color={lu.colors.ink2} strokeWidth={2.4} />
+                <X size={18} color={isDark ? '#FFFFFF' : lu.colors.ink2} strokeWidth={2.4} />
               </Pressable>
               <View style={{ flex: 1, alignItems: 'center' }}>
-                <Text weight="bold" style={{ fontSize: 17, color: lu.colors.ink }}>
+                <Text weight="bold" style={{ fontSize: 17, color: isDark ? '#FFFFFF' : lu.colors.ink }}>
                   {t('chat.sendMedia')}
                 </Text>
-                <Text style={{ fontSize: 12, color: lu.colors.ink2, marginTop: 2 }}>
+                <Text style={{ fontSize: 12, color: isDark ? 'rgba(255,255,255,0.6)' : lu.colors.ink2, marginTop: 2 }}>
                   {t('chat.selectSource')}
                 </Text>
               </View>
@@ -1976,6 +1997,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
 
             <View style={styles.pickerOptions}>
               <PickerOption
+                night={isDark}
                 icon={Camera}
                 title={t('chat.camera')}
                 subtitle={t('chat.cameraSubtitle')}
@@ -1984,6 +2006,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
                 onPress={() => chooseMedia(() => handlePickImage(true))}
               />
               <PickerOption
+                night={isDark}
                 icon={Images}
                 title={t('chat.gallery')}
                 subtitle={t('chat.gallerySubtitle')}
@@ -1992,6 +2015,7 @@ function PersonalChatScreen({ userId }: { userId: string }) {
                 onPress={() => chooseMedia(() => handlePickImage(false))}
               />
               <PickerOption
+                night={isDark}
                 icon={Video}
                 title={t('call.video')}
                 subtitle={t('chat.videoSubtitle')}
@@ -2146,10 +2170,10 @@ function SwipeReplyable({
   );
 }
 
-function MessageReadTicks({ isRead }: { isRead: boolean }) {
-  const color = isRead ? '#EC4444' : 'rgba(255,255,255,0.6)';
+function MessageReadTicks({ isRead, onLight = false }: { isRead: boolean; onLight?: boolean }) {
+  const color = isRead ? '#FF3B4E' : onLight ? '#9CA3AF' : 'rgba(255,255,255,0.6)';
   return (
-    <RNText style={{ fontSize: 12, color, fontWeight: '800', letterSpacing: -3 }}>
+    <RNText style={{ fontSize: 13, color, fontWeight: '800', letterSpacing: -3 }}>
       {isRead ? '✓✓' : '✓'}
     </RNText>
   );
@@ -2187,6 +2211,7 @@ function PickerOption({
   subtitle,
   tint,
   bg,
+  night = true,
   onPress,
 }: {
   icon: any;
@@ -2194,18 +2219,19 @@ function PickerOption({
   subtitle: string;
   tint: string;
   bg: string;
+  night?: boolean;
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={styles.pickerOption}>
+    <Pressable onPress={onPress} style={[styles.pickerOption, !night && styles.pickerOptionLight]}>
       <View style={[styles.pickerOptionIcon, { backgroundColor: bg }]}>
         <Icon size={22} color={tint} strokeWidth={2.2} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text weight="bold" style={{ fontSize: 14, color: lu.colors.ink }}>
+        <Text weight="bold" style={{ fontSize: 14, color: night ? '#FFFFFF' : lu.colors.ink }}>
           {title}
         </Text>
-        <Text style={{ fontSize: 11.5, color: lu.colors.ink2, marginTop: 2 }}>
+        <Text style={{ fontSize: 11.5, color: night ? 'rgba(255,255,255,0.6)' : lu.colors.ink2, marginTop: 2 }}>
           {subtitle}
         </Text>
       </View>
@@ -2244,7 +2270,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: lu.gradients.pageChat[0],
+    backgroundColor: '#161114',
   },
 
   convHeader: {
@@ -2256,17 +2282,14 @@ const styles = StyleSheet.create({
   backPill: {
     height: 38,
     borderRadius: 99,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,77,94,0.4)',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingStart: 12,
     paddingEnd: 8,
-    shadowColor: '#94A3B8',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 4,
   },
   levelBadge: {
     minWidth: 24,
@@ -2286,14 +2309,19 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,77,94,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#94A3B8',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 4,
+  },
+  backPillLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#F0BABA',
+  },
+  circBtnLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#F0BABA',
   },
 
   // ===== Quick actions =====
@@ -2342,13 +2370,16 @@ const styles = StyleSheet.create({
   },
   onlineHint: {
     fontSize: 10.5,
-    color: lu.colors.muted,
+    color: 'rgba(255,255,255,0.55)',
     fontFamily: lu.fonts.body,
     textAlign: 'right',
     flexShrink: 1,
   },
+  onlineHintLight: {
+    color: '#6B7280',
+  },
   onlineHintLive: {
-    color: '#16A34A',
+    color: '#22C55E',
     fontWeight: '600',
   },
 
@@ -2379,8 +2410,8 @@ const styles = StyleSheet.create({
   },
   msgRow: {
     flexDirection: 'row',
-    gap: 6,
-    marginBottom: 2,
+    gap: 8,
+    marginBottom: 10,
     maxWidth: '85%',
   },
   msgRowMe: {
@@ -2391,37 +2422,52 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   msgAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: lu.colors.bg,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,77,94,0.65)',
   },
   msgAvatarSpacer: {
-    width: 28,
+    width: 34,
   },
   msgBubble: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+    borderRadius: 26,
     maxWidth: '100%',
+    overflow: 'hidden',
   },
   msgBubbleMe: {
-    backgroundColor: '#E11414',
-    borderBottomEndRadius: 6,
-    shadowColor: '#E11414',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 4,
+    backgroundColor: '#A50E1E',
+    borderWidth: 1,
+    borderColor: 'rgba(255,120,130,0.55)',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 14,
+    elevation: 7,
   },
   msgBubbleOther: {
+    backgroundColor: '#2A181E',
+    borderWidth: 1,
+    borderColor: 'rgba(255,77,94,0.35)',
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  msgBubbleOtherLight: {
     backgroundColor: '#FFFFFF',
-    borderBottomStartRadius: 6,
-    shadowColor: '#94A3B8',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#F0BABA',
+    shadowColor: '#E11414',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 3,
   },
   msgBubbleUploading: {
     opacity: 0.88,
@@ -2432,7 +2478,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -2461,8 +2507,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    gap: 4,
-    marginTop: 2,
+    gap: 5,
+    marginTop: 6,
   },
 
   // Empty
@@ -2474,7 +2520,7 @@ const styles = StyleSheet.create({
     width: 70,
     height: 70,
     borderRadius: 35,
-    backgroundColor: lu.colors.card2,
+    backgroundColor: 'rgba(255,45,60,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2483,9 +2529,13 @@ const styles = StyleSheet.create({
   pricingHint: {
     paddingHorizontal: spacing.base,
     paddingVertical: 6,
-    backgroundColor: 'rgba(225, 20, 20, 0.06)',
+    backgroundColor: 'rgba(225,20,20,0.1)',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(225, 20, 20, 0.12)',
+    borderTopColor: 'rgba(255,77,94,0.25)',
+  },
+  pricingHintLight: {
+    backgroundColor: 'rgba(225,20,20,0.06)',
+    borderTopColor: 'rgba(225,20,20,0.14)',
   },
   blockedBanner: {
     flexDirection: 'row',
@@ -2493,9 +2543,9 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: spacing.base,
     paddingVertical: 10,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: 'rgba(225,20,20,0.16)',
     borderTopWidth: 0.5,
-    borderTopColor: '#FECACA',
+    borderTopColor: 'rgba(255,77,94,0.35)',
   },
   inputBar: {
     flexDirection: 'row',
@@ -2515,31 +2565,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    shadowColor: '#94A3B8',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 3,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,77,94,0.4)',
   },
   inputPill: {
     flex: 1,
     minHeight: 50,
     borderRadius: 25,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,77,94,0.35)',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     gap: 10,
-    shadowColor: '#94A3B8',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    elevation: 4,
+  },
+  inputPillLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#F0BABA',
+  },
+  toolBtnLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#F0BABA',
   },
   inputField: {
     flex: 1,
-    color: lu.colors.ink,
+    color: '#FFFFFF',
     fontSize: 14,
     fontFamily: lu.fonts.body,
     paddingVertical: 8,
@@ -2584,8 +2636,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(26, 10, 12,0.55)',
     justifyContent: 'flex-end',
   },
+  pickerSheetLight: {
+    backgroundColor: '#FFFFFF',
+  },
   pickerSheet: {
-    backgroundColor: '#fff',
+    backgroundColor: '#241B20',
     borderTopStartRadius: 28,
     borderTopEndRadius: 28,
     paddingTop: 10,
@@ -2595,7 +2650,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 5,
     borderRadius: 3,
-    backgroundColor: lu.colors.line,
+    backgroundColor: 'rgba(255,255,255,0.22)',
     alignSelf: 'center',
     marginBottom: 4,
   },
@@ -2609,7 +2664,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: lu.colors.bg,
+    backgroundColor: 'rgba(255,255,255,0.09)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2624,9 +2679,13 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 14,
     borderRadius: 16,
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1.5,
-    borderColor: lu.colors.line,
+    borderColor: 'rgba(255,77,94,0.3)',
+  },
+  pickerOptionLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#F3E7E7',
   },
   pickerOptionIcon: {
     width: 46,

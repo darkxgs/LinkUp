@@ -19,7 +19,12 @@ export const subscribeToChatBackgrounds = (
     ref,
     (snap) => {
       const raw = (snap.exists() ? (snap.data().items as ChatBackground[]) : []) ?? [];
-      const normalized = normalizeChatBackgrounds(raw);
+      // الخلفية الافتراضية داكنة دائماً (هوية الثيم الليلي) — نتجاهل نسخة اللوحة
+      // الفاتحة القديمة لنفس المعرّف ما لم تكن صورة مخصّصة
+      const themedDefault = DEFAULT_CHAT_BACKGROUNDS[0]!;
+      const normalized = normalizeChatBackgrounds(raw).map((b) =>
+        b.id === themedDefault.id && !b.imageUrl?.trim() ? { ...themedDefault, ...{ sort: b.sort } } : b,
+      );
       cb(normalized.length ? normalized : DEFAULT_CHAT_BACKGROUNDS);
     },
     () => cb(DEFAULT_CHAT_BACKGROUNDS),

@@ -5,6 +5,7 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
+import { Heart } from 'lucide-react-native';
 
 import type { ChatBackground } from '@/constants/chatBackgrounds';
 
@@ -35,21 +36,35 @@ export function ChatBackgroundLayer({ background }: Props) {
         end={background.end ?? { x: 0, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      {background.blobs?.map((blob, index) => (
-        <View
-          key={index}
-          style={{
-            position: 'absolute',
-            width: blob.size,
-            height: blob.size,
-            borderRadius: blob.size / 2,
-            backgroundColor: blob.color,
-            opacity: blob.opacity ?? 0.12,
-            top: blob.top,
-            left: blob.left,
-          }}
-        />
-      ))}
+      {background.blobs?.map((blob, index) =>
+        blob.shape === 'heart' ? (
+          <View
+            key={index}
+            style={{
+              position: 'absolute',
+              top: blob.top,
+              left: blob.left,
+              opacity: blob.opacity ?? 0.12,
+            }}
+          >
+            <Heart size={blob.size} color={blob.color} fill={blob.color} strokeWidth={0} />
+          </View>
+        ) : (
+          <View
+            key={index}
+            style={{
+              position: 'absolute',
+              width: blob.size,
+              height: blob.size,
+              borderRadius: blob.size / 2,
+              backgroundColor: blob.color,
+              opacity: blob.opacity ?? 0.12,
+              top: blob.top,
+              left: blob.left,
+            }}
+          />
+        ),
+      )}
     </View>
   );
 }
