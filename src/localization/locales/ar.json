@@ -258,7 +258,9 @@
     "welcomeTaglinePrefix": "تواصل. طابق.",
     "welcomeBackPrefix": "مرحباً",
     "welcomeBackAccent": "بعودتك",
-    "continueWithSnapchat": "المتابعة عبر سناب شات"
+    "continueWithSnapchat": "المتابعة عبر سناب شات",
+    "dailyGift": "هدية يومية",
+    "loginWithGoogle": "تسجيل الدخول عبر Google"
   },
   "tabs": {
     "home": "اكتشف",

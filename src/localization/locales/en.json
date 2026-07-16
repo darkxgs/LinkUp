@@ -258,7 +258,9 @@
     "welcomeTaglinePrefix": "Connect. Match.",
     "welcomeBackPrefix": "Welcome",
     "welcomeBackAccent": "Back",
-    "continueWithSnapchat": "Continue with Snapchat"
+    "continueWithSnapchat": "Continue with Snapchat",
+    "dailyGift": "Daily Gift",
+    "loginWithGoogle": "Login with Google"
   },
   "tabs": {
     "home": "Discover",

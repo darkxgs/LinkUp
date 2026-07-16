@@ -1,5 +1,5 @@
 /**
- * Onboarding / Welcome — تصميم العميل: خلفية القلب + بطاقة دخول سفلية
+ * Onboarding / Welcome — تصميم العميل: بطاقة المكافأة اليومية + قلب التعارف + أزرار الدخول
  */
 
 import React, { useEffect, useState, useMemo } from 'react';
@@ -11,12 +11,23 @@ import {
   Pressable,
   useWindowDimensions,
   Alert,
+  I18nManager,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
-import { Phone, ChevronRight, ChevronDown, Mail, Facebook, Languages, HelpCircle, Heart } from 'lucide-react-native';
+import {
+  Phone,
+  ChevronRight,
+  ChevronDown,
+  Facebook,
+  Languages,
+  HelpCircle,
+  Heart,
+  Gift,
+  Sparkles,
+} from 'lucide-react-native';
 import Animated, {
   Easing,
   interpolate,
@@ -32,14 +43,67 @@ import { lu } from '@/theme/lu-brand';
 import { GoogleLogo, TikTokLogo, XLogo, SnapchatLogo } from '@/components/brand/LuBrand';
 import { LanguagePickerSheet } from '@/components/localization/LanguagePickerSheet';
 import { useAppLanguage } from '@/localization/useAppLanguage';
-import { LINKUP_ID_LOGO, LINKUP_MAIN_LOGO } from '@/constants/brandAssets';
+import { LINKUP_ID_LOGO, COIN_CURRENCY_ICON } from '@/constants/brandAssets';
 import { loadGoogleAuthConfig, useGoogleSignIn } from '@/services/social-auth';
 import { markOnboardingSeen } from '@/services/onboardingStorage';
 import { useAuth } from '@/hooks/useAuth';
 
-const WELCOME_BG = require('../../assets/images/welcome_bg.png');
+const WELCOME_CENTER = require('../../assets/images/welcome_center.png');
+const WELCOME_GIFT = require('../../assets/images/welcome_gift.png');
+/** نسبة عرض/ارتفاع صورة القلب المركزية */
+const CENTER_ASPECT = 1536 / 1024;
+/** قلب السهم لليمين/اليسار حسب الاتجاه */
+const rtlFlip = I18nManager.isRTL ? { transform: [{ scaleX: -1 }] } : undefined;
 
-/** قلب عائم يصعد ويتلاشى في حلقة — لمسة حيوية فوق الخلفية */
+/** حلقة نبض متوسّعة خلف القلب المركزي */
+function PulseRing({
+  size,
+  color,
+  delay,
+  borderWidth = 2,
+}: {
+  size: number;
+  color: string;
+  delay: number;
+  borderWidth?: number;
+}) {
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withDelay(
+      delay,
+      withRepeat(
+        withTiming(1, { duration: 2800, easing: Easing.out(Easing.cubic) }),
+        -1,
+        false,
+      ),
+    );
+  }, [delay, progress]);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scale: interpolate(progress.value, [0, 1], [0.9, 1.3]) }],
+    opacity: interpolate(progress.value, [0, 0.15, 1], [0.5, 0.38, 0]),
+  }));
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        {
+          position: 'absolute',
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          borderWidth,
+          borderColor: color,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+/** قلب عائم يصعد ويتلاشى في حلقة — لمسة حيوية */
 function FloatingHeart({
   x,
   size,
@@ -64,11 +128,11 @@ function FloatingHeart({
 
   const style = useAnimatedStyle(() => ({
     transform: [
-      { translateY: interpolate(progress.value, [0, 1], [screenH * 0.62, screenH * 0.1]) },
+      { translateY: interpolate(progress.value, [0, 1], [screenH * 0.62, screenH * 0.12]) },
       { translateX: interpolate(progress.value, [0, 0.5, 1], [0, 12, -8]) },
       { scale: interpolate(progress.value, [0, 0.2, 1], [0.6, 1, 0.9]) },
     ],
-    opacity: interpolate(progress.value, [0, 0.15, 0.7, 1], [0, 0.55, 0.35, 0]),
+    opacity: interpolate(progress.value, [0, 0.15, 0.7, 1], [0, 0.5, 0.3, 0]),
   }));
 
   return (
@@ -90,28 +154,25 @@ export default function OnboardingScreen() {
   const [googleBusy, setGoogleBusy] = useState(false);
   const { promptGoogleSignIn, isReady: googleReady } = useGoogleSignIn();
 
-  // حركات: نبض الخلفية + دخول العناصر + نبض زر البريد
-  const bgBreathe = useSharedValue(0);
-  const brandReveal = useSharedValue(0);
-  const cardRise = useSharedValue(0);
+  // حركات: دخول العناصر + تنفّس القلب + نبض زر Google
+  const topReveal = useSharedValue(0);
+  const heroReveal = useSharedValue(0);
+  const bottomRise = useSharedValue(0);
   const ctaPulse = useSharedValue(0);
+  const giftWiggle = useSharedValue(0);
 
   useEffect(() => {
-    bgBreathe.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 2600, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0, { duration: 2600, easing: Easing.inOut(Easing.ease) }),
-      ),
-      -1,
-      false,
+    topReveal.value = withTiming(1, { duration: 650, easing: Easing.out(Easing.cubic) });
+    heroReveal.value = withDelay(
+      200,
+      withTiming(1, { duration: 700, easing: Easing.out(Easing.cubic) }),
     );
-    brandReveal.value = withTiming(1, { duration: 700, easing: Easing.out(Easing.cubic) });
-    cardRise.value = withDelay(
-      250,
+    bottomRise.value = withDelay(
+      380,
       withTiming(1, { duration: 750, easing: Easing.out(Easing.cubic) }),
     );
     ctaPulse.value = withDelay(
-      1100,
+      1200,
       withRepeat(
         withSequence(
           withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
@@ -121,21 +182,42 @@ export default function OnboardingScreen() {
         false,
       ),
     );
-  }, [bgBreathe, brandReveal, cardRise, ctaPulse]);
+    giftWiggle.value = withDelay(
+      800,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+          withTiming(-1, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 180, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 2600 }),
+        ),
+        -1,
+        false,
+      ),
+    );
+  }, [bottomRise, ctaPulse, giftWiggle, heroReveal, topReveal]);
 
-  const bgStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(bgBreathe.value, [0, 1], [1, 1.035]) }],
+  const topStyle = useAnimatedStyle(() => ({
+    opacity: topReveal.value,
+    transform: [{ translateY: interpolate(topReveal.value, [0, 1], [-20, 0]) }],
   }));
-  const brandStyle = useAnimatedStyle(() => ({
-    opacity: brandReveal.value,
-    transform: [{ translateY: interpolate(brandReveal.value, [0, 1], [-18, 0]) }],
+  const heroStyle = useAnimatedStyle(() => ({
+    opacity: heroReveal.value,
+    transform: [{ scale: interpolate(heroReveal.value, [0, 1], [0.92, 1]) }],
   }));
-  const cardStyle = useAnimatedStyle(() => ({
-    opacity: cardRise.value,
-    transform: [{ translateY: interpolate(cardRise.value, [0, 1], [46, 0]) }],
+  const bottomStyle = useAnimatedStyle(() => ({
+    opacity: bottomRise.value,
+    transform: [{ translateY: interpolate(bottomRise.value, [0, 1], [42, 0]) }],
   }));
   const ctaStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(ctaPulse.value, [0, 1], [1, 1.02]) }],
+    transform: [{ scale: interpolate(ctaPulse.value, [0, 1], [1, 1.015]) }],
+  }));
+  const giftStyle = useAnimatedStyle(() => ({
+    transform: [
+      { rotate: `${giftWiggle.value * 7}deg` },
+      { scale: interpolate(Math.abs(giftWiggle.value), [0, 1], [1, 1.06]) },
+    ],
   }));
 
   useEffect(() => {
@@ -219,8 +301,8 @@ export default function OnboardingScreen() {
     router.push('/(auth)/login' as any);
   };
 
-  const circleWrapSize = Math.round(56 * scaleFactor);
-  const iconSize = Math.round(21 * scaleFactor);
+  const circleWrapSize = Math.round(54 * scaleFactor);
+  const iconSize = Math.round(20 * scaleFactor);
 
   const PROVIDERS = [
     {
@@ -256,37 +338,32 @@ export default function OnboardingScreen() {
     },
   ];
 
+  const heroW = Math.round(contentW * 1.16);
+  const heroH = Math.round(heroW / CENTER_ASPECT);
+
   return (
     <View style={styles.container}>
-      {/* خلفية العميل — مكبّرة من الأعلى (بلا فجوة سوداء) لينزل القلب تحت النص + نبض بطيء */}
-      <Animated.View
-        style={[
-          { position: 'absolute', top: 0, left: 0, right: 0, height: Math.round(H * 1.25) },
-          bgStyle,
-        ]}
-      >
-        <Image source={WELCOME_BG} style={StyleSheet.absoluteFill} contentFit="cover" />
-      </Animated.View>
+      <LinearGradient colors={lu.gradients.pageHomeNight} style={StyleSheet.absoluteFill} />
 
       {/* قلوب عائمة */}
-      <FloatingHeart x={W * 0.12} size={16} delay={0} duration={5200} screenH={H} />
-      <FloatingHeart x={W * 0.26} size={11} delay={1600} duration={6200} screenH={H} />
-      <FloatingHeart x={W * 0.52} size={13} delay={3000} duration={5600} screenH={H} />
-      <FloatingHeart x={W * 0.74} size={17} delay={800} duration={6600} screenH={H} />
-      <FloatingHeart x={W * 0.88} size={12} delay={2300} duration={5000} screenH={H} />
+      <FloatingHeart x={W * 0.1} size={15} delay={0} duration={5400} screenH={H} />
+      <FloatingHeart x={W * 0.3} size={11} delay={1800} duration={6200} screenH={H} />
+      <FloatingHeart x={W * 0.55} size={13} delay={3200} duration={5600} screenH={H} />
+      <FloatingHeart x={W * 0.78} size={16} delay={900} duration={6600} screenH={H} />
+      <FloatingHeart x={W * 0.9} size={11} delay={2400} duration={5200} screenH={H} />
 
       <View
         style={[
           styles.page,
           {
             paddingTop: insets.top + 8 * scaleFactor,
-            paddingBottom: insets.bottom + 8 * scaleFactor,
+            paddingBottom: insets.bottom + 10 * scaleFactor,
           },
         ]}
       >
         <View style={[styles.pageInner, { width: contentW }]}>
           {/* ===== الشريط العلوي ===== */}
-          <View style={[styles.topBar, { paddingHorizontal: PAD }]}>
+          <Animated.View style={[styles.topBar, { paddingHorizontal: PAD }, topStyle]}>
             <Pressable
               onPress={() => setShowLangSheet(true)}
               hitSlop={8}
@@ -307,105 +384,144 @@ export default function OnboardingScreen() {
               <HelpCircle size={15} color="#FF5C6C" strokeWidth={2.4} />
               <Text style={styles.topBarBtnText}>{t('auth.text97390') || 'Help'}</Text>
             </Pressable>
-          </View>
-
-          {/* ===== الهوية ===== */}
-          <Animated.View style={[styles.brandBlock, brandStyle]}>
-            <Image
-              source={LINKUP_MAIN_LOGO}
-              style={{ width: 52 * scaleFactor, height: 52 * scaleFactor, borderRadius: 14 * scaleFactor }}
-              contentFit="cover"
-            />
-            <Text style={[styles.wordmark, { fontSize: 36 * scaleFactor }]}>
-              Link<Text style={styles.wordmarkUp}>Up</Text>
-            </Text>
-            <Text style={[styles.tagline, { fontSize: 14.5 * scaleFactor }]}>
-              <Text>{t('auth.welcomeTaglinePrefix')} </Text>
-              <Text style={styles.taglineAccent}>LinkUp.</Text>
-            </Text>
           </Animated.View>
 
-          {/* مساحة لمجسّم القلب في الخلفية */}
-          <View style={styles.heroSpace} />
-
-          {/* ===== بطاقة الدخول السفلية ===== */}
-          <Animated.View style={[styles.loginCard, { marginHorizontal: PAD - 6, padding: 16 * scaleFactor }, cardStyle]}>
-            <Text style={[styles.cardTitle, { fontSize: 26 * scaleFactor }]}>
-              <Text>{t('auth.welcomeBackPrefix')} </Text>
-              <Text style={styles.cardTitleAccent}>{t('auth.welcomeBackAccent')}</Text>
-            </Text>
-            <Text style={[styles.cardSub, { fontSize: 13.5 * scaleFactor }]}>
-              {t('auth.loginJourney')}
-            </Text>
-
-            {/* Continue with Email — نبض خفيف */}
-            <Animated.View style={[{ marginTop: 14 * scaleFactor }, ctaStyle]}>
-            <Pressable
-              onPress={() => handleSocialLogin('email')}
-              style={({ pressed }) => [
-                pressed && { opacity: 0.92, transform: [{ scale: 0.98 }] },
-              ]}
-            >
-              <LinearGradient
-                colors={['#FF4D5E', '#C40E2E']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.emailBtn, { height: 52 * scaleFactor }]}
-              >
-                <Mail size={19 * scaleFactor} color="#FFFFFF" strokeWidth={2.2} />
-                <Text style={[styles.emailBtnText, { fontSize: 15.5 * scaleFactor }]}>
-                  {t('auth.continueWithEmail')}
+          {/* ===== بطاقة المكافأة اليومية ===== */}
+          <Animated.View
+            style={[
+              styles.rewardCard,
+              { marginHorizontal: PAD - 6, marginTop: 10 * scaleFactor, padding: 13 * scaleFactor },
+              topStyle,
+            ]}
+          >
+            <View style={styles.rewardBody}>
+              <View style={styles.rewardChip}>
+                <Gift size={14 * scaleFactor} color="#FF5C6C" strokeWidth={2.4} />
+                <Text style={[styles.rewardChipText, { fontSize: 12 * scaleFactor }]}>
+                  {t('auth.dailyGift')}
                 </Text>
-                <ChevronRight size={18 * scaleFactor} color="#FFFFFF" />
-              </LinearGradient>
-            </Pressable>
-            </Animated.View>
+              </View>
 
-            {/* فاصل */}
-            <View style={[styles.divider, { marginVertical: 12 * scaleFactor }]}>
-              <View style={styles.dividerLine} />
-              <View style={styles.dividerDot} />
-              <Text style={[styles.dividerText, { fontSize: 12 * scaleFactor }]}>
-                {t('auth.text68438') || 'Or log in with'}
+              <View style={styles.rewardTitleRow}>
+                <Text style={[styles.rewardTitle, { fontSize: 24 * scaleFactor }]}>
+                  {t('chat.dailyReward')}
+                </Text>
+                <Sparkles size={17 * scaleFactor} color="#FF4D5A" strokeWidth={2.2} />
+              </View>
+
+              <Text style={[styles.rewardSub, { fontSize: 13 * scaleFactor }]}>
+                {t('chat.dailyRewardSubtitle')}
               </Text>
-              <View style={styles.dividerDot} />
-              <View style={styles.dividerLine} />
+
+              <Pressable
+                onPress={() => handleSocialLogin('email')}
+                style={({ pressed }) => [
+                  { alignSelf: 'flex-start', marginTop: 10 * scaleFactor },
+                  pressed && { opacity: 0.92, transform: [{ scale: 0.97 }] },
+                ]}
+              >
+                <LinearGradient
+                  colors={['#FF4D5E', '#C40E2E']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[styles.claimBtn, { height: 40 * scaleFactor }]}
+                >
+                  <Text style={[styles.claimBtnText, { fontSize: 14.5 * scaleFactor }]}>
+                    {t('auth.claimNow')}
+                  </Text>
+                  <Image
+                    source={COIN_CURRENCY_ICON}
+                    style={{ width: 20 * scaleFactor, height: 20 * scaleFactor }}
+                    contentFit="contain"
+                  />
+                </LinearGradient>
+              </Pressable>
             </View>
 
-            {/* Google أبيض */}
-            <Pressable
-              onPress={() => handleSocialLogin('google')}
-              disabled={googleBusy}
-              style={({ pressed }) => [
-                styles.whiteBtn,
-                { height: 50 * scaleFactor },
-                pressed && { opacity: 0.92, transform: [{ scale: 0.98 }] },
-                googleBusy && { opacity: 0.7 },
-              ]}
-            >
-              <GoogleLogo size={19 * scaleFactor} />
-              <Text style={[styles.whiteBtnText, { fontSize: 15 * scaleFactor }]}>
-                {t('auth.continueWithGoogle')}
-              </Text>
-            </Pressable>
+            {/* صندوق الهدية — أصل العميل كما هو + اهتزازة مرحة */}
+            <Animated.View style={giftStyle}>
+              <Image
+                source={WELCOME_GIFT}
+                style={{ width: 168 * scaleFactor, height: 152 * scaleFactor }}
+                contentFit="contain"
+              />
+            </Animated.View>
+          </Animated.View>
 
-            {/* Snapchat أصفر */}
+          {/* ===== القلب المركزي — أصل العميل كما هو ===== */}
+          <View style={styles.heroWrap}>
+            <PulseRing size={heroH * 0.96} color="rgba(255,92,92,0.35)" delay={0} />
+            <PulseRing size={heroH * 0.96} color="rgba(225,20,20,0.28)" delay={1100} />
+            <PulseRing size={heroH * 0.96} color="rgba(176,14,14,0.2)" delay={2200} borderWidth={1.5} />
+            <Animated.View style={heroStyle}>
+              <Image
+                source={WELCOME_CENTER}
+                style={{ width: heroW, height: heroH }}
+                contentFit="contain"
+              />
+            </Animated.View>
+          </View>
+
+          {/* ===== أزرار الدخول ===== */}
+          <Animated.View style={[{ paddingHorizontal: PAD - 6 }, bottomStyle]}>
+            {/* Google — شريط أحمر */}
+            <Animated.View style={ctaStyle}>
+              <Pressable
+                onPress={() => handleSocialLogin('google')}
+                disabled={googleBusy}
+                style={({ pressed }) => [
+                  pressed && { opacity: 0.92, transform: [{ scale: 0.98 }] },
+                  googleBusy && { opacity: 0.7 },
+                ]}
+              >
+                <LinearGradient
+                  colors={['#FF4D5E', '#C40E2E']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[styles.loginBar, { height: 56 * scaleFactor }]}
+                >
+                  <View style={styles.loginBarIconCircle}>
+                    <GoogleLogo size={19 * scaleFactor} />
+                  </View>
+                  <Text style={[styles.loginBarText, { fontSize: 15.5 * scaleFactor }]}>
+                    {t('auth.loginWithGoogle')}
+                  </Text>
+                  <ChevronRight size={19 * scaleFactor} color="#FFFFFF" style={rtlFlip} />
+                </LinearGradient>
+              </Pressable>
+            </Animated.View>
+
+            {/* Snapchat — شريط أصفر */}
             <Pressable
               onPress={() => handleSocialLogin('snapchat')}
               style={({ pressed }) => [
-                styles.snapBtn,
-                { height: 50 * scaleFactor, marginTop: 10 * scaleFactor },
+                styles.snapBar,
+                { height: 56 * scaleFactor, marginTop: 12 * scaleFactor },
                 pressed && { opacity: 0.92, transform: [{ scale: 0.98 }] },
               ]}
             >
-              <SnapchatLogo size={19 * scaleFactor} color="#FFFFFF" />
-              <Text style={[styles.snapBtnText, { fontSize: 15 * scaleFactor }]}>
-                {t('auth.continueWithSnapchat')}
+              <View style={styles.snapIconCircle}>
+                <SnapchatLogo size={19 * scaleFactor} color="#FFFFFF" />
+              </View>
+              <Text style={[styles.snapBarText, { fontSize: 15.5 * scaleFactor }]}>
+                {t('auth.loginWithSnapchat')}
               </Text>
+              <ChevronRight size={19 * scaleFactor} color="#15151A" style={rtlFlip} />
             </Pressable>
 
+            {/* فاصل بقلوب */}
+            <View style={[styles.divider, { marginVertical: 14 * scaleFactor }]}>
+              <View style={styles.dividerLine} />
+              <Heart size={13} color="#FF4D5A" strokeWidth={2.4} />
+              <Text style={[styles.dividerText, { fontSize: 12.5 * scaleFactor }]}>
+                {t('auth.text68438') || 'Or log in with'}
+              </Text>
+              <Heart size={13} color="#FF4D5A" strokeWidth={2.4} />
+              <View style={styles.dividerLine} />
+            </View>
+
             {/* المزوّدون */}
-            <View style={[styles.providerRow, { marginTop: 14 * scaleFactor }]}>
+            <View style={styles.providerRow}>
               {PROVIDERS.map((p) => (
                 <Pressable
                   key={p.key}
@@ -437,18 +553,7 @@ export default function OnboardingScreen() {
               ))}
             </View>
 
-            {/* إنشاء حساب */}
-            <Pressable
-              onPress={() => router.push('/(auth)/register' as any)}
-              style={({ pressed }) => [styles.registerRow, { marginTop: 14 * scaleFactor }, pressed && { opacity: 0.88 }]}
-            >
-              <Text style={[styles.registerAccent, { fontSize: 13.5 * scaleFactor }]}>
-                {t('auth.text46120')}
-              </Text>
-              <ChevronRight size={16 * scaleFactor} color="#FF4D5A" />
-            </Pressable>
-
-            <Text style={[styles.termsText, { marginTop: 8 * scaleFactor, fontSize: 11 * scaleFactor, lineHeight: 16 * scaleFactor }]}>
+            <Text style={[styles.termsText, { marginTop: 12 * scaleFactor, fontSize: 11 * scaleFactor, lineHeight: 16 * scaleFactor }]}>
               {t('auth.agreeOn') || 'I agree to'}{' '}
               <Text style={styles.termsLink}>{t('auth.termsOfUse') || 'Terms of Use'}</Text>
               {' '}{t('auth.and') || 'and'}{' '}
@@ -463,8 +568,9 @@ export default function OnboardingScreen() {
   );
 }
 
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0B0507' },
+  container: { flex: 1, backgroundColor: '#161114' },
   page: {
     flex: 1,
     alignItems: 'center',
@@ -486,9 +592,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 8,
     borderRadius: 99,
-    backgroundColor: 'rgba(20,8,10,0.6)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(255,77,94,0.4)',
+    borderColor: 'rgba(255,77,94,0.35)',
   },
   topBarBtnText: {
     color: '#FFFFFF',
@@ -497,80 +603,128 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
 
-  brandBlock: {
+  rewardCard: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: -17,
-  },
-  wordmark: {
-    color: '#FFFFFF',
-    fontFamily: lu.fonts.displayHeavy,
-    fontWeight: '900',
-    includeFontPadding: false,
-    writingDirection: 'ltr',
-    marginTop: 4,
-  },
-  wordmarkUp: {
-    color: '#E11414',
-  },
-  tagline: {
-    color: 'rgba(255,255,255,0.78)',
-    fontFamily: lu.fonts.bodySemi,
-    includeFontPadding: false,
-    marginTop: 0,
-    textAlign: 'center',
-  },
-  taglineAccent: {
-    color: '#FF4D5A',
-  },
-
-  heroSpace: {
-    flex: 1,
-    minHeight: 60,
-  },
-
-  loginCard: {
-    borderRadius: 26,
+    gap: 8,
+    borderRadius: 24,
     borderWidth: 1.2,
     borderColor: 'rgba(255,45,60,0.35)',
-    backgroundColor: 'rgba(18,8,10,0.82)',
+    backgroundColor: 'rgba(20,10,13,0.55)',
     shadowColor: '#FF1E30',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.25,
-    shadowRadius: 14,
-    elevation: 8,
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
   },
-  cardTitle: {
+  rewardBody: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  rewardChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 99,
+    backgroundColor: 'rgba(255,45,60,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,77,94,0.4)',
+  },
+  rewardChipText: {
+    color: '#FFFFFF',
+    fontFamily: lu.fonts.bodyBold,
+    includeFontPadding: false,
+  },
+  rewardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 8,
+  },
+  rewardTitle: {
     color: '#FFFFFF',
     fontFamily: lu.fonts.displayHeavy,
     includeFontPadding: false,
-    textAlign: 'center',
   },
-  cardTitleAccent: {
-    color: '#FF3B4E',
-  },
-  cardSub: {
-    color: 'rgba(255,255,255,0.65)',
+  rewardSub: {
+    color: 'rgba(255,255,255,0.66)',
     fontFamily: lu.fonts.body,
     includeFontPadding: false,
-    textAlign: 'center',
     marginTop: 4,
+    lineHeight: 18,
   },
-
-  emailBtn: {
+  claimBtn: {
     borderRadius: 99,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    paddingHorizontal: 18,
+    gap: 8,
+    paddingHorizontal: 22,
+    shadowColor: '#FF1E30',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  claimBtnText: {
+    color: '#FFFFFF',
+    fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
+  },
+
+  heroWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 120,
+  },
+
+  loginBar: {
+    borderRadius: 99,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
     shadowColor: '#FF1E30',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.45,
+    shadowOpacity: 0.4,
     shadowRadius: 12,
     elevation: 5,
   },
-  emailBtnText: {
+  loginBarIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loginBarText: {
+    flex: 1,
     color: '#FFFFFF',
+    fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
+  },
+  snapBar: {
+    borderRadius: 99,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFF400',
+  },
+  snapIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  snapBarText: {
+    flex: 1,
+    color: '#15151A',
     fontFamily: lu.fonts.bodyHeavy,
     includeFontPadding: false,
   },
@@ -580,45 +734,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  dividerLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,70,80,0.35)' },
-  dividerDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#E11414',
-  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,70,80,0.3)' },
   dividerText: {
     color: 'rgba(255,255,255,0.75)',
     fontFamily: lu.fonts.bodyBold,
     includeFontPadding: false,
     marginHorizontal: 2,
-  },
-
-  whiteBtn: {
-    borderRadius: 99,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: '#FFFFFF',
-  },
-  whiteBtnText: {
-    color: '#15151A',
-    fontFamily: lu.fonts.bodyHeavy,
-    includeFontPadding: false,
-  },
-  snapBtn: {
-    borderRadius: 99,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: '#FFF400',
-  },
-  snapBtnText: {
-    color: '#15151A',
-    fontFamily: lu.fonts.bodyHeavy,
-    includeFontPadding: false,
   },
 
   providerRow: {
@@ -639,18 +760,6 @@ const styles = StyleSheet.create({
     fontFamily: lu.fonts.bodyBold,
     includeFontPadding: false,
     textAlign: 'center',
-  },
-
-  registerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-  },
-  registerAccent: {
-    color: '#FF4D5A',
-    fontFamily: lu.fonts.bodyBold,
-    includeFontPadding: false,
   },
 
   termsText: {
