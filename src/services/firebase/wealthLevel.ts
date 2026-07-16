@@ -58,9 +58,10 @@ export function buildWealthXpFirestoreUpdate(
   };
 }
 
+// مفتاح اليوم بتوقيت UTC — موحّد مع rewardsCenter وتريغرات السيرفر (قرار المالك)
 export function todayDateKey(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 export function readWealthExpBubbles(
@@ -128,11 +129,16 @@ export const claimWealthExpBubble = async (
 // حساب التقدّم والمكافأة هنا (مصدر واحد) — العرض (العنوان/الأيقونة)
 // في شاشة app/wealth-level.tsx
 
+// xp: قيمة الدورة الواحدة — bet-5000 جائزتها عشوائية (30-300) تُرمى وتُستلم
+// في السيرفر حصرياً (claimWealthBetMission) فقيمتها هنا 0
 export const WEALTH_DAILY_TASK_DEFS = [
   { id: 'stay-room', max: 3, xp: 5 },
   { id: 'mic-time', max: 3, xp: 5 },
   { id: 'send-gifts', max: 3, xp: 5 },
-  { id: 'game-bet', max: 3, xp: 5 },
+  { id: 'game-bet', max: 5, xp: 5 },
+  { id: 'lucky-gifts', max: 5, xp: 10 },
+  { id: 'bet-5000', max: 10, xp: 0 },
+  { id: 'login', max: 1, xp: 5 },
 ] as const;
 
 export type WealthDailyTaskId = (typeof WEALTH_DAILY_TASK_DEFS)[number]['id'];
@@ -140,6 +146,8 @@ export type WealthDailyTaskId = (typeof WEALTH_DAILY_TASK_DEFS)[number]['id'];
 export interface WealthDailyTasksState {
   dateKey: string;
   claimedIds: string[];
+  /** عدد الدورات المستلمة لكل مهمة — الاستلام الجزئي المتكرر خلال اليوم */
+  claimedCounts: Record<string, number>;
 }
 
 /** تقدّم المهمة من إحصاءات اليوم (rewardsProgress.daily.stats) */
@@ -156,6 +164,14 @@ export function wealthDailyTaskCurrent(
       return Number(stats.giftsSent ?? 0);
     case 'game-bet':
       return Number(stats.gameBets ?? 0);
+    // الأسعار مضاعفة ×10 بأمر المالك (2026-07-17): «أي حاجة فيها فلوس حط صفر زيادة»
+    case 'lucky-gifts':
+      return Math.floor(Number(stats.luckyGiftCoins ?? 0) / 5000);
+    case 'bet-5000':
+      return Math.floor(Number(stats.betCoins ?? 0) / 50000);
+    case 'login':
+      // فتح الصفحة يعني جلسة موثّقة — الدخول نفسه مسجّل بالسيرفر (recordLoginSession)
+      return 1;
     default:
       return 0;
   }
@@ -165,28 +181,53 @@ export function readWealthDailyTaskClaims(
   data: Record<string, unknown> | null | undefined,
 ): WealthDailyTasksState {
   const today = todayDateKey();
-  const raw = data?.wealthDailyTasks as WealthDailyTasksState | undefined;
+  const raw = data?.wealthDailyTasks as Partial<WealthDailyTasksState> | undefined;
   if (!raw || raw.dateKey !== today) {
-    return { dateKey: today, claimedIds: [] };
+    return { dateKey: today, claimedIds: [], claimedCounts: {} };
   }
-  return {
-    dateKey: today,
-    claimedIds: Array.isArray(raw.claimedIds) ? raw.claimedIds.map(String) : [],
-  };
+  const claimedIds = Array.isArray(raw.claimedIds) ? raw.claimedIds.map(String) : [];
+  const claimedCounts: Record<string, number> = {};
+  if (raw.claimedCounts && typeof raw.claimedCounts === 'object') {
+    for (const [k, v] of Object.entries(raw.claimedCounts)) {
+      const n = Math.max(0, Math.floor(Number(v) || 0));
+      if (n > 0) claimedCounts[k] = n;
+    }
+  }
+  // توافق خلفي: مهمة في claimedIds (نسخ قديمة) = مستلمة بالكامل
+  for (const id of claimedIds) {
+    const def = WEALTH_DAILY_TASK_DEFS.find((t) => t.id === id);
+    if (def) claimedCounts[id] = Math.max(claimedCounts[id] ?? 0, def.max);
+  }
+  return { dateKey: today, claimedIds, claimedCounts };
+}
+
+/** الدورات المستحقة غير المستلمة لمهمة — للعرض وتفعيل زر الاستلام */
+export function wealthDailyTaskOwed(
+  taskId: WealthDailyTaskId,
+  stats: RewardsDailyStats,
+  claims: WealthDailyTasksState,
+): number {
+  const def = WEALTH_DAILY_TASK_DEFS.find((t) => t.id === taskId);
+  if (!def) return 0;
+  const current = Math.min(wealthDailyTaskCurrent(taskId, stats), def.max);
+  return Math.max(0, current - (claims.claimedCounts[taskId] ?? 0));
 }
 
 /**
- * استلام XP مهمة يومية مكتملة — قبل هذا الإصلاح لم يكن أي مسار يمنح
- * XP المهام إطلاقاً (الصفوف عرض فقط) فبدا وكأن «الهدية تصل في اليوم التالي».
+ * استلام XP مهمة يومية — لكل الدورات المستحقة غير المستلمة دفعة واحدة
+ * (استلام جزئي متكرر خلال اليوم عبر claimedCounts، لا انتظار اكتمال max).
+ * مهمة bet-5000 تُستلم من السيرفر حصرياً (claimWealthBetMission) لأن جائزتها
+ * عشوائية — هذا المسار يرفضها.
  */
 export const claimWealthDailyTask = async (
   taskId: WealthDailyTaskId,
-): Promise<{ gained: number; level: number; xp: number }> => {
+): Promise<{ gained: number; cycles: number; level: number; xp: number }> => {
   const me = auth.currentUser;
   if (!me) throw new Error('يجب تسجيل الدخول');
 
   const def = WEALTH_DAILY_TASK_DEFS.find((t) => t.id === taskId);
   if (!def) throw new Error('مهمة غير صالحة');
+  if (taskId === 'bet-5000') throw new Error('تُستلم هذه المهمة من الخادم');
 
   const userRef = doc(firestore, 'users', me.uid);
   const today = todayDateKey();
@@ -199,27 +240,32 @@ export const claimWealthDailyTask = async (
     const stats = statsFromFirestoreDoc(data);
     const claims = readWealthDailyTaskClaims(data);
 
-    if (claims.claimedIds.includes(taskId)) {
-      throw new Error('تم استلام مكافأة هذه المهمة اليوم');
+    // إحصاءات اليوم فقط (dateKey بتوقيت UTC موحّد مع بقية منظومة المكافآت)
+    const progress = readRewardsProgress(data);
+    const current = Math.min(wealthDailyTaskCurrent(taskId, progress.daily.stats), def.max);
+    const already = claims.claimedCounts[taskId] ?? 0;
+    const owed = current - already;
+    if (owed <= 0) {
+      throw new Error(already >= def.max ? 'تم استلام مكافأة هذه المهمة اليوم' : 'لم تُكمل المهمة بعد');
     }
 
-    // إحصاءات اليوم فقط (dateKey محلي موحّد مع بقية منظومة المكافآت)
-    const progress = readRewardsProgress(data);
-    const current = wealthDailyTaskCurrent(taskId, progress.daily.stats);
-    if (current < def.max) throw new Error('لم تُكمل المهمة بعد');
+    const gained = owed * def.xp;
+    const next = applyXpGain(stats.level, stats.xp, gained);
 
-    const next = applyXpGain(stats.level, stats.xp, def.xp);
+    const claimedCounts = { ...claims.claimedCounts, [taskId]: current };
+    // claimedIds للتوافق مع النسخ القديمة — تُضاف المهمة عند اكتمال كل دوراتها
+    const claimedIds =
+      current >= def.max && !claims.claimedIds.includes(taskId)
+        ? [...claims.claimedIds, taskId]
+        : claims.claimedIds;
 
     tx.update(userRef, {
       ...buildWealthXpFirestoreUpdate(next.level, next.xp),
-      wealthDailyTasks: {
-        dateKey: today,
-        claimedIds: [...claims.claimedIds, taskId],
-      },
+      wealthDailyTasks: { dateKey: today, claimedIds, claimedCounts },
       updatedAt: Date.now(),
     });
 
-    return { gained: def.xp, ...next };
+    return { gained, cycles: owed, ...next };
   });
 };
 

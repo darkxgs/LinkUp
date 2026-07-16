@@ -24,7 +24,7 @@ import { Text } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { lu } from '@/theme/lu-brand';
 import { COIN_CURRENCY_ICON } from '@/constants/brandAssets';
-import { Sparkles } from 'lucide-react-native';
+import { Sparkles, UserRound, Dices, Clover } from 'lucide-react-native';
 import {
   WlBackIcon,
   WlGameIcon,
@@ -53,6 +53,8 @@ import {
   claimWealthExpBubble,
   claimWealthDailyTask,
   wealthDailyTaskCurrent,
+  wealthDailyTaskOwed,
+  readWealthDailyTaskClaims,
   WEALTH_DAILY_TASK_DEFS,
   upgradeWealthLevelWithCoins,
   coinsNeededForLevelUp,
@@ -63,7 +65,10 @@ import {
   type WealthDailyTaskId,
 } from '@/services/firebase/wealthLevel';
 import { readRewardsProgress } from '@/services/firebase/rewardsCenter';
-import { resolveUserWealthLevel } from '@/utils/userBalance';
+import { resolveUserWealthLevel, resolveUserCharmLevel } from '@/utils/userBalance';
+import { ensureCallableAuth } from '@/services/firebase/authReady';
+import { callCallableWithAuth } from '@/services/firebase/callableHttp';
+import { CharmLevelTab, CHARM_HEADER_GRADIENT } from '@/components/wealthLevel/CharmLevelTab';
 
 interface DailyTaskDef {
   id: WealthDailyTaskId;
@@ -96,6 +101,18 @@ const TASK_UI_META: Record<
     titleKey: 'wealthLevel.gameBet',
     renderIcon: (size) => <WlGameIcon size={size} />,
   },
+  'lucky-gifts': {
+    titleKey: 'wealthLevel.luckyGifts',
+    renderIcon: (size) => <Clover size={size} color="#B8860B" strokeWidth={2.2} />,
+  },
+  'bet-5000': {
+    titleKey: 'wealthLevel.bet5000',
+    renderIcon: (size) => <Dices size={size} color="#B8860B" strokeWidth={2.2} />,
+  },
+  login: {
+    titleKey: 'wealthLevel.loginTask',
+    renderIcon: (size) => <UserRound size={size} color="#B8860B" strokeWidth={2.2} />,
+  },
 };
 
 const DAILY_TASK_DEFS: DailyTaskDef[] = WEALTH_DAILY_TASK_DEFS.map((def) => ({
@@ -115,6 +132,10 @@ export default function WealthLevelScreen() {
   const [upgrading, setUpgrading] = useState(false);
   const [showAllTasks, setShowAllTasks] = useState(false);
   const [xpFlash, setXpFlash] = useState<{ amount: number; key: number } | null>(null);
+  const [activeTab, setActiveTab] = useState<'wealth' | 'charm'>('wealth');
+
+  const charmLevel = resolveUserCharmLevel(user);
+  const charmXp = user?.stats?.charmXp ?? 0;
 
   const level = resolveUserWealthLevel(user);
   const xp = user?.stats.xp ?? 0;
@@ -172,21 +193,21 @@ export default function WealthLevelScreen() {
   }, [user?.createdAt]);
 
   const tasksWithProgress = useMemo(() => {
-    if (!user) return DAILY_TASK_DEFS.map((task) => ({ ...task, current: 0, claimed: false }));
+    if (!user) {
+      return DAILY_TASK_DEFS.map((task) => ({ ...task, current: 0, owed: 0, claimed: false }));
+    }
     // كل المهام تُقرأ من إحصاءات «اليوم» (rewardsProgress.daily.stats) —
     // القراءة القديمة من stats.totalRoomMinutes/totalGiftsSent كانت حقولاً
     // لا يكتبها أي كود إطلاقاً فبقيت المهام الثلاث مجمدة على 0 للأبد.
     // readRewardsProgress تتحقق من dateKey فلا تُعرض إحصاءات يوم سابق.
     const daily = readRewardsProgress({ rewardsProgress: user.rewardsProgress }).daily.stats;
-    const storedClaims = user.wealthDailyTasks;
-    const claimedIds =
-      storedClaims?.dateKey === todayDateKey() && Array.isArray(storedClaims.claimedIds)
-        ? storedClaims.claimedIds
-        : [];
+    // الاستلام بالدورات (claimedCounts) — يستلم المتاح أولاً بأول لا عند الاكتمال فقط
+    const claims = readWealthDailyTaskClaims({ wealthDailyTasks: user.wealthDailyTasks });
     return DAILY_TASK_DEFS.map((task) => ({
       ...task,
       current: Math.min(wealthDailyTaskCurrent(task.id, daily), task.max),
-      claimed: claimedIds.includes(task.id),
+      owed: wealthDailyTaskOwed(task.id, daily, claims),
+      claimed: (claims.claimedCounts[task.id] ?? 0) >= task.max,
     }));
   }, [user]);
 
@@ -231,12 +252,23 @@ export default function WealthLevelScreen() {
     }
   }, [refreshUser, t, triggerXpFlash]);
 
-  // استلام XP مهمة يومية مكتملة — الإصلاح: كانت الصفوف عرضاً فقط بلا منح
+  // استلام XP مهمة يومية — بالدورات المستحقة؛ مهمة الرهان 5000 جائزتها عشوائية
+  // (30-300) تُرمى وتُستلم في السيرفر حصرياً فلا يختار العميل قيمتها
   const handleTaskClaim = useCallback(async (taskId: WealthDailyTaskId) => {
     setClaimingTaskId(taskId);
     try {
-      const res = await claimWealthDailyTask(taskId);
-      triggerXpFlash(res.gained);
+      if (taskId === 'bet-5000') {
+        const authed = await ensureCallableAuth();
+        const token = await authed.getIdToken();
+        const res = await callCallableWithAuth<
+          Record<string, never>,
+          { cycles: number; totalXp: number; rolls: number[] }
+        >('claimWealthBetMission', {}, token);
+        triggerXpFlash(res.totalXp);
+      } else {
+        const res = await claimWealthDailyTask(taskId);
+        triggerXpFlash(res.gained);
+      }
       await refreshUser();
     } catch (e: unknown) {
       Alert.alert(
@@ -303,37 +335,96 @@ export default function WealthLevelScreen() {
 
   return (
     <View style={styles.fill}>
-      <LinearGradient colors={[...WL_DESIGN.header]} style={StyleSheet.absoluteFill} />
+      <LinearGradient
+        colors={activeTab === 'charm' ? [...CHARM_HEADER_GRADIENT] : [...WL_DESIGN.header]}
+        style={StyleSheet.absoluteFill}
+      />
 
-      {/* ===== Header ===== */}
+      {/* ===== Header: تبويبا مستوى الثروة / مستوى الجاذبية ===== */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={() => router.back()} style={styles.headBtn} hitSlop={10}>
           <WlBackIcon size={20} />
         </Pressable>
-        <View style={styles.headerTitleWrap}>
-          <Text weight="bold" style={styles.headerTitleText}>
-            {t('profile.wealthLevel')}
-          </Text>
-          <View style={styles.headerTitleDivider} />
+        <View style={styles.headerTabsRow}>
+          <Pressable
+            style={styles.headerTitleWrap}
+            hitSlop={8}
+            onPress={() => setActiveTab('wealth')}
+          >
+            <Text
+              weight="bold"
+              style={[
+                styles.headerTitleText,
+                activeTab === 'charm' && styles.headerTitleTextCharmBg,
+                activeTab !== 'wealth' && styles.headerTitleInactive,
+              ]}
+            >
+              {t('profile.wealthLevel')}
+            </Text>
+            {activeTab === 'wealth' ? <View style={styles.headerTitleDivider} /> : null}
+          </Pressable>
+          <Pressable
+            style={styles.headerTitleWrap}
+            hitSlop={8}
+            onPress={() => setActiveTab('charm')}
+          >
+            <Text
+              weight="bold"
+              style={[
+                styles.headerTitleText,
+                activeTab === 'charm' && styles.headerTitleTextCharmBg,
+                activeTab !== 'charm' && styles.headerTitleInactive,
+              ]}
+            >
+              {t('charmLevel.title')}
+            </Text>
+            {activeTab === 'charm' ? (
+              <View style={[styles.headerTitleDivider, styles.headerTitleDividerCharm]} />
+            ) : null}
+          </Pressable>
         </View>
         <Pressable
           style={styles.headBtn}
           hitSlop={10}
           onPress={() =>
-            Alert.alert(
-              t('profile.wealthLevel', 'مستوى الثروة'),
-              t(
-                'wealth.helpBody',
-                'مستوى الثروة يرتفع بجمع نقاط الخبرة (XP):\n\n• إرسال الهدايا والشحن يمنحانك XP تلقائياً\n• أكمل المهام اليومية (البقاء في غرفة، وقت المايك…) لكسب XP إضافي\n• يمكنك الترقية الفورية بالكوينز عبر زر «ترقية»\n\nكلما ارتفع مستواك انفتحت مزايا أكثر: وسام الشرف، إشعار الدخول، الهدية المجانية وغيرها.',
-              ),
-              [{ text: t('common.ok', 'حسناً') }],
-            )
+            activeTab === 'charm'
+              ? Alert.alert(
+                  t('charmLevel.title', 'مستوى الجاذبية'),
+                  t(
+                    'charmLevel.helpBody',
+                    'مستوى الجاذبية يرتفع باستقبال الهدايا:\n\n• كل 1 ذهب من قيمة الهدايا التي تصلك = 1 تجربة\n• يُحتسب تلقائياً من الخادم فور وصول الهدية\n\nكلما ارتفع مستواك ظهر رمز مستواك بشكل أبرز.',
+                  ),
+                  [{ text: t('common.ok', 'حسناً') }],
+                )
+              : Alert.alert(
+                  t('profile.wealthLevel', 'مستوى الثروة'),
+                  t(
+                    'wealth.helpBody',
+                    'مستوى الثروة يرتفع بجمع نقاط الخبرة (XP):\n\n• إرسال الهدايا والشحن يمنحانك XP تلقائياً\n• أكمل المهام اليومية (البقاء في غرفة، وقت المايك…) لكسب XP إضافي\n• يمكنك الترقية الفورية بالكوينز عبر زر «ترقية»\n\nكلما ارتفع مستواك انفتحت مزايا أكثر: وسام الشرف، إشعار الدخول، الهدية المجانية وغيرها.',
+                  ),
+                  [{ text: t('common.ok', 'حسناً') }],
+                )
           }
         >
           <WlQuestionIcon size={20} />
         </Pressable>
       </View>
 
+      {activeTab === 'charm' ? (
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24, flexGrow: 1 }}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+          overScrollMode="never"
+        >
+          <CharmLevelTab
+            avatarUri={user?.profile?.avatar}
+            displayName={user?.profile?.displayName}
+            charmLevel={charmLevel}
+            charmXp={charmXp}
+          />
+        </ScrollView>
+      ) : (
       <ScrollView
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         showsVerticalScrollIndicator={false}
@@ -544,13 +635,7 @@ export default function WealthLevelScreen() {
                       ({task.current}/{task.max})
                     </Text>
                   </View>
-                  {task.claimed ? (
-                    <View style={styles.taskClaimedPill}>
-                      <Text weight="bold" style={styles.taskClaimedText}>
-                        {t('wealthLevel.taskClaimed')}
-                      </Text>
-                    </View>
-                  ) : task.current >= task.max ? (
+                  {task.owed > 0 ? (
                     <Pressable
                       onPress={() => void handleTaskClaim(task.id)}
                       disabled={claimingTaskId !== null}
@@ -562,12 +647,22 @@ export default function WealthLevelScreen() {
                       <Text weight="bold" style={styles.taskClaimText}>
                         {claimingTaskId === task.id
                           ? '...'
-                          : t('wealthLevel.claimExp', { count: task.xp })}
+                          : task.id === 'bet-5000'
+                            ? t('wealthLevel.claimVariable', { count: task.owed })
+                            : t('wealthLevel.claimExp', { count: task.owed * task.xp })}
                       </Text>
                     </Pressable>
+                  ) : task.claimed ? (
+                    <View style={styles.taskClaimedPill}>
+                      <Text weight="bold" style={styles.taskClaimedText}>
+                        {t('wealthLevel.taskClaimed')}
+                      </Text>
+                    </View>
                   ) : (
                     <Text weight="bold" style={styles.taskExp}>
-                      {t('wealthLevel.expReward', { count: task.xp })}
+                      {task.id === 'bet-5000'
+                        ? t('wealthLevel.expRewardRange')
+                        : t('wealthLevel.expReward', { count: task.xp })}
                     </Text>
                   )}
                 </View>
@@ -597,6 +692,7 @@ export default function WealthLevelScreen() {
           </View>
         </View>
       </ScrollView>
+      )}
     </View>
   );
 }
@@ -630,12 +726,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // صف التبويبين — مستوى الثروة / مستوى الجاذبية
+  headerTabsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 22,
+  },
   headerTitleText: {
     fontFamily: lu.fonts.displayHeavy,
-    fontSize: 20,
-    lineHeight: 26,
+    fontSize: 19,
+    lineHeight: 25,
     color: '#333',
     includeFontPadding: false,
+  },
+  headerTitleTextCharmBg: {
+    color: '#FFFFFF',
+  },
+  headerTitleInactive: {
+    opacity: 0.5,
   },
   headerTitleDivider: {
     width: 40,
@@ -643,6 +751,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#D4AF37',
     marginTop: 4,
     borderRadius: 1,
+  },
+  headerTitleDividerCharm: {
+    backgroundColor: '#FFFFFF',
   },
 
   panelWrap: {

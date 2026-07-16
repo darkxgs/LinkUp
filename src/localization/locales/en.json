@@ -3529,6 +3529,11 @@
     "text78346": "Mic Time 10 Minutes",
     "text36228": "Send gifts",
     "gameBet": "Game Bet 5 Times",
+    "luckyGifts": "Send 5000 coins of lucky gifts",
+    "bet5000": "Bet 50000 in games",
+    "loginTask": "Log in to the app",
+    "expRewardRange": "EXP 30-300",
+    "claimVariable": "Claim ×{{count}} 🎲",
     "text22139": "Honor Medal",
     "text16956": "Entry Notice",
     "freeGift": "Free Gift",
@@ -3554,6 +3559,16 @@
     "text2536": "Special badge",
     "text1392": "Hide",
     "text54218": "Show more"
+  },
+  "charmLevel": {
+    "title": "Charm Level",
+    "expNeeded": "You need {{count}} EXP to level up",
+    "rewards": "Rewards",
+    "levelSymbol": "Level symbol",
+    "howToUpgrade": "How to upgrade",
+    "receiveGiftTitle": "Receive a gift",
+    "receiveGiftRule": "1 EXP = 1 gold",
+    "helpBody": "Charm level grows by receiving gifts:\n\n• Every 1 gold of gift value you receive = 1 EXP\n• Counted automatically by the server the moment a gift arrives\n\nThe higher your level, the more prominent your level symbol."
   },
   "about": {
     "text91347": "Contact Us",

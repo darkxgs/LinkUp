@@ -101,6 +101,10 @@ export interface RewardsDailyStats {
   micMinutes: number;
   /** عدد الهدايا المرسلة اليوم — لمهمة «إرسال هدايا» */
   giftsSent: number;
+  /** مجموع قيمة رهانات الألعاب اليوم بالكوينز — لمهمة «راهن بقيمة 50000» */
+  betCoins: number;
+  /** مجموع قيمة هدايا الحظ المُرسلة اليوم بالكوينز — لمهمة «هدايا الحظ بقيمة 5000» */
+  luckyGiftCoins: number;
 }
 
 export interface RewardsProgress {
@@ -247,15 +251,17 @@ export const DEFAULT_REWARDS_CENTER: RewardsCenterConfig = {
 
 // ─── Helpers ────────────────────────────────────────────────────
 
+// مفتاح اليوم بتوقيت UTC — قرار المالك (2026-07-17): إعادة الضبط اليومية موحّدة
+// UTC لكل المستخدمين (وموحّدة مع تريغرات السيرفر)، لا بتوقيت جهاز كلٍّ منهم.
 export function todayDateKey(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 function yesterdayDateKey(): string {
   const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  d.setUTCDate(d.getUTCDate() - 1);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 const EMPTY_STATS: RewardsDailyStats = {
@@ -265,6 +271,8 @@ const EMPTY_STATS: RewardsDailyStats = {
   roomMinutes: 0,
   micMinutes: 0,
   giftsSent: 0,
+  betCoins: 0,
+  luckyGiftCoins: 0,
 };
 
 export function readRewardsProgress(
@@ -307,6 +315,8 @@ export function readRewardsProgress(
         roomMinutes: Number(raw.daily.stats?.roomMinutes ?? 0),
         micMinutes: Number(raw.daily.stats?.micMinutes ?? 0),
         giftsSent: Number(raw.daily.stats?.giftsSent ?? 0),
+        betCoins: Number(raw.daily.stats?.betCoins ?? 0),
+        luckyGiftCoins: Number(raw.daily.stats?.luckyGiftCoins ?? 0),
       },
     };
   }
@@ -502,28 +512,51 @@ export const trackRewardsMessageSent = async (
   });
 };
 
-export const trackRewardsGameBet = async (): Promise<void> => {
+// وثيقة المستخدم «ساخنة» (هدايا/رصيد/تحديثات مستمرة) — المحاولة الواحدة تفشل
+// بتعارض النسخ أحياناً فيضيع العدّ بصمت (نفس درس hostTasks) → 4 محاولات بتراجع
+async function runTrackerWithRetry(runOnce: () => Promise<void>): Promise<void> {
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      await runOnce();
+      return;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+/** رهان لعبة — يعدّ المرات ومجموع القيمة (لمهمتَي «رهان الألعاب» و«راهن بقيمة 5000») */
+export const trackRewardsGameBet = async (stake = 0): Promise<void> => {
   const me = auth.currentUser;
   if (!me) return;
 
   const userRef = doc(firestore, 'users', me.uid);
   const today = todayDateKey();
 
-  await runTransaction(firestore, async (tx) => {
-    const snap = await tx.get(userRef);
-    if (!snap.exists()) return;
+  await runTrackerWithRetry(() =>
+    runTransaction(firestore, async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists()) return;
 
-    const progress = readRewardsProgress(snap.data() as Record<string, unknown>);
-    const stats = { ...progress.daily.stats, gameBets: progress.daily.stats.gameBets + 1 };
+      const progress = readRewardsProgress(snap.data() as Record<string, unknown>);
+      const stats = {
+        ...progress.daily.stats,
+        gameBets: progress.daily.stats.gameBets + 1,
+        betCoins: progress.daily.stats.betCoins + Math.max(0, Math.floor(stake)),
+      };
 
-    tx.update(userRef, {
-      rewardsProgress: {
-        ...progress,
-        daily: { dateKey: today, claimedTaskIds: progress.daily.claimedTaskIds, stats },
-      },
-      updatedAt: Date.now(),
-    });
-  });
+      tx.update(userRef, {
+        rewardsProgress: {
+          ...progress,
+          daily: { dateKey: today, claimedTaskIds: progress.daily.claimedTaskIds, stats },
+        },
+        updatedAt: Date.now(),
+      });
+    }),
+  );
 };
 
 /** دقائق الغرفة/المايك اليومية — تغذّي مهام مستوى الثروة (البقاء في غرفة/وقت المايك) */
@@ -537,53 +570,67 @@ export const trackRewardsRoomMinutes = async (
   const userRef = doc(firestore, 'users', me.uid);
   const today = todayDateKey();
 
-  await runTransaction(firestore, async (tx) => {
-    const snap = await tx.get(userRef);
-    if (!snap.exists()) return;
+  await runTrackerWithRetry(() =>
+    runTransaction(firestore, async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists()) return;
 
-    const progress = readRewardsProgress(snap.data() as Record<string, unknown>);
-    const stats = {
-      ...progress.daily.stats,
-      roomMinutes: progress.daily.stats.roomMinutes + Math.max(0, Math.floor(minutes)),
-      micMinutes: progress.daily.stats.micMinutes + Math.max(0, Math.floor(micMinutes)),
-    };
+      const progress = readRewardsProgress(snap.data() as Record<string, unknown>);
+      const stats = {
+        ...progress.daily.stats,
+        roomMinutes: progress.daily.stats.roomMinutes + Math.max(0, Math.floor(minutes)),
+        micMinutes: progress.daily.stats.micMinutes + Math.max(0, Math.floor(micMinutes)),
+      };
 
-    tx.update(userRef, {
-      rewardsProgress: {
-        ...progress,
-        daily: { dateKey: today, claimedTaskIds: progress.daily.claimedTaskIds, stats },
-      },
-      updatedAt: Date.now(),
-    });
-  });
+      tx.update(userRef, {
+        rewardsProgress: {
+          ...progress,
+          daily: { dateKey: today, claimedTaskIds: progress.daily.claimedTaskIds, stats },
+        },
+        updatedAt: Date.now(),
+      });
+    }),
+  );
 };
 
-/** هدية مُرسلة — تغذّي مهمة «إرسال هدايا» بمستوى الثروة */
-export const trackRewardsGiftSent = async (count = 1): Promise<void> => {
+/**
+ * هدية مُرسلة — تغذّي مهمة «إرسال هدايا»، ولو كانت من تصنيف الحظ (lucky)
+ * يُضاف مجموع قيمتها لمهمة «هدايا الحظ بقيمة 5000 كوينز»
+ */
+export const trackRewardsGiftSent = async (
+  count = 1,
+  totalCoins = 0,
+  categoryId?: string,
+): Promise<void> => {
   const me = auth.currentUser;
   if (!me || count < 1) return;
 
   const userRef = doc(firestore, 'users', me.uid);
   const today = todayDateKey();
+  const luckyCoins =
+    String(categoryId ?? '') === 'lucky' ? Math.max(0, Math.floor(totalCoins)) : 0;
 
-  await runTransaction(firestore, async (tx) => {
-    const snap = await tx.get(userRef);
-    if (!snap.exists()) return;
+  await runTrackerWithRetry(() =>
+    runTransaction(firestore, async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists()) return;
 
-    const progress = readRewardsProgress(snap.data() as Record<string, unknown>);
-    const stats = {
-      ...progress.daily.stats,
-      giftsSent: progress.daily.stats.giftsSent + Math.floor(count),
-    };
+      const progress = readRewardsProgress(snap.data() as Record<string, unknown>);
+      const stats = {
+        ...progress.daily.stats,
+        giftsSent: progress.daily.stats.giftsSent + Math.floor(count),
+        luckyGiftCoins: progress.daily.stats.luckyGiftCoins + luckyCoins,
+      };
 
-    tx.update(userRef, {
-      rewardsProgress: {
-        ...progress,
-        daily: { dateKey: today, claimedTaskIds: progress.daily.claimedTaskIds, stats },
-      },
-      updatedAt: Date.now(),
-    });
-  });
+      tx.update(userRef, {
+        rewardsProgress: {
+          ...progress,
+          daily: { dateKey: today, claimedTaskIds: progress.daily.claimedTaskIds, stats },
+        },
+        updatedAt: Date.now(),
+      });
+    }),
+  );
 };
 
 // ─── Check-in claims ──────────────────────────────────────────────

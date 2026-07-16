@@ -789,9 +789,9 @@ async function executeBuyAndSendGift(
     )
     .catch((e) => console.warn('failed to send notification:', e));
 
-  // مهمة «إرسال هدايا» اليومية في مستوى الثروة — كل مسارات الإهداء تمر من هنا
+  // مهمتا «إرسال هدايا» و«هدايا الحظ بقيمة 500» اليوميتان — كل مسارات الإهداء تمر من هنا
   void import('./rewardsCenter')
-    .then(({ trackRewardsGiftSent }) => trackRewardsGiftSent(qty))
+    .then(({ trackRewardsGiftSent }) => trackRewardsGiftSent(qty, totalPrice, gift.category))
     .catch(() => {});
 
   return {

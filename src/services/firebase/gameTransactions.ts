@@ -113,7 +113,7 @@ export const placeBet = async (stake: number): Promise<void> => {
   // خصم المبلغ
   await updateDoc(userRef, buildBalanceIncrementPatch('coins', -stake));
 
-  void import('./rewardsCenter').then(({ trackRewardsGameBet }) => trackRewardsGameBet()).catch(() => {});
+  void import('./rewardsCenter').then(({ trackRewardsGameBet }) => trackRewardsGameBet(stake)).catch(() => {});
 };
 
 export type IntelligenceDailyStatus = {
@@ -154,7 +154,7 @@ export const placeIntelligenceBet = async (
     { ok?: boolean; serverNow?: number; msUntilNextDailyReset?: number; playDayKey?: string }
   >('placeIntelligenceGameBet', { gameId, stake: amount }, token);
 
-  void import('./rewardsCenter').then(({ trackRewardsGameBet }) => trackRewardsGameBet()).catch(() => {});
+  void import('./rewardsCenter').then(({ trackRewardsGameBet }) => trackRewardsGameBet(amount)).catch(() => {});
 
   const serverNowMs = Number(result.serverNow) || serverNow();
   return {

@@ -68,6 +68,9 @@ interface UserStats {
   casinoCoins: number;
   level: number;
   xp: number;
+  /** مستوى الجاذبية — من استقبال الهدايا (يكتبه السيرفر حصرياً) */
+  charmLevel?: number;
+  charmXp?: number;
   followers: number;
   following: number;
   visitors: number;
@@ -100,6 +103,8 @@ export interface User {
   wealthDailyTasks?: {
     dateKey: string;
     claimedIds: string[];
+    /** عدد الدورات المستلمة لكل مهمة — الاستلام الجزئي المتكرر */
+    claimedCounts?: Record<string, number>;
   };
   mysterySuitExpiresAt?: number | null;
   mysterySuitActive?: boolean;

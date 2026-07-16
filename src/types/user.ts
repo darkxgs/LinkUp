@@ -28,6 +28,9 @@ export interface UserStats {
   casinoCoins: number;
   level: number;
   xp: number;
+  /** مستوى الجاذبية — من استقبال الهدايا (يكتبه السيرفر حصرياً) */
+  charmLevel?: number;
+  charmXp?: number;
   followers: number;
   following: number;
   visitors: number;
@@ -170,6 +173,8 @@ export const createDefaultUser = (
     casinoCoins: 0,
     level: 1,
     xp: 0,
+    charmLevel: 1,
+    charmXp: 0,
     followers: 0,
     following: 0,
     visitors: 0,

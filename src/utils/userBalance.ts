@@ -12,6 +12,9 @@ export type BalanceStats = {
   casinoCoins: number;
   level: number;
   xp: number;
+  /** مستوى الجاذبية — من استقبال الهدايا (يكتبه السيرفر حصرياً) */
+  charmLevel: number;
+  charmXp: number;
   followers: number;
   following: number;
   visitors: number;
@@ -61,6 +64,33 @@ function pickXp(stats: Record<string, unknown>, data: Record<string, unknown>): 
   const flat = toFiniteNumber(data.xp);
   if (nested !== null && flat !== null) return Math.max(nested, flat);
   return nested ?? flat ?? 0;
+}
+
+/** مستوى الجاذبية — من استقبال الهدايا؛ stats.charmLevel والجذر معاً (الأعلى) */
+export function pickCharmLevel(data: Record<string, unknown> | null | undefined): number {
+  if (!data) return 1;
+  const stats = (data.stats ?? {}) as Record<string, unknown>;
+  const nested = toFiniteNumber(stats.charmLevel);
+  const flat = toFiniteNumber(data.charmLevel);
+  if (nested !== null && flat !== null) return Math.max(nested, flat, 1);
+  return Math.max(nested ?? flat ?? 1, 1);
+}
+
+export function pickCharmXp(data: Record<string, unknown> | null | undefined): number {
+  if (!data) return 0;
+  const stats = (data.stats ?? {}) as Record<string, unknown>;
+  const nested = toFiniteNumber(stats.charmXp);
+  const flat = toFiniteNumber(data.charmXp);
+  if (nested !== null && flat !== null) return Math.max(nested, flat, 0);
+  return Math.max(nested ?? flat ?? 0, 0);
+}
+
+/** مستوى الجاذبية من كائن User (auth/cache) */
+export function resolveUserCharmLevel(
+  user: { stats?: Partial<BalanceStats> } | null | undefined,
+): number {
+  if (!user) return 1;
+  return pickCharmLevel(user as unknown as Record<string, unknown>);
 }
 
 /** مستوى الثروة الموحّد — يدمج stats.level والحقل المباشر */
@@ -135,6 +165,8 @@ export function statsFromFirestoreDoc(data: Record<string, unknown>): BalanceSta
     casinoCoins: pickField(stats, data, 'casinoCoins'),
     level: pickLevel(stats, data),
     xp: pickXp(stats, data),
+    charmLevel: pickCharmLevel(data),
+    charmXp: pickCharmXp(data),
     followers: pickSocialField(stats, data, 'followers'),
     following: pickSocialField(stats, data, 'following'),
     visitors: pickSocialField(stats, data, 'visitors'),
