@@ -540,7 +540,6 @@ export default function OnboardingScreen() {
                         height: circleWrapSize,
                         borderRadius: circleWrapSize / 2,
                       },
-                      p.key === 'x' && { backgroundColor: '#000000' },
                       p.key === 'id' && { backgroundColor: '#FFFFFF' },
                     ]}
                   >
