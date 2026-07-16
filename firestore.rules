@@ -60,6 +60,23 @@ service cloud.firestore {
         ]);
     }
 
+    // حقول منح الإطارات الشخصية — تُكتب من Cloud Functions أو لوحة التحكم فقط
+    // (كان المستخدم يستطيع منح نفسه إطارات بكتابة frameInventory/ownedFrames مباشرة)
+    function frameGrantFieldsUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['frameInventory', 'ownedFrames']);
+    }
+
+    // مستوى الجاذبية — يكتبه تريغر السيرفر حصرياً (charmXpOnGiftReceived).
+    // مقارنة قيم مباشرة (لا diff) لتغطية الجذر وstats المتداخلة معاً حتى عند
+    // غياب أي من الحقول — أي محاولة تغيير من العميل تُرفض.
+    function charmFieldsUnchanged() {
+      return request.resource.data.get('charmXp', 0) == resource.data.get('charmXp', 0)
+        && request.resource.data.get('charmLevel', 0) == resource.data.get('charmLevel', 0)
+        && request.resource.data.get(['stats', 'charmXp'], 0) == resource.data.get(['stats', 'charmXp'], 0)
+        && request.resource.data.get(['stats', 'charmLevel'], 0) == resource.data.get(['stats', 'charmLevel'], 0);
+    }
+
     // collection الأدمن
     // - القراءة: للمسجّلين (للتحقق من الصلاحية)
     // - الكتابة: الأدمن الأول يسجّل نفسه فقط بمعرّفه (للإقلاع)، أو أدمن حالي
@@ -88,17 +105,22 @@ service cloud.firestore {
     // حقول محدودة فقط (pearls/coins/followers/intimacyPoints) — لازمة للهدايا والمتابعة
     match /users/{uid} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+        && !request.resource.data.keys().hasAny(['frameInventory', 'ownedFrames', 'charmXp', 'charmLevel'])
+        && request.resource.data.get(['stats', 'charmXp'], 0) == 0
+        && request.resource.data.get(['stats', 'charmLevel'], 1) == 1;
       allow update: if request.auth != null && (
-        (request.auth.uid == uid && staffFieldsUnchanged() && verificationFieldsUnchanged()) ||
+        (request.auth.uid == uid && staffFieldsUnchanged() && verificationFieldsUnchanged() && frameGrantFieldsUnchanged() && charmFieldsUnchanged()) ||
         isAdmin() ||
         // مستخدم آخر يعدّل حقولاً محدّدة فقط (هدايا/متابعة/وكالة)
         // ملاحظة: stats متداخل، فتحديث stats.pearls يؤثّر على مفتاح 'stats'
         // level/xp: الهدية ترفع خبرة ومستوى المستلم (buildWealthXpFirestoreUpdate)
-        request.resource.data.diff(resource.data).affectedKeys()
+        // charmFieldsUnchanged: يسدّ ثغرة stats المتداخلة (stats.charmXp كان يمرّ عبر مفتاح 'stats')
+        (request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['stats', 'pearls', 'coins', 'followers', 'following', 'intimacyPoints', 'receivedGifts',
                     'level', 'xp',
                     'agencyId', 'agencyName', 'agencyRole', 'isAgent', 'accountKind'])
+          && charmFieldsUnchanged())
       );
       allow delete: if request.auth != null && (request.auth.uid == uid || isAdmin());
 
@@ -491,7 +513,27 @@ service cloud.firestore {
     }
 
     // المخزون والإشعارات
-    match /inventory/{id} { allow read, write: if request.auth != null; }
+    // المخزون — المنح من Cloud Functions/الأدمن فقط؛ العميل يقرأ ويبدّل تجهيز عناصره فقط
+    // (كانت القاعدة المفتوحة تسمح لأي مستخدم موثّق بسكّ عناصر متجر مجاناً)
+    match /inventory/{id} {
+      // القراءة تبقى للمسجّلين: فقاعة/دخولية الآخرين تُقرأ من مخزونهم
+      // (fetchEquippedBubbleIdFromInventory / fetchEquippedEntranceIdFromInventory)
+      allow read: if request.auth != null;
+      // الإنشاء/الحذف: لوحة التحكم فقط — الشراء الذاتي والإهداء عبر Cloud Functions
+      // (Admin SDK يتجاوز القواعد)
+      allow create, delete: if isAdmin();
+      // التحديث: صاحب العنصر يبدّل isEquipped فقط، ولا يجهّز عنصراً منتهي الصلاحية
+      allow update: if isAdmin() || (
+        request.auth != null
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isEquipped'])
+        && request.resource.data.isEquipped is bool
+        && (request.resource.data.isEquipped == false
+            || resource.data.get('expiresAt', 0) == null
+            || resource.data.get('expiresAt', 0) <= 0
+            || resource.data.get('expiresAt', 0) > request.time.toMillis())
+      );
+    }
     match /notifications/{id} {
       allow read: if request.auth != null && resource.data.uid == request.auth.uid;
       // المستلم يقرأ إشعاراته؛ المرسل يمكنه إنشاء إشعار للطرف الآخر؛ الأدمن (شحن، إدارة...)

@@ -34,7 +34,8 @@ import {
 const db = admin.firestore();
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? '';
-const GEMINI_MODEL = 'gemini-2.0-flash';
+// gemini-flash-latest: 2.0/2.5-flash توقّفا للمستخدمين الجدد — نتبع أحدث Flash مستقر
+const GEMINI_MODEL = 'gemini-flash-latest';
 const HF_GENDER_MODEL = 'dima806/fairface_gender_image_detection';
 
 /**
@@ -84,7 +85,7 @@ async function detectWithGemini(imageBytes: Buffer): Promise<DetectionResult | n
           { inline_data: { mime_type: 'image/jpeg', data: b64 } },
         ],
       }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 64 },
+      generationConfig: { temperature: 0.1, maxOutputTokens: 128, thinkingConfig: { thinkingBudget: 0 } },
     }),
   });
 

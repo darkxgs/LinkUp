@@ -36,6 +36,9 @@ import {
   getCountdownParts,
   getDrawWeekIdAt,
 } from './weeklyLottery';
+import { randomUUID } from 'crypto';
+import { reviewAgencyWithAI, type AgencyAiDecision } from './agencyAiReview';
+import { computeAgentEntitlement } from './agencySalary';
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -486,7 +489,10 @@ function readAgoraEnv(name: 'AGORA_APP_ID' | 'AGORA_APP_CERTIFICATE'): string {
 // العميل مسؤول عن التجديد عبر onTokenPrivilegeWillExpire → renewToken.
 const AGORA_ROOM_TOKEN_TTL_SECONDS = 21600;
 
-export const generateAgoraToken = onCall(HOT_CALL_OPTS, async (request) => {
+// minInstances:1 لهذه الدالة وحدها (قرار المالك 2026-07-16): توكن Agora على المسار
+// الحرج لقبول المكالمة — البداية الباردة كانت أكبر مصدر لتعليق «جاري الاتصال».
+// نُبقيها دافئة دون تعميمها على بقية HOT_CALL_OPTS مراعاةً لحصة CPU للمنطقة.
+export const generateAgoraToken = onCall({ ...HOT_CALL_OPTS, minInstances: 1 }, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
 
@@ -1201,6 +1207,8 @@ export const unlockChatMessage = onCall(async (request) => {
   const now = Date.now();
   const { price, toSender, fromUid } = txResult;
 
+  // سجلّات المعاملات لا يجوز أن تُفشِل الطلب بعد أن تحرّكت الكوينز فعلاً داخل المعاملة —
+  // نضيف .catch لكلٍّ حتى لا يرجع فشل كتابة سجلّ خطأ 500 وقد خُصم من المستخدم بالفعل
   await Promise.all([
     db.collection('transactions').add({
       uid,
@@ -1211,7 +1219,7 @@ export const unlockChatMessage = onCall(async (request) => {
       toUid: fromUid,
       status: 'completed',
       createdAt: now,
-    }),
+    }).catch(() => {}),
     db.collection('transactions').add({
       uid: fromUid,
       type: 'locked_media_earn',
@@ -1221,7 +1229,7 @@ export const unlockChatMessage = onCall(async (request) => {
       fromUid: uid,
       status: 'completed',
       createdAt: now,
-    }),
+    }).catch(() => {}),
     db.collection('notifications').add({
       uid: fromUid,
       type: 'system',
@@ -1281,6 +1289,59 @@ type StoreSendItemPayload = {
 };
 
 /**
+ * يحلّ عنصر المتجر من كتالوج الخادم حصرياً (config/store أو config/roomFrames) —
+ * السعر/العملة/المدة/النوع لا تُؤخذ من العميل أبداً (إغلاق ثغرة التلاعب بالأسعار).
+ */
+async function resolveStoreCatalogEntry(
+  itemId: string,
+  isRoomFrame: boolean,
+): Promise<{
+  price: number;
+  currency: 'coins' | 'pearls';
+  grantDurationDays: number;
+  itemType: string;
+  itemName: string;
+  iconName: string;
+  iconColor: string;
+  imageUrl: string | null;
+}> {
+  if (isRoomFrame) {
+    const framesSnap = await db.collection('config').doc('roomFrames').get();
+    const frames = (framesSnap.data()?.items ?? []) as Array<Record<string, unknown>>;
+    const cfg = frames.find((f) => String(f.id ?? '') === itemId && f.enabled !== false);
+    if (!cfg) throw new HttpsError('not-found', 'هذا الإطار غير متوفر في المتجر');
+    const price = Math.floor(Number(cfg.price) || 0);
+    if (price <= 0) throw new HttpsError('failed-precondition', 'سعر هذا العنصر غير مهيأ في المتجر');
+    return {
+      price,
+      currency: cfg.currency === 'pearls' ? 'pearls' : 'coins',
+      grantDurationDays: Math.max(0, Number(cfg.durationDays ?? 0) || 0),
+      itemType: 'frame',
+      itemName: String(cfg.name ?? 'إطار'),
+      iconName: 'Frame',
+      iconColor: '#E11414',
+      imageUrl: typeof cfg.imageUrl === 'string' ? cfg.imageUrl : null,
+    };
+  }
+  const storeSnap = await db.collection('config').doc('store').get();
+  const items = (storeSnap.data()?.items ?? []) as Array<Record<string, unknown>>;
+  const cfg = items.find((i) => String(i.id ?? '') === itemId && i.enabled !== false);
+  if (!cfg) throw new HttpsError('not-found', 'هذا العنصر غير متوفر في المتجر');
+  const price = Math.floor(Number(cfg.price) || 0);
+  if (price <= 0) throw new HttpsError('failed-precondition', 'سعر هذا العنصر غير مهيأ في المتجر');
+  return {
+    price,
+    currency: cfg.currency === 'pearls' ? 'pearls' : 'coins',
+    grantDurationDays: Math.max(0, Number(cfg.validityDays ?? 0) || 0),
+    itemType: String(cfg.category ?? cfg.type ?? 'item').trim() || 'item',
+    itemName: String(cfg.name ?? 'عنصر').trim() || 'عنصر',
+    iconName: typeof cfg.iconName === 'string' ? cfg.iconName : 'Gift',
+    iconColor: typeof cfg.iconColor === 'string' ? cfg.iconColor : '#E11414',
+    imageUrl: typeof cfg.imageUrl === 'string' ? cfg.imageUrl : null,
+  };
+}
+
+/**
  * شراء عنصر متجر (إطار/فقاعة/دخولية…) وإرساله لمستخدم آخر — عبر السيرفر
  * لتجاوز قيود Firestore التي تمنع الكتابة على ownedFrames/frameInventory للغير.
  */
@@ -1302,12 +1363,14 @@ export const purchaseAndSendStoreItem = onCall(async (request) => {
   const itemId = String(item?.id ?? '').trim();
   const itemName = String(item?.name ?? 'عنصر').trim() || 'عنصر';
   const itemType = String(item?.type ?? 'frame').trim() || 'frame';
-  const price = Math.floor(Number(item?.price) || 0);
-  const currency = item?.currency === 'pearls' ? 'pearls' : 'coins';
   const isRoomFrame = item?.isRoomFrame === true || itemType === 'frame';
 
   if (!itemId) throw new HttpsError('invalid-argument', 'معرّف العنصر مطلوب');
-  if (price <= 0) throw new HttpsError('invalid-argument', 'سعر غير صالح');
+
+  // السعر والعملة ومدة الصلاحية من كتالوج الخادم حصرياً — لا نثق بما يمرّره العميل
+  // (عميل معدَّل كان يمكنه إهداء عنصر بسعر 1 أو بصلاحية أبدية). حمولة العميل للاسم/الأيقونة فقط.
+  const catalog = await resolveStoreCatalogEntry(itemId, isRoomFrame);
+  const { price, currency, grantDurationDays } = catalog;
 
   const recipientUid = toUid.trim();
   const now = Date.now();
@@ -1360,7 +1423,8 @@ export const purchaseAndSendStoreItem = onCall(async (request) => {
     if (isRoomFrame) {
       const recipientData = recipientSnap.data()!;
       const inv = pruneFrameInventoryServer(getFrameInventoryFromUserDoc(recipientData), now);
-      const durationDays = Math.max(0, Number(item?.durationDays ?? item?.validityDays ?? 0) || 0);
+      // المدة من كتالوج الخادم (يحددها الأدمن) — لا من حمولة العميل
+      const durationDays = grantDurationDays;
       const expiresAt = durationDays > 0 ? now + durationDays * STORE_FRAME_MS_PER_DAY : 0;
       tx.update(recipientRef, {
         ownedFrames: admin.firestore.FieldValue.arrayUnion(itemId),
@@ -1370,7 +1434,8 @@ export const purchaseAndSendStoreItem = onCall(async (request) => {
   });
 
   if (!isRoomFrame) {
-    const validityDays = Math.max(0, Number(item?.validityDays ?? 0) || 0);
+    // المدة من كتالوج الخادم (يحددها الأدمن) — لا من حمولة العميل
+    const validityDays = grantDurationDays;
     await db.collection('inventory').add({
       uid: recipientUid,
       itemId,
@@ -1441,6 +1506,130 @@ export const purchaseAndSendStoreItem = onCall(async (request) => {
   };
 });
 
+/**
+ * شراء عنصر متجر للنفس (فقاعة/دخولية/عنصر/إطار شخصي) — عبر السيرفر حصرياً.
+ * يحلّ محل معاملة العميل المباشرة (purchaseStoreItem/purchaseFrame) تمهيداً لإغلاق
+ * قاعدة inventory المفتوحة (كان أي مستخدم موثّق يسكّ عناصر مجاناً بكتابة مباشرة).
+ * السعر/العملة/المدة من كتالوج الخادم؛ الخصم والمنح والسجل في معاملة ذرّية واحدة.
+ */
+export const purchaseStoreItemForSelf = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+
+  const { itemId: rawItemId, isRoomFrame, clientRequestId: rawReqId } = request.data as {
+    itemId?: string;
+    isRoomFrame?: boolean;
+    clientRequestId?: string;
+  };
+  const itemId = String(rawItemId ?? '').trim();
+  if (!itemId) throw new HttpsError('invalid-argument', 'معرّف العنصر مطلوب');
+  // معرّف الطلب يدخل في معرّف وثيقة الحارس — محارف آمنة فقط (لا '/' ولا '.')
+  const clientRequestId = String(rawReqId ?? '').trim();
+  if (clientRequestId && !/^[A-Za-z0-9_-]{1,64}$/.test(clientRequestId)) {
+    throw new HttpsError('invalid-argument', 'معرّف الطلب غير صالح');
+  }
+
+  const frame = isRoomFrame === true;
+  const catalog = await resolveStoreCatalogEntry(itemId, frame);
+  const { price, currency, grantDurationDays } = catalog;
+
+  const now = Date.now();
+  const userRef = db.collection('users').doc(uid);
+  const guardRef = clientRequestId
+    ? db.collection('processedEvents').doc(`purchaseSelf_${uid}_${itemId}_${clientRequestId}`)
+    : null;
+
+  let balanceAfter = 0;
+  let alreadyPurchased = false;
+
+  await db.runTransaction(async (tx) => {
+    // منع تكرار الشراء عند إعادة المحاولة (نفس clientRequestId = نفس النقرة)
+    if (guardRef) {
+      const guardSnap = await tx.get(guardRef);
+      if (guardSnap.exists) {
+        alreadyPurchased = true;
+        const cur = await tx.get(userRef);
+        const curData = cur.data() ?? {};
+        balanceAfter = currency === 'pearls' ? pickPearlsBalance(curData) : pickCoinsBalance(curData);
+        return;
+      }
+    }
+
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) throw new HttpsError('not-found', 'حسابك غير موجود');
+    const userData = userSnap.data()!;
+
+    const balance = currency === 'pearls' ? pickPearlsBalance(userData) : pickCoinsBalance(userData);
+    if (balance < price) {
+      throw new HttpsError(
+        'failed-precondition',
+        `رصيد غير كافٍ. تحتاج ${price.toLocaleString('en-US')} ${currency === 'coins' ? 'عملة' : 'ماسة'}`,
+      );
+    }
+
+    // الخصم
+    if (currency === 'pearls') {
+      tx.update(userRef, {
+        'stats.pearls': admin.firestore.FieldValue.increment(-price),
+        pearls: admin.firestore.FieldValue.increment(-price),
+      });
+    } else {
+      tx.update(userRef, {
+        'stats.coins': admin.firestore.FieldValue.increment(-price),
+        coins: admin.firestore.FieldValue.increment(-price),
+      });
+    }
+    balanceAfter = balance - price;
+
+    // المنح
+    if (frame) {
+      // إطار شخصي: مخزون الإطارات على وثيقة المستخدم + تجهيز تلقائي (سلوك purchaseFrame القديم)
+      const inv = pruneFrameInventoryServer(getFrameInventoryFromUserDoc(userData), now);
+      const expiresAt = grantDurationDays > 0 ? now + grantDurationDays * STORE_FRAME_MS_PER_DAY : 0;
+      tx.update(userRef, {
+        ownedFrames: admin.firestore.FieldValue.arrayUnion(itemId),
+        frameInventory: { ...inv, [itemId]: expiresAt },
+        equippedFrameId: itemId,
+      });
+    } else {
+      // عنصر مخزون — نفس حقول مسار الشراء القديم في العميل حرفياً
+      const invRef = db.collection('inventory').doc();
+      tx.set(invRef, {
+        uid,
+        itemId,
+        itemType: catalog.itemType,
+        itemName: catalog.itemName,
+        iconName: catalog.iconName,
+        iconColor: catalog.iconColor,
+        imageUrl: catalog.imageUrl,
+        quantity: 1,
+        isEquipped: false,
+        acquiredAt: now,
+        expiresAt: grantDurationDays > 0 ? now + grantDurationDays * STORE_FRAME_MS_PER_DAY : null,
+      });
+    }
+
+    // سجل المعاملة — نفس شكل مسار العميل القديم
+    const txRef = db.collection('transactions').doc();
+    tx.set(txRef, {
+      uid,
+      type: 'purchase',
+      amount: -price,
+      currency,
+      itemId,
+      itemName: catalog.itemName,
+      status: 'completed',
+      createdAt: now,
+    });
+
+    if (guardRef) {
+      tx.set(guardRef, { processedAt: now, uid, itemId });
+    }
+  });
+
+  return { ok: true, alreadyPurchased, balance: balanceAfter, currency, itemId };
+});
+
 // (أُزيل livekitWebhook هنا — LiveKit حُذف نهائياً؛ providerSessions التاريخية باقية
 //  في Firestore، وقياس دقائق Agora من كونسول Agora مباشرة)
 
@@ -1481,6 +1670,16 @@ export const startCall = onCall(HOT_CALL_OPTS, async (request) => {
 
   const callee = calleeSnap.data() ?? {};
   const callerData = callerSnap.data() ?? {};
+
+  // لا اتصال بالوكلاء (قرار المالك 2026-07-16): لا صوت ولا فيديو إذا كان
+  // الطرف المستقبِل وكيلاً — حارس خادم يشمل الإصدارات القديمة أيضاً
+  const calleeIsAgent =
+    callee.agencyRole === 'owner' ||
+    callee.agencyRole === 'agent' ||
+    callee.isAgent === true;
+  if (calleeIsAgent) {
+    throw new HttpsError('failed-precondition', 'لا يمكن الاتصال بالوكلاء');
+  }
 
   // شات خاص: الذكور فقط يحتاجون مستوى علاقة (LV5 صوت، LV10 فيديو) — الإناث بدون تقييد
   if (callSource === 'chat' && readUserGender(callerData) === 'male') {
@@ -3393,52 +3592,16 @@ export const confirmAgencyHostGender = onCall(async (request) => {
 });
 
 /**
- * أدمن: موافقة / رفض طلب وكالة
+ * منطق الموافقة على طلب وكالة — مشترك بين موافقة الأدمن اليدوية والقرار الآلي (AI):
+ * ينشئ وثيقة الوكالة (pending)، ينقل الطلب إلى awaiting_hosts مع كود دعوة،
+ * يمنح مقدّم الطلب دور «owner» ويُشعره. يعيد معرّف الوكالة وكود الدعوة.
+ * لا يفحص حالة الطلب — المتصل مسؤول عن ذلك.
  */
-export const reviewAgencyApplication = onCall(async (request) => {
-  const adminUid = request.auth?.uid;
-  if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
-  await assertAdmin(adminUid);
-
-  const { applicationId, action, rejectionReason } = request.data as {
-    applicationId?: string;
-    action?: 'approve' | 'reject';
-    rejectionReason?: string;
-  };
-
-  if (!applicationId || !action) {
-    throw new HttpsError('invalid-argument', 'applicationId و action مطلوبان');
-  }
-
-  const appRef = db.collection('agencyApplications').doc(applicationId);
-  const appSnap = await appRef.get();
-  if (!appSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
-  const app = appSnap.data()!;
-  await assertAdminCountryScope(adminUid, app.countryCode as string | undefined);
-  await assertHasPermission(adminUid, 'agency-apps:process');
-
-  if (action === 'reject') {
-    await appRef.update({
-      status: 'rejected',
-      rejectionReason: rejectionReason?.trim() || 'تم رفض الطلب',
-      approvedBy: adminUid,
-      approvedAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    if (app.applicantUid) {
-      await notifyUser(
-        app.applicantUid,
-        `تم رفض طلب فتح الوكالة: ${rejectionReason || 'راجع الدعم'}`,
-        { applicationId, type: 'agency_application_rejected' },
-      );
-    }
-    return { ok: true, status: 'rejected' };
-  }
-
-  if (app.status !== 'pending') {
-    throw new HttpsError('failed-precondition', 'الطلب ليس قيد المراجعة');
-  }
-
+async function approveAgencyApplicationInternal(
+  appRef: DocumentReference,
+  app: FirebaseFirestore.DocumentData,
+  approvedBy: string,
+): Promise<{ agencyId: string; inviteCode: string }> {
   const applicantUid = app.applicantUid as string;
 
   // التحقق من أنه لا توجد وكالة حالية للمستخدم
@@ -3492,6 +3655,9 @@ export const reviewAgencyApplication = onCall(async (request) => {
     isVerified: false,
     status: 'pending', // لم تُفعَّل بعد
     hostsDeadline,
+    // شعار/غلاف الوكالة من صور طلب التوثيق (إن وُجدت)
+    ...(app.logoUrl ? { logo: String(app.logoUrl) } : {}),
+    ...(app.backgroundUrl ? { banner: String(app.backgroundUrl) } : {}),
     ...bdReferralFields,
     createdAt: now,
     updatedAt: now,
@@ -3499,7 +3665,7 @@ export const reviewAgencyApplication = onCall(async (request) => {
 
   approvalBatch.update(appRef, {
     status: 'awaiting_hosts',
-    approvedBy: adminUid,
+    approvedBy,
     approvedAt: now,
     hostsDeadline,
     agencyId: agencyRef.id,
@@ -3521,14 +3687,337 @@ export const reviewAgencyApplication = onCall(async (request) => {
 
   if (app.applicantUid) {
     await notifyUser(
-      app.applicantUid,
+      String(app.applicantUid),
       `تمت الموافقة على طلب وكالتك "${app.agencyName}" — كود الدعوة: ${inviteCode} (لديك 7 أيام لاستكمال العدد)`,
-      { applicationId, agencyId: agencyRef.id, inviteCode, type: 'agency_application_approved' },
+      { applicationId: appRef.id, agencyId: agencyRef.id, inviteCode, type: 'agency_application_approved' },
     );
   }
 
-  return { ok: true, status: 'awaiting_hosts', agencyId: agencyRef.id, inviteCode };
+  return { agencyId: agencyRef.id, inviteCode };
+}
+
+/**
+ * أدمن: موافقة / رفض طلب وكالة
+ */
+export const reviewAgencyApplication = onCall(async (request) => {
+  const adminUid = request.auth?.uid;
+  if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+  await assertAdmin(adminUid);
+
+  const { applicationId, action, rejectionReason } = request.data as {
+    applicationId?: string;
+    action?: 'approve' | 'reject';
+    rejectionReason?: string;
+  };
+
+  if (!applicationId || !action) {
+    throw new HttpsError('invalid-argument', 'applicationId و action مطلوبان');
+  }
+
+  const appRef = db.collection('agencyApplications').doc(applicationId);
+  const appSnap = await appRef.get();
+  if (!appSnap.exists) throw new HttpsError('not-found', 'الطلب غير موجود');
+  const app = appSnap.data()!;
+  await assertAdminCountryScope(adminUid, app.countryCode as string | undefined);
+  await assertHasPermission(adminUid, 'agency-apps:process');
+
+  if (action === 'reject') {
+    await appRef.update({
+      status: 'rejected',
+      rejectionReason: rejectionReason?.trim() || 'تم رفض الطلب',
+      approvedBy: adminUid,
+      approvedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    if (app.applicantUid) {
+      await notifyUser(
+        app.applicantUid,
+        `تم رفض طلب فتح الوكالة: ${rejectionReason || 'راجع الدعم'}`,
+        { applicationId, type: 'agency_application_rejected' },
+      );
+    }
+    return { ok: true, status: 'rejected' };
+  }
+
+  if (app.status !== 'pending') {
+    throw new HttpsError('failed-precondition', 'الطلب ليس قيد المراجعة');
+  }
+
+  const { agencyId, inviteCode } = await approveAgencyApplicationInternal(appRef, app, adminUid);
+  return { ok: true, status: 'awaiting_hosts', agencyId, inviteCode };
 });
+
+/** يفكّ ترميز صورة base64 (مع/بدون بادئة data:) إلى Buffer مع فحص الحجم */
+function decodeBase64Image(raw: string): Buffer {
+  const b64 = raw.trim().replace(/^data:image\/\w+;base64,/, '');
+  if (!b64) throw new HttpsError('invalid-argument', 'صورة غير صالحة');
+  const buf = Buffer.from(b64, 'base64');
+  if (buf.length < 1000) throw new HttpsError('invalid-argument', 'صورة صغيرة جداً — حاول مجدداً');
+  if (buf.length > 8 * 1024 * 1024) throw new HttpsError('invalid-argument', 'حجم الصورة كبير جداً');
+  return buf;
+}
+
+/** يحفظ صورة توثيق وكالة في Storage ويعيد رابطاً دائماً للوحة التحكم */
+async function persistAgencyVerificationImage(
+  applicationId: string,
+  bytes: Buffer,
+  kind: 'logo' | 'background' | 'id',
+): Promise<string> {
+  const bucket = admin.storage().bucket();
+  const path = `agencyVerifications/${applicationId}/${kind}_${Date.now()}.jpg`;
+  const token = randomUUID();
+  await bucket.file(path).save(bytes, {
+    metadata: {
+      contentType: 'image/jpeg',
+      metadata: { firebaseStorageDownloadTokens: token },
+    },
+  });
+  const encoded = encodeURIComponent(path);
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encoded}?alt=media&token=${token}`;
+}
+
+/**
+ * توثيق الوكالة بالذكاء الاصطناعي — بديل submitAgencyApplication مع مراجعة آلية كاملة:
+ * يستقبل بيانات الوكالة + صور (شعار/خلفية/مستند هوية الوكيل)، يُنشئ طلباً بحالة
+ * processing، يحفظ الصور، ثم يُشغّل Gemini الذي يقرّر:
+ *   approve   → إنشاء الوكالة فوراً (نفس أثر موافقة الأدمن) + كود دعوة + إشعار.
+ *   reject    → رفض الطلب بسبب AI صريح + إشعار.
+ *   uncertain → (بلا مفتاح Gemini/صور غير واضحة) pending لمراجعة يدوية في اللوحة.
+ * اللوحة (صفحة «تحقق الوكالات») تعرض القرار والسبب وتتيح تجاوزاً يدوياً عند الحاجة.
+ */
+export const submitAgencyVerification = onCall(
+  { memory: '1GiB', timeoutSeconds: 120 },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+
+    const {
+      agencyName,
+      countryCode,
+      phone,
+      minHostsRequired,
+      ownerName,
+      logoBase64,
+      backgroundBase64,
+      idDocBase64,
+      source = 'app',
+    } = request.data as {
+      agencyName?: string;
+      countryCode?: string;
+      phone?: string;
+      minHostsRequired?: number;
+      ownerName?: string;
+      logoBase64?: string;
+      backgroundBase64?: string;
+      idDocBase64?: string;
+      source?: 'app' | 'support_bot';
+    };
+
+    if (!agencyName?.trim()) throw new HttpsError('invalid-argument', 'اسم الوكالة مطلوب');
+    if (!phone?.trim()) throw new HttpsError('invalid-argument', 'رقم واتساب مطلوب');
+    if (!logoBase64) throw new HttpsError('invalid-argument', 'شعار الوكالة مطلوب');
+    if (!idDocBase64) throw new HttpsError('invalid-argument', 'مستند هوية الوكيل مطلوب');
+
+    const cc = (countryCode ?? 'PS').trim().toUpperCase();
+    const whatsapp = normalizeWhatsApp(phone, cc);
+    if (!isValidWhatsApp(phone, cc)) {
+      throw new HttpsError('invalid-argument', 'رقم واتساب غير صالح — أدخل رمز الدولة مع الرقم');
+    }
+
+    const minRequired = Math.max(10, Number(minHostsRequired) || 10);
+    const now = Date.now();
+
+    // منع طلب مفتوح مكرر أو وكالة قائمة — نفس فحوص submitAgencyApplication + حالة processing
+    const openSnap = await db
+      .collection('agencyApplications')
+      .where('applicantUid', '==', uid)
+      .limit(12)
+      .get();
+    const hasOpen = openSnap.docs.some((d) =>
+      ['processing', 'pending', 'awaiting_hosts', 'ready'].includes(String(d.data().status)),
+    );
+    if (hasOpen) {
+      throw new HttpsError('already-exists', 'لديك طلب وكالة قيد المعالجة بالفعل');
+    }
+
+    const ownerAgency = await db
+      .collection('agencies')
+      .where('ownerUid', '==', uid)
+      .limit(3)
+      .get();
+    const hasLiveAgency = ownerAgency.docs.some((d) => String(d.data().status ?? '') !== 'expired');
+    if (hasLiveAgency) {
+      throw new HttpsError('already-exists', 'لديك وكالة مفعّلة أو قيد التفعيل');
+    }
+
+    const meSnap = await db.collection('users').doc(uid).get();
+    if (!meSnap.exists) throw new HttpsError('not-found', 'حسابك غير موجود');
+    const me = meSnap.data()!;
+
+    // فكّ ترميز الصور قبل إنشاء الطلب — صورة تالفة لا تُنشئ طلباً يتيماً
+    const logoBytes = decodeBase64Image(String(logoBase64));
+    const idBytes = decodeBase64Image(String(idDocBase64));
+    const bgBytes = backgroundBase64 ? decodeBase64Image(String(backgroundBase64)) : undefined;
+
+    const resolvedOwnerName = String(
+      ownerName ?? me.profile?.displayName ?? me.displayName ?? '',
+    ).trim();
+
+    // إحالة BD (نفس منطق submitAgencyApplication)
+    const bdConfig = await getBdReferralConfig();
+    const pendingBdInvite = await findPendingBdInviteForUser(uid);
+    const bdInviteData = pendingBdInvite?.data() ?? null;
+    const referrerAgencySnap = bdInviteData
+      ? await db
+          .collection('agencies')
+          .where('ownerUid', '==', String(bdInviteData.fromUid ?? ''))
+          .limit(1)
+          .get()
+      : null;
+    const referrerAgencyId = referrerAgencySnap && !referrerAgencySnap.empty
+      ? referrerAgencySnap.docs[0].id
+      : String(bdInviteData?.fromAgencyId ?? '');
+
+    const appRef = await db.collection('agencyApplications').add({
+      applicantUid: uid,
+      applicantName: me.profile?.displayName ?? me.displayName ?? 'مقدم الطلب',
+      applicantPublicAccountId: String(me.publicAccountId ?? ''),
+      applicantPhone: whatsapp,
+      whatsappNumber: whatsapp,
+      ownerName: resolvedOwnerName,
+      countryCode: cc,
+      agencyName: agencyName.trim(),
+      status: 'processing',
+      reviewMethod: 'ai',
+      proposedHosts: [],
+      proposedHostUids: [],
+      minHostsRequired: minRequired,
+      femaleHostCount: 0,
+      inviteCode: '',
+      hostsDeadline: 0,
+      agencyId: '',
+      assignedTeam: resolveAssignedTeam(cc),
+      reviewDeadline: now + REVIEW_SLA_MS,
+      source,
+      ...(pendingBdInvite
+        ? {
+            bdInviteId: pendingBdInvite.id,
+            referredByUid: String(bdInviteData?.fromUid ?? ''),
+            referredByAgencyId: referrerAgencyId,
+            bdCommissionPercent: Number(bdInviteData?.commissionPercent) || bdConfig.commissionPercent,
+            bdBenefitMonths: Number(bdInviteData?.benefitMonths) || bdConfig.benefitMonths,
+          }
+        : {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // حفظ الصور بالتوازي ثم كتابة روابطها
+    const [logoUrl, idUrl, bgUrl] = await Promise.all([
+      persistAgencyVerificationImage(appRef.id, logoBytes, 'logo'),
+      persistAgencyVerificationImage(appRef.id, idBytes, 'id'),
+      bgBytes ? persistAgencyVerificationImage(appRef.id, bgBytes, 'background') : Promise.resolve(''),
+    ]);
+    await appRef.update({
+      logoUrl,
+      idDocumentUrl: idUrl,
+      ...(bgUrl ? { backgroundUrl: bgUrl } : {}),
+      updatedAt: Date.now(),
+    });
+
+    if (pendingBdInvite) {
+      await pendingBdInvite.ref.update({
+        status: 'applied',
+        applicationId: appRef.id,
+        updatedAt: Date.now(),
+      });
+      const referrerUid = String(bdInviteData?.fromUid ?? '');
+      if (referrerUid) {
+        await notifyUser(
+          referrerUid,
+          `قدّم ${me.profile?.displayName ?? me.displayName ?? 'المستخدم'} طلب فتح وكالة بعد دعوتك من مركز BD`,
+          { applicationId: appRef.id, type: 'bd_agency_application_submitted' },
+        );
+      }
+    }
+
+    // المراجعة الآلية (Gemini) — لا ترمي أبداً؛ تعيد uncertain عند أي فشل
+    const aiDecision: AgencyAiDecision = await reviewAgencyWithAI({
+      agencyName: agencyName.trim(),
+      countryCode: cc,
+      ownerName: resolvedOwnerName,
+      phone: whatsapp,
+      images: { logo: logoBytes, background: bgBytes, idDocument: idBytes },
+    });
+
+    const aiPatch = {
+      aiDecision: aiDecision.decision,
+      aiReason: aiDecision.reason,
+      aiConfidence: aiDecision.confidence,
+      aiChecks: aiDecision.checks,
+      aiProvider: aiDecision.provider,
+      ...(aiDecision.model ? { aiModel: aiDecision.model } : {}),
+      ...(aiDecision.raw ? { aiRaw: aiDecision.raw } : {}),
+      aiReviewedAt: Date.now(),
+    };
+
+    if (aiDecision.decision === 'approve') {
+      await appRef.set({ ...aiPatch, updatedAt: Date.now() }, { merge: true });
+      // إعادة قراءة الطلب بعد كتابة الروابط — ليأخذ approve شعار/غلاف الوكالة
+      const freshSnap = await appRef.get();
+      const freshApp = { ...(freshSnap.data() ?? {}), applicantUid: uid } as FirebaseFirestore.DocumentData;
+      const { agencyId, inviteCode } = await approveAgencyApplicationInternal(appRef, freshApp, 'ai_auto');
+      return {
+        ok: true,
+        applicationId: appRef.id,
+        status: 'awaiting_hosts',
+        decision: 'approve',
+        agencyId,
+        inviteCode,
+      };
+    }
+
+    if (aiDecision.decision === 'reject') {
+      await appRef.set(
+        {
+          ...aiPatch,
+          status: 'rejected',
+          rejectionReason: aiDecision.reason,
+          approvedBy: 'ai_auto',
+          approvedAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+        { merge: true },
+      );
+      await notifyUser(uid, `تم رفض طلب توثيق الوكالة: ${aiDecision.reason}`, {
+        applicationId: appRef.id,
+        type: 'agency_application_rejected',
+      });
+      return {
+        ok: true,
+        applicationId: appRef.id,
+        status: 'rejected',
+        decision: 'reject',
+        reason: aiDecision.reason,
+      };
+    }
+
+    // uncertain — بلا مفتاح Gemini أو صور غير حاسمة → مراجعة يدوية في اللوحة
+    await appRef.set({ ...aiPatch, status: 'pending', updatedAt: Date.now() }, { merge: true });
+    await notifyUser(
+      uid,
+      'استلمنا طلب توثيق وكالتك وهو قيد المراجعة — سنبلغك بالنتيجة',
+      { applicationId: appRef.id, type: 'agency_application_pending' },
+    );
+    return {
+      ok: true,
+      applicationId: appRef.id,
+      status: 'pending',
+      decision: 'uncertain',
+      reason: aiDecision.reason,
+    };
+  },
+);
 
 /**
  * أدمن: توثيق مضيفة يدوياً
@@ -6145,20 +6634,129 @@ async function bumpAgencyPeriodSupportCoins(agencyId: string, coins: number): Pr
     if (!snap.exists) return;
 
     const data = snap.data() ?? {};
-    if (String(data.periodSupportWeekKey ?? '') === weekKey) {
-      t.update(agencyRef, {
-        periodSupportCoins: admin.firestore.FieldValue.increment(amount),
-        updatedAt: Date.now(),
-      });
-    } else {
-      t.update(agencyRef, {
-        periodSupportWeekKey: weekKey,
-        periodSupportCoins: amount,
-        updatedAt: Date.now(),
-      });
-    }
+    const sameWeek = String(data.periodSupportWeekKey ?? '') === weekKey;
+    t.update(agencyRef, {
+      // كوينز دعم الفترة الأسبوعية (للمستويات) — تُصفَّر مع كل أسبوع جديد.
+      // ملاحظة: walletWorkCoins انتقل إلى التريغر (زيادة غير مشروطة لكل هدية) —
+      // كان هنا فلا يتراكم إطلاقاً لهدايا العملاء الحديثين الموسومين
+      // agencySupportRecordedByClient (التريغر كان يتخطى هذا المساعد لهم).
+      periodSupportWeekKey: weekKey,
+      periodSupportCoins: sameWeek
+        ? admin.firestore.FieldValue.increment(amount)
+        : amount,
+      updatedAt: Date.now(),
+    });
   });
 }
+
+/**
+ * سحب راتب الوكيل الشهري — يوم 2 من كل شهر.
+ * يحسب استحقاق الوكيل من إجمالي كوينز العمل المتراكمة (walletWorkCoins) حسب جدول
+ * الوكلاء، يحوّل الاستحقاق ككوينز لمحفظة بروفايل الوكيل، ويخصم **هدف المرحلة
+ * المحقَّقة فقط** (الزيادة تبقى تتراكم للشهر التالي — لا تُصفَّر المحفظة). التحويل
+ * لماس والسحب الذاتي (رسوم 2%) خطوتان لاحقتان منفصلتان يقوم بهما الوكيل.
+ * بوابة يوم-2 قابلة للتجاوز للاختبار عبر config/settings.agencyWalletWithdrawAnyDay.
+ */
+export const withdrawAgencySalary = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+
+  const userSnap = await db.collection('users').doc(uid).get();
+  if (!userSnap.exists) throw new HttpsError('not-found', 'حسابك غير موجود');
+  const userData = userSnap.data()!;
+  const agencyId = String(userData.agencyId ?? '');
+  const isOwner = userData.isAgent === true || userData.agencyRole === 'owner';
+  if (!agencyId || !isOwner) {
+    throw new HttpsError('permission-denied', 'سحب راتب الوكالة متاح للوكيل فقط');
+  }
+
+  const agencyRef = db.collection('agencies').doc(agencyId);
+  const agencySnap = await agencyRef.get();
+  if (!agencySnap.exists) throw new HttpsError('not-found', 'الوكالة غير موجودة');
+  const agency = agencySnap.data()!;
+  if (String(agency.ownerUid ?? '') !== uid) {
+    throw new HttpsError('permission-denied', 'لست مالك هذه الوكالة');
+  }
+
+  const now = new Date();
+  const monthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+
+  let anyDay = false;
+  try {
+    const s = await db.collection('config').doc('settings').get();
+    anyDay = s.exists && s.data()?.agencyWalletWithdrawAnyDay === true;
+  } catch {
+    /* ignore — الافتراضي بوابة يوم-2 */
+  }
+  if (!anyDay && now.getUTCDate() !== 2) {
+    throw new HttpsError('failed-precondition', 'سحب راتب الوكالة متاح يوم 2 من كل شهر فقط');
+  }
+  if (String(agency.walletLastWithdrawMonthKey ?? '') === monthKey) {
+    throw new HttpsError('already-exists', 'تم سحب راتب هذا الشهر بالفعل');
+  }
+
+  const walletWorkCoins = Math.max(0, Number(agency.walletWorkCoins) || 0);
+  const preview = computeAgentEntitlement(walletWorkCoins);
+  if (!preview.tier || preview.entitlementCoins <= 0) {
+    throw new HttpsError(
+      'failed-precondition',
+      'لم تبلغ الوكالة أدنى مرحلة في جدول الوكلاء — لا يوجد استحقاق للسحب هذا الشهر',
+    );
+  }
+
+  const nowMs = Date.now();
+  let out = {
+    entitlementCoins: 0,
+    diamonds: 0,
+    consumedCoins: 0,
+    remainingWorkCoins: 0,
+    tierTarget: 0,
+  };
+
+  await db.runTransaction(async (t) => {
+    const aSnap = await t.get(agencyRef);
+    const uRef = db.collection('users').doc(uid);
+    const uSnap = await t.get(uRef);
+    if (!aSnap.exists || !uSnap.exists) throw new HttpsError('not-found', 'تعذّر تحميل البيانات');
+    const a = aSnap.data() ?? {};
+    if (String(a.walletLastWithdrawMonthKey ?? '') === monthKey) {
+      throw new HttpsError('already-exists', 'تم سحب راتب هذا الشهر بالفعل');
+    }
+    const liveWallet = Math.max(0, Number(a.walletWorkCoins) || 0);
+    const live = computeAgentEntitlement(liveWallet);
+    if (!live.tier || live.entitlementCoins <= 0) {
+      throw new HttpsError('failed-precondition', 'لا يوجد استحقاق للسحب هذا الشهر');
+    }
+    t.update(agencyRef, {
+      // يُخصم هدف المرحلة المحقَّقة فقط — الزيادة تبقى تتراكم للشهر التالي
+      walletWorkCoins: admin.firestore.FieldValue.increment(-live.consumedCoins),
+      walletLastWithdrawMonthKey: monthKey,
+      walletLastWithdrawAt: nowMs,
+      walletLastWithdrawCoins: live.entitlementCoins,
+      updatedAt: nowMs,
+    });
+    t.update(uRef, {
+      coins: admin.firestore.FieldValue.increment(live.entitlementCoins),
+      'stats.coins': admin.firestore.FieldValue.increment(live.entitlementCoins),
+      updatedAt: nowMs,
+    });
+    out = {
+      entitlementCoins: live.entitlementCoins,
+      diamonds: live.diamonds,
+      consumedCoins: live.consumedCoins,
+      remainingWorkCoins: Math.max(0, liveWallet - live.consumedCoins),
+      tierTarget: live.tier.target,
+    };
+  });
+
+  await notifyUser(
+    uid,
+    `تم تحويل راتب الوكالة (${out.entitlementCoins.toLocaleString('en-US')} كوين) إلى محفظتك — حوّلها إلى ماس ثم قدّم طلب السحب.`,
+    { type: 'agency_salary_withdrawn', agencyId, coins: out.entitlementCoins },
+  );
+
+  return { ok: true, ...out };
+});
 
 function startOfDayMs(ms: number): number {
   const d = new Date(ms);
@@ -6895,9 +7493,11 @@ async function assertUserCanJoinAgencyTx(
 async function getAgencyJoinRequiresApproval(): Promise<boolean> {
   try {
     const s = await db.collection('config').doc('settings').get();
-    if (s.exists) return s.data()?.agencyJoinRequiresApproval === true;
+    // الافتراضي الآن: مطلوب موافقة الوكيل على الانضمام بالكود/الدعوة (قرار المالك) —
+    // يُعطَّل فقط بضبط config/settings.agencyJoinRequiresApproval صراحةً إلى false.
+    if (s.exists && s.data()?.agencyJoinRequiresApproval === false) return false;
   } catch {}
-  return false;
+  return true;
 }
 
 /**
@@ -7888,20 +8488,44 @@ export const buyWeeklyLotteryTickets = onCall(async (request) => {
  * (presence/{uid}) غائب أو أقدم من 10 دقائق = شبح ⇒ يُحذف.
  */
 export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () => {
-  const [audSnap, presenceSnap, roomsSnap, pointerSnap] = await Promise.all([
+  const [audSnap, presenceSnap, roomsSnap, pointerSnap, suspectsSnap] = await Promise.all([
     rtdb.ref('roomAudience').get(),
     rtdb.ref('presence').get(),
     rtdb.ref('rooms').get(),
     rtdb.ref('userCurrentRoom').get(),
+    rtdb.ref('ghostSuspects').get(),
   ]);
   const presence = (presenceSnap.val() ?? {}) as Record<string, unknown>;
   const pointers = (pointerSnap.val() ?? {}) as Record<
     string,
     { roomId?: string; at?: number } | null
   >;
+  const suspects = (suspectsSnap.val() ?? {}) as Record<string, Record<string, number>>;
   const now = Date.now();
   const STALE_MS = 10 * 60 * 1000;
   const updates: Record<string, unknown> = {};
+  // «ضربتان» للحالة الغامضة (قتل التطبيق من الخلفية يلغي كل onDisconnect فلا
+  // يُحذف شيء: presence غائب + مؤشر userCurrentRoom على نفس الغرفة — كنا نتركها
+  // للأبد فتبقى «1 متصل» وهمية). الضربة الأولى تكتب علامة اشتباه؛ لا تفريغ إلا
+  // إذا استمر الغياب ≥25 دقيقة بعدها — عميل حي يعيد كتابة presence كل دقيقتين
+  // فيُمحى اشتباهه، ولا يمكن لمتحدث حقيقي أن يبقى «مشتبهاً» نصف ساعة.
+  const SUSPECT_CONFIRM_MS = 25 * 60 * 1000;
+  const suspectAt = (roomId: string, uid: string): number =>
+    Number(suspects[roomId]?.[uid]) || 0;
+  /** يعالج الحالة الغامضة — يعيد true إذا تأكد الشبح ويجب التفريغ الآن */
+  const ambiguousConfirmed = (roomId: string, uid: string): boolean => {
+    const at = suspectAt(roomId, uid);
+    if (at > 0 && now - at >= SUSPECT_CONFIRM_MS) {
+      updates[`ghostSuspects/${roomId}/${uid}`] = null;
+      return true;
+    }
+    if (at === 0) updates[`ghostSuspects/${roomId}/${uid}`] = now;
+    return false;
+  };
+  /** حضور المستخدم عاد — امسح أي اشتباه قائم */
+  const clearSuspect = (roomId: string, uid: string): void => {
+    if (suspectAt(roomId, uid) > 0) updates[`ghostSuspects/${roomId}/${uid}`] = null;
+  };
   const isStale = (uid: string): boolean => {
     const lastSeen = Number(presence[uid]) || 0;
     return now - lastSeen >= STALE_MS;
@@ -7925,14 +8549,18 @@ export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () =>
         if (isStale(uid)) {
           // غياب مفتاح presence لحظياً ليس ركوداً مؤكداً — يُحذف بـonDisconnect
           // عند أي تقطع عابر ولا يُعاد إلا بنبضة كل دقيقتين. مع مؤشر
-          // userCurrentRoom يشير لهذه الغرفة نتركه (نفس قاعدة الغموض في فرع
-          // المقاعد) — حذفه كان يشغّل سلسلة prune في العملاء فتُفرَّغ مقاعد حية.
+          // userCurrentRoom يشير لهذه الغرفة: «ضربتان» — اشتباه أولاً ثم تفريغ
+          // إذا استمر الغياب (كان يُترك للأبد = شبح قتل-من-الخلفية الدائم).
           const lastSeen = Number(presence[uid]) || 0;
-          if (lastSeen === 0 && pointers[uid]?.roomId === roomId) return;
+          if (lastSeen === 0 && pointers[uid]?.roomId === roomId) {
+            if (!ambiguousConfirmed(roomId, uid)) return;
+          }
           updates[`roomAudience/${roomId}/${uid}`] = null;
+          updates[`roomSeatHold/${roomId}/${uid}`] = null;
           updates[`userCurrentRoom/${uid}`] = null;
           return;
         }
+        clearSuspect(roomId, uid);
         if (movedElsewhere(uid, roomId)) {
           updates[`roomAudience/${roomId}/${uid}`] = null;
         }
@@ -7963,7 +8591,10 @@ export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () =>
         if (joinedAt > 0 && now - joinedAt < SEAT_STALE_MS) return;
         const lastSeen = Number(presence[uid]) || 0;
         // حضور حديث = متصل فعلاً — لا يُفرَّغ مقعده مهما قال مؤشر الغرفة
-        if (lastSeen > 0 && now - lastSeen < SEAT_STALE_MS) return;
+        if (lastSeen > 0 && now - lastSeen < SEAT_STALE_MS) {
+          clearSuspect(roomId, uid);
+          return;
+        }
         const p = pointers[uid];
         const pointerAbsent = !p?.roomId;
         const pointerElsewhere =
@@ -7971,9 +8602,19 @@ export const sweepGhostRoomAudience = onSchedule('every 10 minutes', async () =>
           p.roomId !== roomId &&
           now - (Number(p.at) || 0) >= SEAT_STALE_MS;
         // قيمة حضور قديمة (≥ SEAT_STALE_MS) = شبح مؤكد؛
-        // أو غياب الحضور مع مؤشر غائب/على غرفة أخرى منذ مدة طويلة
-        if (lastSeen > 0 || pointerAbsent || pointerElsewhere) {
+        // أو غياب الحضور مع مؤشر غائب/على غرفة أخرى منذ مدة طويلة؛
+        // أو غياب الحضور مع مؤشر على هذه الغرفة (قتل-من-الخلفية) بعد «ضربتين»
+        const ambiguousHere = lastSeen === 0 && p?.roomId === roomId;
+        const confirmedGhostHere = ambiguousHere && ambiguousConfirmed(roomId, uid);
+        if (lastSeen > 0 || pointerAbsent || pointerElsewhere || confirmedGhostHere) {
           updates[`rooms/${roomId}/seats/${seatSnap.key}`] = { uid: '' };
+          updates[`roomAudience/${roomId}/${uid}`] = null;
+          updates[`roomSeatHold/${roomId}/${uid}`] = null;
+          // المؤشر يُمسح فقط حين يشير لهذه الغرفة المؤكّد شبحيتها — لا نلمسه
+          // إن كان يشير لغرفة أخرى (المستخدم نشط هناك)
+          if (confirmedGhostHere || (p?.roomId === roomId)) {
+            updates[`userCurrentRoom/${uid}`] = null;
+          }
         }
       });
     });
@@ -8175,7 +8816,7 @@ export const reconcileAgencyMemberCountsDaily = onSchedule(
   },
 );
 
-/** عند إرسال هدية داخل غرفة وكالة — يزيد دعم الفترة (مستوى الوكالة) */
+/** عند إرسال هدية داخل غرفة وكالة — يزيد دعم الفترة (الأسبوعي) والمستوى التراكمي الدائم */
 export const bumpAgencyPeriodSupportOnGiftSent = onDocumentCreated(
   { document: 'transactions/{txId}', maxInstances: 20 },
   async (event) => {
@@ -8189,10 +8830,8 @@ export const bumpAgencyPeriodSupportOnGiftSent = onDocumentCreated(
     const coins = Math.abs(Number(tx.amount) || 0);
     if (coins <= 0) return;
 
-    // التطبيق يسجّل دعم فترة الوكالة مباشرة بعد الإهداء ويضع هذه العلامة —
-    // لا نكرّر الزيادة هنا (نفس نمط creditAgencyPearlsOnGift / agencyEarningRecordedByClient)
-    if (tx.agencySupportRecordedByClient === true) return;
-
+    // الحارس يشمل الآن كل الهدايا (حتى المسجَّلة من العميل) لأن «التراكمي الدائم»
+    // أدناه يُحتسب لكل هدية — الخادم هو كاتبه الوحيد
     const guardRef = db
       .collection('processedEvents')
       .doc(`bumpAgencyPeriodSupportOnGiftSent_${event.params.txId}`);
@@ -8214,10 +8853,177 @@ export const bumpAgencyPeriodSupportOnGiftSent = onDocumentCreated(
       }
       if (!agencyId) return;
 
-      await bumpAgencyPeriodSupportCoins(agencyId, coins);
+      // مستوى الوكالة التراكمي الدائم (قرار المالك 2026-07-16) + محفظة كوينز عمل
+      // الوكيل: الخادم هو الكاتب الوحيد لكليهما لكل هدية (العميل لا يكتبهما) —
+      // لا فجوة إصدارات APK ولا عدّ مزدوج (الحارس أعلاه). walletWorkCoins كان في
+      // المساعد الأسبوعي فقط فيتخطاه العملاء الحديثون الموسومون → المحفظة بقيت 0.
+      await db
+        .collection('agencies')
+        .doc(agencyId)
+        .update({
+          lifetimeSupportCoins: admin.firestore.FieldValue.increment(coins),
+          walletWorkCoins: admin.firestore.FieldValue.increment(coins),
+        })
+        .catch((e) => console.error('lifetimeSupportCoins bump:', e));
+
+      // العدّاد الأسبوعي + محفظة كوينز العمل: التطبيق يسجّلهما مباشرة بعد الإهداء
+      // ويضع هذه العلامة — لا نكرّر الزيادة هنا (نفس نمط creditAgencyPearlsOnGift)
+      if (tx.agencySupportRecordedByClient !== true) {
+        await bumpAgencyPeriodSupportCoins(agencyId, coins);
+      }
     } catch (e) {
       console.error('bumpAgencyPeriodSupportOnGiftSent:', e);
     }
+  },
+);
+
+/**
+ * منح/إزالة «الغرفة المميزة» (premiumStyle) — مظهر غرفة الوكالة بلا اقتصادها.
+ * القاعدة في RTDB تمنع العميل من تغيير الحقل؛ لوحة التحكم تمنحه عبر هذه الدالة
+ * (Admin SDK يتجاوز القواعد). قرار المالك 2026-07-16: المنح من الإدارة فقط (v1).
+ */
+export const setRoomPremiumStyle = onCall(async (request) => {
+  const adminUid = request.auth?.uid;
+  if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+  await assertAdmin(adminUid);
+  await assertHasPermission(adminUid, 'users:edit');
+
+  const { roomId, enabled } = request.data as { roomId?: string; enabled?: boolean };
+  const id = String(roomId ?? '').trim();
+  if (!id) throw new HttpsError('invalid-argument', 'roomId مطلوب');
+
+  const roomRef = rtdb.ref(`rooms/${id}`);
+  const snap = await roomRef.get();
+  if (!snap.exists()) throw new HttpsError('not-found', 'الغرفة غير موجودة');
+  // لا يُمنح لغرف الوكالات — لها مظهرها واقتصادها أصلاً
+  if (snap.child('agencyId').val() || snap.child('isAgencyRoom').val() === true) {
+    throw new HttpsError('failed-precondition', 'هذه غرفة وكالة — المظهر المميز للغرف الشخصية فقط');
+  }
+
+  await roomRef.update({ premiumStyle: enabled === true ? true : null });
+  return { ok: true, roomId: id, premiumStyle: enabled === true };
+});
+
+/**
+ * تعبئة تاريخية لمرة واحدة لمستوى الوكالة التراكمي (lifetimeSupportCoins).
+ * تجمع abs(amount) لكل معاملات gift_sent الحاملة agencyId التي أُنشئت قبل
+ * cutoffMs (لحظة تفعيل الكاتب الجديد في bumpAgencyPeriodSupportOnGiftSent) —
+ * ما بعد القاطع يعدّه التريغر الحيّ، فلا تداخل ولا فقدان. علامة
+ * lifetimeBackfilledAt تمنع التشغيل المزدوج. dryRun يحسب بلا كتابة.
+ * ملاحظة: هدايا قديمة جداً بلا حقل agencyId (قبل تمرير العميل له) لا تُحتسب —
+ * نقص محدود مقبول، وأفضل من التصفير الأسبوعي السابق بكل الأحوال.
+ */
+export const adminBackfillAgencyLifetimeSupport = onCall(
+  { timeoutSeconds: 540, memory: '512MiB' },
+  async (request) => {
+    const adminUid = request.auth?.uid;
+    if (!adminUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
+    await assertAdmin(adminUid);
+    await assertHasPermission(adminUid, 'agencies:edit');
+
+    const { cutoffMs, walletCutoffMs, agencyId, dryRun } = request.data as {
+      cutoffMs?: number;
+      /** لحظة تفعيل كاتب walletWorkCoins غير المشروط في التريغر — تفعيل تعبئة المحفظة */
+      walletCutoffMs?: number;
+      agencyId?: string;
+      dryRun?: boolean;
+    };
+    const cutoff = Number(cutoffMs);
+    if (!Number.isFinite(cutoff) || cutoff <= 0) {
+      throw new HttpsError('invalid-argument', 'cutoffMs مطلوب (لحظة تفعيل الكاتب الجديد بالمللي ثانية)');
+    }
+    const walletCutoff = Number(walletCutoffMs ?? 0) || 0;
+
+    const targets: string[] = [];
+    if (agencyId?.trim()) {
+      targets.push(agencyId.trim());
+    } else {
+      const agenciesSnap = await db.collection('agencies').select().get();
+      agenciesSnap.forEach((d) => targets.push(d.id));
+    }
+
+    const results: Array<{
+      agencyId: string;
+      sum: number;
+      txCount: number;
+      walletSum?: number;
+      walletTxCount?: number;
+      skipped?: string;
+    }> = [];
+    for (const id of targets) {
+      const agencyRef = db.collection('agencies').doc(id);
+      const agencySnap = await agencyRef.get();
+      if (!agencySnap.exists) {
+        results.push({ agencyId: id, sum: 0, txCount: 0, skipped: 'not-found' });
+        continue;
+      }
+      const agencyData = agencySnap.data() ?? {};
+      // علامتا «مرة واحدة» منفصلتان: المستوى التراكمي والمحفظة قد يُعبَّآن في جولتين
+      const doLifetime = !agencyData.lifetimeBackfilledAt;
+      const doWallet = walletCutoff > 0 && !agencyData.walletBackfilledAt;
+      if (!doLifetime && !doWallet) {
+        results.push({ agencyId: id, sum: 0, txCount: 0, skipped: 'already-backfilled' });
+        continue;
+      }
+
+      // فلترة تساوٍ فقط + ترقيم بالمعرّف — لا تحتاج فهرساً مركّباً؛ القواطع تُطبَّق بالذاكرة
+      let sum = 0;
+      let txCount = 0;
+      // المحفظة: الهدايا الموسومة agencySupportRecordedByClient فقط — غير الموسومة
+      // (عملاء قدامى) راكمت walletWorkCoins حيّاً عبر المساعد الأسبوعي فلا تُعاد
+      let walletSum = 0;
+      let walletTxCount = 0;
+      let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+      for (;;) {
+        let q = db
+          .collection('transactions')
+          .where('type', '==', 'gift_sent')
+          .where('agencyId', '==', id)
+          .limit(500);
+        if (lastDoc) q = q.startAfter(lastDoc);
+        const page = await q.get();
+        if (page.empty) break;
+        page.forEach((docSnap) => {
+          const t = docSnap.data();
+          const createdAt = Number(t.createdAt) || 0;
+          const coins = Math.abs(Number(t.amount) || 0);
+          if (coins <= 0) return;
+          if (doLifetime && createdAt < cutoff) {
+            sum += coins;
+            txCount += 1;
+          }
+          if (doWallet && createdAt < walletCutoff && t.agencySupportRecordedByClient === true) {
+            walletSum += coins;
+            walletTxCount += 1;
+          }
+        });
+        lastDoc = page.docs[page.docs.length - 1] ?? null;
+        if (page.size < 500) break;
+      }
+
+      if (!dryRun) {
+        const patch: Record<string, unknown> = {};
+        if (doLifetime) {
+          patch.lifetimeSupportCoins = admin.firestore.FieldValue.increment(sum);
+          patch.lifetimeBackfilledAt = Date.now();
+        }
+        if (doWallet) {
+          patch.walletWorkCoins = admin.firestore.FieldValue.increment(walletSum);
+          patch.walletBackfilledAt = Date.now();
+        }
+        await agencyRef.update(patch);
+      }
+      results.push({ agencyId: id, sum, txCount, walletSum, walletTxCount });
+    }
+
+    return {
+      ok: true,
+      dryRun: !!dryRun,
+      cutoffMs: cutoff,
+      walletCutoffMs: walletCutoff || undefined,
+      agencies: results.length,
+      results,
+    };
   },
 );
 
@@ -8727,3 +9533,4 @@ export {
   adminUpdateStaffUser,
   adminRemoveStaffUser,
 } from './platformStaff';
+export { charmXpOnGiftReceived, claimWealthBetMission } from './charmLevel';

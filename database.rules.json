@@ -12,6 +12,12 @@
           ".validate": "!data.exists() || data.val() == newData.val() || data.val() == auth.uid"
         },
 
+        // premiumStyle (الغرفة المميزة): تُمنح من لوحة التحكم فقط (Admin SDK يتجاوز
+        // القواعد) — العميل لا يستطيع منح/إزالة المظهر المميز لنفسه.
+        "premiumStyle": {
+          ".validate": "data.val() == newData.val()"
+        },
+
         // seats: منع طرد/كتم مستخدم آخر عبر الكتابة المباشرة.
         // مسموح: الوكيل/المشرف الأصفر (أي مقعد)؛ غيرهم فقط مقعده هو أو مقعد فارغ
         // (انضمام/خروج/كتم ذاتي/انتقال)، أو تفريغ مقعد لعضو مقطوع الاتصال (تنظيف).
@@ -147,23 +153,14 @@
     "roomGameSessions": {
       ".read": "auth != null",
       "$sessionId": {
-        ".write": "auth != null && (
-          !data.exists() && newData.child('hostUid').val() == auth.uid
-          || data.exists() && (
-            data.child('hostUid').val() == auth.uid
-            || newData.child('playerUids').child(auth.uid).val() == true
-          )
-        )"
+        ".write": "auth != null && (!data.exists() && newData.child('hostUid').val() == auth.uid || data.exists() && (data.child('hostUid').val() == auth.uid || newData.child('playerUids').child(auth.uid).val() == true))"
       }
     },
     "roomGameInvites": {
       "$targetUid": {
         ".read": "auth != null && auth.uid == $targetUid",
         "$inviteId": {
-          ".write": "auth != null && (
-            !data.exists() && newData.child('hostUid').val() == auth.uid && newData.child('targetUid').val() == $targetUid
-            || data.exists() && (auth.uid == $targetUid || auth.uid == data.child('hostUid').val())
-          )"
+          ".write": "auth != null && (!data.exists() && newData.child('hostUid').val() == auth.uid && newData.child('targetUid').val() == $targetUid || data.exists() && (auth.uid == $targetUid || auth.uid == data.child('hostUid').val()))"
         }
       }
     },
@@ -171,10 +168,7 @@
       "$targetUid": {
         ".read": "auth != null && auth.uid == $targetUid",
         "$inviteId": {
-          ".write": "auth != null && (
-            !data.exists() && newData.child('inviterUid').val() == auth.uid && newData.child('targetUid').val() == $targetUid
-            || data.exists() && (auth.uid == $targetUid || auth.uid == data.child('inviterUid').val())
-          )"
+          ".write": "auth != null && (!data.exists() && newData.child('inviterUid').val() == auth.uid && newData.child('targetUid').val() == $targetUid || data.exists() && (auth.uid == $targetUid || auth.uid == data.child('inviterUid').val()))"
         }
       }
     },
