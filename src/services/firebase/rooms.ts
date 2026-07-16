@@ -595,6 +595,17 @@ export const setRoomVanityId = async (roomId: string, vanityId: string): Promise
   if (!(await checkUserHasVipFeature(user.uid, 'specialRoomId'))) {
     throw new Error('هذا الامتياز حصري لأعضاء SVIP المؤهّلين');
   }
+  // uniqueness: ensure no other active room uses this vanity ID
+  const existing = await get(
+    query(ref(realtimeDb, 'rooms'), orderByChild('vanityId'), equalTo(id), limitToFirst(2)),
+  );
+  if (existing.exists()) {
+    const entries = Object.keys(existing.val() as Record<string, unknown>);
+    const takenByOther = entries.some((rid) => rid !== roomId);
+    if (takenByOther) {
+      throw new Error('هذا المعرّف محجوز لغرفة أخرى — جرّب رقماً آخر');
+    }
+  }
   await update(ref(realtimeDb, `rooms/${roomId}`), { vanityId: id, updatedAt: Date.now() });
 };
 

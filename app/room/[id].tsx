@@ -214,7 +214,7 @@ import {
   isRoomFavorited,
 } from '@/services/roomFeatures';
 import { useConfig } from '@/contexts/ConfigContext';
-import { hasVipPrivilege, resolveVipPrivilegeAsset, userHasVipFeature } from '@/services/firebase/vipSystem';
+import { hasVipPrivilege, resolveVipPrivilegeAsset, userHasVipFeature, getEffectiveVipLevel } from '@/services/firebase/vipSystem';
 import { currentMonthKey } from '@/services/firebase/agencyPrinceSystem';
 import { resolveGiftAnimationPayload } from '@/components/ui/giftUtils';
 import { preloadVideoBackground } from '@/utils/videoCacheManager';
@@ -613,6 +613,7 @@ export default function RoomScreen() {
   }, []);
   const chatInputRef = useRef<TextInput>(null);
   const chatIgnoreChangeRef = useRef(false);
+  const lastFlyingMsgRef = useRef<number | null>(null);
   const [chatInputResetKey, setChatInputResetKey] = useState(0);
   // بوابة الدخول (كلمة مرور للمقفلة / متابِعين فقط للأصدقاء)
   const [gateOpen, setGateOpen] = useState(false);
@@ -3491,12 +3492,17 @@ export default function RoomScreen() {
         chatScrollRef.current?.scrollToOffset?.({ offset: 0, animated: true });
       });
       // امتياز SVIP «رسائل طائرة»: تمرّ رسالة العضو عبر شاشة الغرفة
+      // rate-limited: at most one flying message every 10 seconds to prevent flooding
       if (roomId && userHasVipFeature(user, 'flyingMessage', vipSystem)) {
-        const myName = resolveDisplayName(
-          { displayName: (user as any)?.displayName ?? (user as any)?.profile?.displayName },
-          'SVIP',
-        );
-        void sendFlyingMessage(roomId, text, { name: myName, avatar: (user as any)?.avatar ?? (user as any)?.profile?.avatar }).catch(() => {});
+        const now = Date.now();
+        if (!lastFlyingMsgRef.current || now - lastFlyingMsgRef.current >= 10_000) {
+          lastFlyingMsgRef.current = now;
+          const myName = resolveDisplayName(
+            { displayName: (user as any)?.displayName ?? (user as any)?.profile?.displayName },
+            'SVIP',
+          );
+          void sendFlyingMessage(roomId, text, { name: myName, avatar: (user as any)?.avatar ?? (user as any)?.profile?.avatar }).catch(() => {});
+        }
       }
     } catch (e: any) {
       chatIgnoreChangeRef.current = false;
@@ -4704,7 +4710,7 @@ export default function RoomScreen() {
       const standardFrame = userFrameByUid[uid];
       if (standardFrame) return standardFrame;
       const privileges = vipSystem?.privileges || [];
-      const vipLevel = Number(occupant?.vipLevel ?? 0);
+      const vipLevel = getEffectiveVipLevel(occupant);
       const hasVipSeat = hasVipPrivilege(occupant, 'vipSeat', privileges);
       if (hasVipSeat && vipSystem) {
         const seatPriv = resolveVipPrivilegeAsset(vipLevel, 'vipSeat', vipSystem);
