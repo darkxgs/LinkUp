@@ -93,7 +93,7 @@ function AudienceStat({
 function LevelPill({ label }: { label: string }) {
   return (
     <LinearGradient
-      colors={['#57D7FF', '#1EA6FF', '#0068E6']}
+      colors={['#58D8FF', '#1DA7FF', '#006AE8']}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
       style={styles.levelPill}
@@ -462,14 +462,19 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   levelPill: {
-    minWidth: 44,
+    height: 20,
+    minWidth: 48,
     paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.24)',
+    borderColor: 'rgba(255,255,255,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#29B6FF',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
   },
   levelPillText: {
     color: '#fff',

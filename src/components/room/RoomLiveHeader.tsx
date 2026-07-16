@@ -26,7 +26,7 @@ import type { RoomRocketLaunch } from '@/services/roomRocket';
 import type { LuckyBag } from '@/services/luckyBag';
 
 const AVATAR = 22;
-const AGENCY_AVATAR = 60;
+const AGENCY_AVATAR = 62;
 const ICON_BTN = 32;
 
 export type RoomLiveHeaderAudience = {
@@ -204,15 +204,17 @@ export function RoomLiveHeader({
             )}
             </View>
             {isAgencyCard && levelLabel ? (
-              // شارة LVL تحت الصورة مباشرة (مرجع المالك v3) — تدرّج أزرق ثلاثي عمودي
-              <LinearGradient
-                colors={['#57D7FF', '#1EA6FF', '#0068E6']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
-                style={styles.levelPill}
-              >
-                <Text style={styles.levelPillText}>{levelLabel}</Text>
-              </LinearGradient>
+              // شارة LVL ملتصقة بأسفل الصورة (مرجع المالك v4) — تتراكب على حافتها بـ-6
+              <View style={styles.levelPillWrap} pointerEvents="none">
+                <LinearGradient
+                  colors={['#58D8FF', '#1DA7FF', '#006AE8']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={styles.levelPill}
+                >
+                  <Text style={styles.levelPillText}>{levelLabel}</Text>
+                </LinearGradient>
+              </View>
             ) : null}
           </View>
           <View style={[styles.roomPillText, isAgencyCard && styles.roomPillTextAgency]}>
@@ -409,10 +411,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
   },
-  // عمود الصورة + شارة LVL تحتها (مرجع المالك v3)
+  // الصورة وفوقها شارة LVL الملتصقة بحافتها السفلية (مرجع المالك v4)
   avatarColAgency: {
     alignItems: 'center',
-    gap: 6,
   },
   // إطار الصورة المربّعة — حد أبيض 2 وظل خلفها (مرجع المالك)
   avatarFrameAgency: {
@@ -430,22 +431,38 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
-  // شارة LVL — تدرّج أزرق ثلاثي عمودي بحد لامع (مرجع المالك v3)
+  // موضع الشارة — منتصف الحافة السفلية للصورة، تتجاوزها بـ6 (داخل حشوة البطاقة فلا قصّ)
+  levelPillWrap: {
+    position: 'absolute',
+    bottom: -6,
+    left: -8,
+    right: -8,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  // شارة LVL — تدرّج أزرق ثلاثي عمودي بحد لامع وتوهّج (مرجع المالك v4)
   levelPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 10,
+    height: 20,
+    minWidth: 48,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.24)',
+    borderColor: 'rgba(255,255,255,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#29B6FF',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
   },
   levelPillText: {
     color: '#fff',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
     fontFamily: lu.fonts.bodyHeavy,
     includeFontPadding: false,
+    letterSpacing: 0.4,
   },
   hostAvatarImg: {
     width: AVATAR,
