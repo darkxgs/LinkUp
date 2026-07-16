@@ -64,7 +64,7 @@ import {
 import { enterAgencyRoomAndNavigate, navigateToRoom } from '@/utils/navigateToRoom';
 import {
   getAgencyLevelProgress,
-  resolveAgencyPeriodLevelIndex,
+  resolveAgencyLevelLabelFromFields,
   type AgencyLevelsRuntimeConfig,
 } from '@/services/agencyLevels';
 import { useAgencyLevelsConfig } from '@/hooks/useAgencyLevelsConfig';
@@ -131,15 +131,12 @@ function resolveAgencyLevelLabel(
   agency: Agency,
   levelsConfig: AgencyLevelsRuntimeConfig,
 ): string | undefined {
-  const coins = Math.max(0, Number(agency.lifetimeSupportCoins) || 0);
-  const idx = resolveAgencyPeriodLevelIndex(
-    coins,
+  return resolveAgencyLevelLabelFromFields(
+    agency.lifetimeSupportCoins,
     agency.periodLevel,
     agency.periodLevelManual,
     levelsConfig,
   );
-  const level = idx >= 0 ? levelsConfig.levels[idx]?.level ?? 0 : 0;
-  return level >= 1 ? `LV${level}` : undefined;
 }
 
 const FALLBACK_GRADIENTS: readonly (readonly [string, string])[] = [

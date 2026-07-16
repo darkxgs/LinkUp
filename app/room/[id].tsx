@@ -282,7 +282,8 @@ import {
   subscribeToAgencyById,
   type Agency as LinkedAgency,
 } from '@/services/agencyService';
-import { AGENCY_THRONE_UNLOCK_LEVEL } from '@/services/agencyLevels';
+import { AGENCY_THRONE_UNLOCK_LEVEL, resolveAgencyLevelLabelFromFields } from '@/services/agencyLevels';
+import { useAgencyLevelsConfig } from '@/hooks/useAgencyLevelsConfig';
 import { SoundEffectsPlayer } from '@/components/room/SoundEffectsPanel';
 import { VoiceMicPanel } from '@/components/room/VoiceMicModal';
 import { RoomJoinMicModal } from '@/components/room/RoomJoinMicModal';
@@ -581,6 +582,7 @@ export default function RoomScreen() {
   const [agencyInviteCode, setAgencyInviteCode] = useState<string | undefined>();
   const [agencyCardFrameUrl, setAgencyCardFrameUrl] = useState<string | undefined>();
   const [linkedAgency, setLinkedAgency] = useState<LinkedAgency | null>(null);
+  const agencyLevelsConfig = useAgencyLevelsConfig();
   const audienceInitRef = useRef(false);
   const allSeatsRef = useRef<any[]>([]);
   const prevAudienceUidsRef = useRef<Set<string>>(new Set());
@@ -5068,9 +5070,21 @@ export default function RoomScreen() {
         roomId={roomId ?? ''}
         vanityId={room.vanityId || agencyInviteCode}
         levelLabel={
-          // شارة مستوى الوكالة أسفل صورة الروم (يزامنه الخادم على عقدة الروم)
-          isAgencyRoom && Number(room.agencyPeriodLevel) >= 1
-            ? `LV${Number(room.agencyPeriodLevel)}`
+          // شارة مستوى الوكالة أسفل صورة الروم — تُحسب محلياً لكل مشاهد من وثيقة
+          // الوكالة الحية (نفس مسار بطاقات الرئيسية)؛ حقل عقدة الروم fallback فقط
+          // ريثما تصل الوثيقة، لأنه مُرحَّل من العملاء وقد يغيب أو يَبلى.
+          isAgencyRoom
+            ? ((linkedAgency
+                ? resolveAgencyLevelLabelFromFields(
+                    linkedAgency.lifetimeSupportCoins,
+                    linkedAgency.periodLevel,
+                    linkedAgency.periodLevelManual,
+                    agencyLevelsConfig,
+                  )
+                : undefined) ??
+              (Number(room.agencyPeriodLevel) >= 1
+                ? `LV${Number(room.agencyPeriodLevel)}`
+                : undefined))
             : undefined
         }
         hostName={

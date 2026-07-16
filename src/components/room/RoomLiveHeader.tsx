@@ -4,6 +4,7 @@
 import React from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Plus, Heart } from 'lucide-react-native';
 
 import { Text } from '@/components/ui';
@@ -144,7 +145,7 @@ export function RoomLiveHeader({
           ]}
         >
           <GlassLayers />
-          <View>
+          <View style={styles.avatarCol}>
             {hostFrameUri ? (
               headerFrameStyle === 'agencyCard' ? (
                 <FramedAgencyCover
@@ -188,11 +189,17 @@ export function RoomLiveHeader({
               </View>
             )}
             {levelLabel ? (
-              // شارة مستوى الوكالة أسفل صورة الروم — كمرجع LV9 (طلب المالك)
+              // شارة مستوى الوكالة أسفل صورة الروم — نفس عائلة شارة بطاقات الرئيسية
+              // (مرجع LV9). في التدفق العادي كي لا تُقصّها حدود البيل المدوّرة.
               <View style={styles.levelPillWrap} pointerEvents="none">
-                <View style={styles.levelPill}>
+                <LinearGradient
+                  colors={['#8B5CF6', '#5B21B6']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.levelPill}
+                >
                   <Text style={styles.levelPillText}>{levelLabel}</Text>
-                </View>
+                </LinearGradient>
               </View>
             ) : null}
           </View>
@@ -375,22 +382,22 @@ const styles = StyleSheet.create({
     paddingEnd: 8,
     gap: 10,
   },
+  // عمود الصورة + شارة المستوى — الشارة تتراكب على الحافة السفلية للصورة
+  avatarCol: {
+    alignItems: 'center',
+  },
   // شارة مستوى الوكالة أسفل صورة الروم (مرجع LV9)
   levelPillWrap: {
-    position: 'absolute',
-    bottom: -4,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
+    marginTop: -7,
     zIndex: 5,
   },
   levelPill: {
-    backgroundColor: '#7C3AED',
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical: 1.5,
-    borderRadius: 6,
+    borderRadius: 7,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.6)',
+    borderColor: 'rgba(255,255,255,0.55)',
+    overflow: 'hidden',
   },
   levelPillText: {
     color: '#fff',
