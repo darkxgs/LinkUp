@@ -419,7 +419,9 @@ export default function AgencyCenterScreen() {
     <View style={[styles.fill, { backgroundColor: '#140A0C' }]}>
       {/* City Skyline Background Header */}
       <ImageBackground
-        source={{ uri: CITY_SKYLINE_URL }}
+        // نعرض خلفية الوكالة المرفوعة (agency.banner) إن وُجدت، وإلا صورة المدينة
+        // الافتراضية — كانت الخلفية المرفوعة تُحفظ بالباك لكن هذه الصفحة لا تقرأها.
+        source={{ uri: agency.banner?.startsWith('http') ? agency.banner : CITY_SKYLINE_URL }}
         style={{ width: '100%', height: 280, position: 'absolute', top: 0 }}
         imageStyle={{ opacity: 0.6 }}
       >
