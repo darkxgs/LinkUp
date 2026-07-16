@@ -55,17 +55,6 @@ export function resolveEntranceVideoUrls(
   };
 }
 
-function getEquippedEntranceIdFromUserData(data: Record<string, unknown> | undefined): string | null {
-  const raw = data?.equippedEntranceId;
-  if (raw === '' || raw === null) return null;
-  if (typeof raw !== 'string' || raw.length === 0) return null;
-  // انتهاء صلاحية الدخولية المجهّزة (تُكتب عند التجهيز؛ 0/غياب = دائمة) — دخولية
-  // منتهية كانت تبقى تعمل لأن هذا المسار السريع لم يكن يتحقق من الصلاحية
-  const exp = Number(data?.equippedEntranceExpiresAt ?? 0) || 0;
-  if (exp > 0 && exp < Date.now()) return null;
-  return raw;
-}
-
 async function fetchEquippedEntranceIdFromInventory(uid: string): Promise<string | null> {
   const q = query(collection(firestore, 'inventory'), where('uid', '==', uid), limit(80));
   const snap = await getDocs(q);
@@ -175,12 +164,10 @@ export async function resolveRoomEntryForUser(
     if (staffEntry) return staffEntry;
 
     // 2) دخولية المتجر المجهّزة (شراء/هدية) — لا تتطلب SVIP: من اشتراها أو
-    //    أُهديت له يستخدمها ما دامت صلاحيتها سارية (بوابة الـVIP كانت تمنع
-    //    غير الـSVIP من رؤية دخولية اشتراها من المتجر).
-    let entranceId = getEquippedEntranceIdFromUserData(data);
-    if (!entranceId) {
-      entranceId = await fetchEquippedEntranceIdFromInventory(uid);
-    }
+    //    أُهديت له يستخدمها ما دامت صلاحيتها سارية. مصدر الحقيقة هو المخزون
+    //    (منحه للخادم/الأدمن فقط بعد إغلاق القواعد) لا حقل equippedEntranceId
+    //    القابل للكتابة الذاتية — عميل معدّل كان يمكنه ارتداء أي دخولية مجاناً.
+    const entranceId = await fetchEquippedEntranceIdFromInventory(uid);
 
     let videoUrl: string | undefined = undefined;
     let videoUrlMp4: string | undefined = undefined;

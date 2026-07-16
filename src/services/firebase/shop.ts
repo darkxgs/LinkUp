@@ -474,66 +474,21 @@ export const STORE_CATALOG: StoreItem[] = [
 // ==================== BUY STORE ITEM ====================
 
 export const purchaseStoreItem = async (item: StoreItem): Promise<void> => {
-  const user = auth.currentUser;
-  if (!user) throw new Error('يجب تسجيل الدخول');
-
-  const userRef = doc(firestore, 'users', user.uid);
-
-  // معاملة ذرّية واحدة: فحص الرصيد + الخصم + منح العنصر + سجل المعاملة —
-  // كان المنح يتم بعد المعاملة فينفصل عن الخصم عند أي فشل جزئي
-  await runTransaction(firestore, async (transaction) => {
-    const userDoc = await transaction.get(userRef);
-    if (!userDoc.exists()) throw new Error('المستخدم غير موجود');
-
-    const userData = userDoc.data();
-    const stats = statsFromFirestoreDoc(userData as Record<string, unknown>);
-    const balance =
-      item.currency === 'coins' ? stats.coins : stats.pearls;
-
-    if (balance < item.price) {
-      throw new Error(
-        `رصيد غير كافٍ. تحتاج ${item.price} ${item.currency === 'coins' ? 'عملة' : 'ماسة'}`,
-      );
-    }
-
-    transaction.update(
-      userRef,
-      buildBalanceIncrementPatch(item.currency, -item.price),
-    );
-
-    const now = Date.now();
-
-    // إضافة للمخزون — داخل نفس المعاملة
-    const invRef = doc(collection(firestore, 'inventory'));
-    transaction.set(invRef, {
-      uid: user.uid,
-      itemId: item.id,
-      itemType: item.type,
-      itemName: item.name,
-      iconName: item.iconName,
-      iconColor: item.iconColor,
-      imageUrl: item.imageUrl ?? null,
-      quantity: 1,
-      isEquipped: false,
-      acquiredAt: now,
-      expiresAt: item.validityDays
-        ? now + item.validityDays * 24 * 60 * 60 * 1000
-        : null,
-    });
-
-    // تسجيل المعاملة — داخل نفس المعاملة
-    const txRef = doc(collection(firestore, 'transactions'));
-    transaction.set(txRef, {
-      uid: user.uid,
-      type: 'purchase',
-      amount: -item.price,
-      currency: item.currency,
-      itemId: item.id,
-      itemName: item.name,
-      status: 'completed',
-      createdAt: now,
-    });
-  });
+  // الشراء عبر Cloud Function حصرياً (كان معاملة عميل مباشرة): السيرفر يحلّ
+  // السعر/العملة/المدة من الكتالوج ويخصم ويمنح ذرّياً — تمهيداً لإغلاق قاعدة
+  // inventory المفتوحة التي كانت تسمح بسكّ العناصر مجاناً بكتابة مباشرة.
+  const user = await ensureCallableAuth();
+  const idToken = await user.getIdToken();
+  const clientRequestId =
+    Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  await callCallableWithAuth<
+    { itemId: string; isRoomFrame: boolean; clientRequestId: string },
+    { ok: boolean; balance: number; currency: 'coins' | 'pearls' }
+  >(
+    'purchaseStoreItemForSelf',
+    { itemId: item.id, isRoomFrame: false, clientRequestId },
+    idToken,
+  );
 };
 
 export type PurchaseAndSendStoreItemResult = {

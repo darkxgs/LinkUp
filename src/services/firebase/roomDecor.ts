@@ -164,47 +164,33 @@ export const getOwnedFrames = async (uid?: string): Promise<string[]> => {
 };
 
 /**
- * شراء إطار بالعملات (ذرّي على العميل): يخصم السعر ويضيف الإطار للمملوكات.
- * يُرجع رصيد العملات بعد الشراء.
+ * شراء إطار — عبر Cloud Function حصرياً (كان معاملة عميل مباشرة): السيرفر يحلّ
+ * السعر/المدة من config/roomFrames ويخصم ويمنح ويجهّز تلقائياً في معاملة ذرّية —
+ * تمهيداً لإغلاق كتابة frameInventory/ownedFrames الذاتية في القواعد.
+ * price/durationDays باقيان بالتوقيع لفحوصات الواجهة فقط (استرشاديان).
  */
 export const purchaseFrame = async (
   frameId: string,
   price: number,
   durationDays = 0,
 ): Promise<{ ok: boolean; balance: number; equippedFrameId: string }> => {
-  const user = auth.currentUser;
-  if (!user) throw new Error('يجب تسجيل الدخول');
-
-  const userRef = doc(firestore, 'users', user.uid);
-  let balanceAfter = 0;
-
-  await runTransaction(firestore, async (tx) => {
-    const snap = await tx.get(userRef);
-    if (!snap.exists()) throw new Error('حسابك غير موجود');
-    const data = snap.data()!;
-    const inv = pruneFrameInventory(getFrameInventoryFromUserData(data as Record<string, unknown>));
-    const existingEntry = inv[frameId];
-    if (existingEntry != null && isFrameEntryActive(existingEntry)) {
-      balanceAfter = getUserCoins(data as Record<string, unknown>);
-      return;
-    }
-    const coins = getUserCoins(data as Record<string, unknown>);
-    if (coins < price) {
-      throw new Error(`رصيدك غير كافٍ. تحتاج ${price.toLocaleString()} عملة`);
-    }
-    const now = Date.now();
-    const expiresAt = durationDays > 0 ? now + durationDays * MS_PER_DAY : 0;
-    const nextInv: FrameInventory = { ...inv, [frameId]: expiresAt };
-    tx.update(userRef, {
-      ...buildBalanceIncrementPatch('coins', -price),
-      ownedFrames: arrayUnion(frameId),
-      frameInventory: nextInv,
-      equippedFrameId: frameId,
-    });
-    balanceAfter = coins - price;
-  });
-
-  return { ok: true, balance: balanceAfter, equippedFrameId: frameId };
+  void price;
+  void durationDays;
+  const { ensureCallableAuth } = await import('./authReady');
+  const { callCallableWithAuth } = await import('./callableHttp');
+  const user = await ensureCallableAuth();
+  const idToken = await user.getIdToken();
+  const clientRequestId =
+    Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  const result = await callCallableWithAuth<
+    { itemId: string; isRoomFrame: boolean; clientRequestId: string },
+    { ok: boolean; balance: number; currency: 'coins' | 'pearls' }
+  >(
+    'purchaseStoreItemForSelf',
+    { itemId: frameId, isRoomFrame: true, clientRequestId },
+    idToken,
+  );
+  return { ok: true, balance: result.balance, equippedFrameId: frameId };
 };
 
 /** شراء إطار وإرساله لمستخدم آخر — عبر Cloud Function */
@@ -250,7 +236,9 @@ export const equipUserFrame = async (frameId: string): Promise<void> => {
     const ownedEntry = inv[frameId];
     if (ownedEntry == null) throw new Error('لا تملك هذا الإطار');
     if (!isFrameEntryActive(ownedEntry)) throw new Error('انتهت صلاحية هذا الإطار');
-    tx.update(userRef, { equippedFrameId: frameId, frameInventory: inv });
+    // لا نُثبّت الخريطة المُشذّبة — كتابة frameInventory أصبحت للخادم/الأدمن فقط
+    // بعد إغلاق القواعد؛ التشذيب هنا للتحقق بالذاكرة فقط والقرّاء يتجاهلون المنتهي.
+    tx.update(userRef, { equippedFrameId: frameId });
   });
 };
 

@@ -51,17 +51,6 @@ export function resolveBubbleImageUrl(
   return item ? storeItemMediaUrl(item) : undefined;
 }
 
-function getEquippedBubbleIdFromUserData(data: Record<string, unknown> | undefined): string | null {
-  const raw = data?.equippedBubbleId;
-  if (raw === '' || raw === null) return null;
-  if (typeof raw !== 'string' || raw.length === 0) return null;
-  // انتهاء صلاحية الفقاعة المجهّزة (تُكتب عند التجهيز؛ 0/غياب = دائمة) — فقاعة
-  // منتهية كانت تبقى تظهر للجميع لأن هذا المسار السريع لم يكن يتحقق من الصلاحية
-  const exp = Number(data?.equippedBubbleExpiresAt ?? 0) || 0;
-  if (exp > 0 && exp < Date.now()) return null;
-  return raw;
-}
-
 async function fetchEquippedBubbleIdFromInventory(uid: string): Promise<string | null> {
   const q = query(collection(firestore, 'inventory'), where('uid', '==', uid), limit(80));
   const snap = await getDocs(q);
@@ -87,8 +76,11 @@ async function resolveBubbleUrl(
   const princeBubble = readUserAgencyPrince(userData.agencyPrince)?.bubbleImageUrl;
   if (princeBubble) return princeBubble;
 
-  let bubbleId = getEquippedBubbleIdFromUserData(userData);
-  if (!bubbleId) bubbleId = await fetchEquippedBubbleIdFromInventory(uid);
+  // مصدر الحقيقة هو المخزون (منحه للخادم/الأدمن فقط بعد إغلاق القواعد): حقل
+  // equippedBubbleId على وثيقة المستخدم يبقى قابلاً للكتابة الذاتية للتجهيز،
+  // فعميل معدّل كان يمكنه كتابته مباشرة وارتداء أي فقاعة مجاناً — لذا نقرأ
+  // العنصر المجهّز من المخزون نفسه (مع فحص صلاحيته). محدود التكلفة بكاش 5 دقائق.
+  const bubbleId = await fetchEquippedBubbleIdFromInventory(uid);
   let bubbleUrl = resolveBubbleImageUrl(bubbleId, catalog);
 
   // لا فقاعة مجهّزة لكن لديه SVIP نشط بامتياز chatBubble → استخدمها
