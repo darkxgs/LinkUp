@@ -100,6 +100,8 @@ type InterestRoomItem = {
   isAgencyRoom?: boolean;
   isFavorite: boolean;
   lastVisit?: number;
+  /** هوية الوكالة القانونية — لمنع تكرار نفس الوكالة بمعرّفي غرفة مختلفين */
+  agencyId?: string;
 };
 
 function isAgencyInterest(room: { isAgencyRoom?: boolean; agencyId?: string }): boolean {
@@ -306,13 +308,17 @@ export default function RoomsScreen() {
           roomId = live?.id;
         }
         if (!roomId) continue;
+        const room = roomById.get(roomId);
         items.push({
           roomId,
           roomName: ag.name,
           hostAvatar: resolveAgencyImage(ag.id, roomId, ag.logo),
-          isLive: true,
+          // «مباشر» من حالة الغرفة الفعلية إن كانت ضمن قائمتنا؛ وإلا نُبقي السلوك
+          // السابق (true) — قائمة الغرف محدودة بأحدث 50 فقد تغيب غرفة رسمية حية
+          isLive: room ? isRoomLive(room) : true,
           isAgencyRoom: true,
           isFavorite: false,
+          agencyId: ag.id,
         });
       }
       return items;
@@ -323,23 +329,36 @@ export default function RoomsScreen() {
       const seen = new Set<string>();
       const merged: InterestRoomItem[] = [];
       for (const item of [...official, ...items]) {
-        if (seen.has(item.roomId)) continue;
+        // منع التكرار بهوية الوكالة إضافةً لمعرّف الغرفة — معرّفات غرف الوكالة
+        // تتبدل (ensureAgencyLiveRoom يسكّ معرّفاً جديداً) فكانت نفس الوكالة تظهر
+        // مرتين: نسخة رسمية بالمعرّف الحالي + نسخة «زرتها مؤخراً» بمعرّف قديم
+        const agencyKey = item.agencyId?.trim() ? `ag:${item.agencyId.trim()}` : null;
+        if (seen.has(item.roomId) || (agencyKey && seen.has(agencyKey))) continue;
         seen.add(item.roomId);
+        if (agencyKey) seen.add(agencyKey);
         merged.push(item);
       }
       return merged.slice(0, 5);
+    };
+
+    // معرّف الغرفة القانوني: غرفة الوكالة الحالية (liveRoomId) لا المعرّف القديم
+    // المخزون في «زرتها مؤخراً» — الضغط يهبط في الغرفة الحية لا في شبح قديم
+    const canonicalRoomId = (r: { roomId: string; agencyId?: string }): string => {
+      const ag = r.agencyId ? agencyById.get(r.agencyId) : undefined;
+      return ag?.liveRoomId ?? r.roomId;
     };
 
     const agencyFavorites = favoriteInterestRooms.filter(isAgencyInterest);
     if (agencyFavorites.length > 0) {
       return mergeWithOfficial(
         agencyFavorites.slice(0, 5).map((r) => ({
-          roomId: r.roomId,
+          roomId: canonicalRoomId(r),
           roomName: r.roomName,
           hostAvatar: resolveAgencyImage(r.agencyId, r.roomId, r.hostAvatar),
           isLive: r.isLive,
           isAgencyRoom: true,
           isFavorite: true,
+          agencyId: r.agencyId,
         })),
       );
     }
@@ -347,13 +366,14 @@ export default function RoomsScreen() {
       .filter(isAgencyInterest)
       .slice(0, 5)
       .map((r) => ({
-        roomId: r.roomId,
+        roomId: canonicalRoomId(r),
         roomName: r.roomName,
         hostAvatar: resolveAgencyImage(r.agencyId, r.roomId, r.hostAvatar),
         isLive: r.isLive,
         isAgencyRoom: true,
         isFavorite: false,
         lastVisit: r.lastVisit,
+        agencyId: r.agencyId,
       }));
     if (recent.length > 0) return mergeWithOfficial(recent);
 

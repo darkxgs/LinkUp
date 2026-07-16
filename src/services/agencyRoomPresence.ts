@@ -84,16 +84,43 @@ export function buildAgencyRoomPresenceFaces(
   return micFirst.slice(0, maxVisible);
 }
 
+/** مهلة اعتبار مقعد «منقطع الاتصال» شبحاً على البطاقات — أطول من مهلة إعادة
+ *  الاتصال العابرة (180ث) بهامش، وأقصر بكثير من الكنّاس الدوري */
+const CARD_SEAT_DISCONNECT_GHOST_MS = 4 * 60 * 1000;
+
+/** نسخة من الغرفة تُخفي مقاعد المنقطعين طويلاً — البطاقات لا تعرض أبداً شخصاً
+ *  انقطع جهازه منذ دقائق حتى لو كانت عقدة الشبح بانتظار الكنّاس (طلب المالك:
+ *  «متصل» حيّ وصادق، لا وهمي ولا متأخر). لا يغيّر منطق الغرفة الداخلي شيئاً. */
+function sanitizeRoomForCard(room: Room | null): Room | null {
+  if (!room?.seats) return room;
+  const now = Date.now();
+  let changed = false;
+  const seats: NonNullable<Room['seats']> = {};
+  for (const [key, seat] of Object.entries(room.seats)) {
+    const disconnectedAt =
+      typeof (seat as { disconnectedAt?: number })?.disconnectedAt === 'number'
+        ? Number((seat as { disconnectedAt?: number }).disconnectedAt)
+        : 0;
+    if (seat?.uid && disconnectedAt > 0 && now - disconnectedAt > CARD_SEAT_DISCONNECT_GHOST_MS) {
+      seats[key] = { ...seat, uid: '' };
+      changed = true;
+    } else {
+      seats[key] = seat;
+    }
+  }
+  return changed ? { ...room, seats } : room;
+}
+
 function buildPresenceSnapshot(
   room: Room | null,
   audience: RoomAudienceMember[],
   audienceUids: Set<string>,
 ): AgencyRoomPresenceSnapshot {
-  const micCount = room ? countFilledSeats(room) : 0;
-  const totalCount = derivePresenceCount(room, audience, audienceUids);
-  const audienceOnly = audience.filter((a) => !isUidOnMic(a.uid, room));
+  const cardRoom = sanitizeRoomForCard(room);
+  const micCount = cardRoom ? countFilledSeats(cardRoom) : 0;
+  const totalCount = derivePresenceCount(cardRoom, audience, audienceUids);
   return {
-    faces: buildAgencyRoomPresenceFaces(room, audience, 4),
+    faces: buildAgencyRoomPresenceFaces(cardRoom, audience, 4),
     micCount,
     audienceCount: Math.max(0, totalCount - micCount),
     totalCount,
