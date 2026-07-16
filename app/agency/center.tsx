@@ -90,7 +90,9 @@ export default function AgencyCenterScreen() {
 
   // فتح فوري: ابدأ من آخر وكالة مخزّنة (إن وُجدت) بدل انتظار أول لقطة من Firestore
   const cachedAgency = getCachedMyAgency();
-  const [tab, setTab] = useState<Tab>('income');
+  // نبدأ من تبويب «إدارة الوكالة» (الخيارات السبعة) لا «الدخل» — هو ما يتوقّعه المالك
+  // عند فتح مركز الوكالة (كان يفتح على الدخل فيبدو أنّ لوحة الإدارة مفقودة).
+  const [tab, setTab] = useState<Tab>('management');
   const [agency, setAgency] = useState<Agency | null>(cachedAgency);
   const [summary, setSummary] = useState<AgencyEarningsSummary | null>(null);
   const [period, setPeriod] = useState<Period>('week');
@@ -281,8 +283,11 @@ export default function AgencyCenterScreen() {
     );
   }
 
-  // وكالة معلّقة (تمّت الموافقة لكن لم تكتمل المضيفات بعد)
-  if (agency.status === 'pending' || agency.status === 'expired') {
+  // وكالة منتهية فقط تُظهر شاشة الحالة الكاملة (طريق مسدود). الوكالة «المعلّقة»
+  // (تمّت الموافقة لكن لم تكتمل المضيفات) لم تعد تحجب لوحة الإدارة عن المالك —
+  // تسقط للوحة الكاملة أدناه مع شريط تقدّم التوظيف داخلها (كان المالك يهبط على
+  // «دعوة مضيفات» بدل لوحة الإدارة). راجع البانر المعلّق داخل ScrollView أدناه.
+  if (agency.status === 'expired') {
     const isExpired = agency.status === 'expired';
     const femaleCount = (agency as any).femaleHostCount ?? 0;
     const minRequired = (agency as any).minHostsRequired ?? 10;
@@ -481,6 +486,40 @@ export default function AgencyCenterScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={lu.colors.purple} />
         }
       >
+        {agency.status === 'pending' ? (
+          <View style={[styles.emptyCard, { marginTop: 0, marginBottom: 12, paddingVertical: 14, alignItems: 'stretch' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+              <Clock size={18} color={lu.colors.pink} strokeWidth={2} />
+              <Text weight="bold" style={{ color: lu.colors.ink, flex: 1, marginHorizontal: 8 }}>
+                {t('agency.statusPending')}
+              </Text>
+              {((agency as any).hostsDeadline ?? 0) > 0 && (
+                <Text style={[styles.deadlineText, (Math.max(0, Math.ceil((((agency as any).hostsDeadline ?? 0) - Date.now()) / 86_400_000)) <= 2) && { color: '#EF4444' }]}>
+                  {t('agency.daysLeft', { count: Math.max(0, Math.ceil((((agency as any).hostsDeadline ?? 0) - Date.now()) / 86_400_000)) })}
+                </Text>
+              )}
+            </View>
+            <View style={styles.progressLabelRow}>
+              <Text style={styles.progressLabel}>{t('agency.hostsProgress')}</Text>
+              <Text weight="bold" style={[styles.progressLabel, { color: (((agency as any).femaleHostCount ?? 0) >= ((agency as any).minHostsRequired ?? 10)) ? lu.colors.mint : lu.colors.pink }]}>
+                {(agency as any).femaleHostCount ?? 0} / {(agency as any).minHostsRequired ?? 10}
+              </Text>
+            </View>
+            <View style={styles.progressBar}>
+              <View style={[styles.progressFill, { width: `${Math.min(100, Math.round((((agency as any).femaleHostCount ?? 0) / ((agency as any).minHostsRequired ?? 10)) * 100))}%` as any }]} />
+            </View>
+            {agency.inviteCode ? (
+              <Pressable onPress={copyInviteCode} style={[styles.inviteCodeBox, { marginTop: 12 }]} hitSlop={8}>
+                <View style={styles.inviteCodeInner}>
+                  <KeyRound size={16} color={lu.colors.purple} strokeWidth={2} />
+                  <Text weight="bold" style={styles.inviteCodeText}>{agency.inviteCode}</Text>
+                  <Copy size={16} color={lu.colors.purple} />
+                </View>
+                <Text style={styles.inviteCodeHint}>{t('agency.tapToCopyCode')}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
         {tab === 'income' ? (
           <IncomeTab
             agency={agency}

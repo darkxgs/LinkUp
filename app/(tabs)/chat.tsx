@@ -45,6 +45,8 @@ import i18n from '@/localization/i18n';
 
 import { lu } from '@/theme/lu-brand';
 import { useThemeMode } from '@/stores/themeStore';
+import { usePresenceForUids } from '@/hooks/usePresence';
+import { isUserOnline as isOnlineAt, resolveLastSeenMs } from '@/utils/presence';
 
 import {
   subscribeToConversations,
@@ -213,6 +215,19 @@ export default function ChatListScreen() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [peerProfiles, setPeerProfiles] = useState<Map<string, UserDoc | null>>(new Map());
+
+  // حضور مباشر من RTDB لأطراف المحادثات (نفس مسار الرئيسية) — يجعل قائمة/عدّ
+  // «متصل» والنقطة الخضراء حيّة وصحيحة بدل علم isOnline المجمّد وقت لقطة الرسائل.
+  const { presenceMap, now: presenceNow } = usePresenceForUids(conversationPeerUids);
+  const isConvPeerOnline = useCallback(
+    (c: Conversation) => {
+      const otherUid = c.participants.find((p) => p !== currentUser?.uid) ?? '';
+      if (!otherUid) return false;
+      const lastSeen = resolveLastSeenMs(peerProfiles.get(otherUid)?.lastSeen, presenceMap[otherUid]);
+      return isOnlineAt(lastSeen, presenceNow);
+    },
+    [currentUser?.uid, peerProfiles, presenceMap, presenceNow],
+  );
 
   const conversationPeerUidsKey = useMemo(
     () => conversationPeerUids.slice().sort().join(','),
@@ -509,6 +524,7 @@ export default function ChatListScreen() {
         <View>
           <ConversationRow
             conv={item}
+            livePresenceOnline={isConvPeerOnline(item)}
             currentUid={currentUser?.uid}
             isSmall={isSmall}
             dark={isDark}
@@ -530,7 +546,7 @@ export default function ChatListScreen() {
       </View>
       );
     },
-    [currentUser?.uid, isSmall, t, lang, isDark, isInRoom, handleAvatarTrackPress, handleConversationMenu, handleOpenConversation, selectMode, selectedConvIds, handleToggleSelectConv],
+    [currentUser?.uid, isSmall, t, lang, isDark, isInRoom, handleAvatarTrackPress, handleConversationMenu, handleOpenConversation, selectMode, selectedConvIds, handleToggleSelectConv, isConvPeerOnline],
   );
 
   const filterCounts = useMemo(() => {
@@ -543,10 +559,10 @@ export default function ChatListScreen() {
       // كان يَعُدّ محادثات الأصدقاء فقط فيخالف عدد الأصدقاء بالحساب
       friends: friendUids.size,
       unread: active.reduce((sum, c) => sum + (c.unreadBy?.[uid] ?? 0), 0),
-      online: active.filter((c) => c.isOnline).length,
+      online: active.filter((c) => isConvPeerOnline(c)).length,
       pinned: active.filter((c) => c.pinnedBy?.[uid] === true).length,
     };
-  }, [conversations, currentUser?.uid, friendUids]);
+  }, [conversations, currentUser?.uid, friendUids, isConvPeerOnline]);
 
   const filteredConvs = useMemo(() => {
     const uid = currentUser?.uid ?? '';
@@ -564,7 +580,7 @@ export default function ChatListScreen() {
       } else if (filterMode === 'unread') {
         list = list.filter((c) => (c.unreadBy?.[uid] ?? 0) > 0);
       } else if (filterMode === 'online') {
-        list = list.filter((c) => c.isOnline === true);
+        list = list.filter((c) => isConvPeerOnline(c));
       } else if (filterMode === 'pinned') {
         list = list.filter((c) => c.pinnedBy?.[uid] === true);
       }
@@ -578,7 +594,7 @@ export default function ChatListScreen() {
       const last = (c.lastMessage ?? '').toLowerCase();
       return name.includes(q) || last.includes(q);
     });
-  }, [conversations, searchQuery, filterMode, currentUser?.uid, friendUids]);
+  }, [conversations, searchQuery, filterMode, currentUser?.uid, friendUids, isConvPeerOnline]);
 
   const showFriendsStrip = filterMode === 'all' || filterMode === 'friends';
 
@@ -1195,6 +1211,7 @@ function FriendChip({
 
 const ConversationRow = memo(function ConversationRow({
   conv,
+  livePresenceOnline,
   currentUid,
   isSmall,
   t,
@@ -1206,6 +1223,7 @@ const ConversationRow = memo(function ConversationRow({
   onTogglePin,
 }: {
   conv: Conversation;
+  livePresenceOnline?: boolean;
   currentUid?: string;
   isSmall: boolean;
   t: (key: string, opts?: any) => string;
@@ -1236,7 +1254,7 @@ const ConversationRow = memo(function ConversationRow({
   const grad = gradFor(otherUid);
   const initial = (name ?? '?').trim().charAt(0) || '★';
   const avSize = isSmall ? 48 : 52;
-  const online = conv.isOnline;
+  const online = livePresenceOnline ?? conv.isOnline;
 
   return (
     <View>

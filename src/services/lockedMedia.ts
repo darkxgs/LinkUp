@@ -121,11 +121,24 @@ export const sendLockedMediaMessage = async (
     throw new Error('BLOCKED');
   }
 
+  // الصور المقفلة/المؤقتة كانت تُرفع بدقّة كاملة بلا ضغط (بخلاف مسار الصور العادي
+  // sendImageMessage) فتتأخّر كثيراً بالوصول للطرف الآخر — نضغطها بنفس الإعداد
+  // (1280px/JPEG q0.72) قبل الرفع. الصور فقط؛ الصوت/الفيديو يجب ألا يمرّا بالضغط
+  // (compressImageForUpload يعيد ترميزهما JPEG فيُفسدهما). يعود للأصل عند فشل الضغط.
+  let uploadUri = localUri;
+  if (mediaType === 'image') {
+    const { compressImageForUpload, COMPRESS_PRESETS } = await import('@/utils/imageCompress');
+    uploadUri = await compressImageForUpload(localUri, COMPRESS_PRESETS.chat);
+  }
+
   const ts = Date.now();
-  const ext = localUri.split('.').pop()?.toLowerCase() ??
-    (mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : 'm4a');
+  // بعد الضغط تصبح الصورة JPEG دائماً — نثبّت الامتداد/النوع ليطابق كائن Storage.
+  const ext =
+    mediaType === 'image' ? 'jpg' :
+    localUri.split('.').pop()?.toLowerCase() ??
+      (mediaType === 'video' ? 'mp4' : 'm4a');
   const contentType =
-    mediaType === 'image' ? `image/${ext}` :
+    mediaType === 'image' ? 'image/jpeg' :
     mediaType === 'video' ? `video/${ext}` :
     'audio/m4a';
 
@@ -141,7 +154,7 @@ export const sendLockedMediaMessage = async (
       : null;
 
   const [mediaUrl, videoThumbnail] = await Promise.all([
-    uploadMedia(localUri, mediaPath, contentType),
+    uploadMedia(uploadUri, mediaPath, contentType),
     thumbPath
       ? uploadMedia(thumbnailUri!, thumbPath, 'image/jpeg').catch(() => undefined)
       : Promise.resolve(undefined),

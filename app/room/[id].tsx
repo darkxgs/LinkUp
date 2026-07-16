@@ -491,12 +491,15 @@ export default function RoomScreen() {
   const [toolbarHeight, setToolbarHeight] = useState(0);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvent, (e) => {
+    // أندرويد يتكفّل برفع الشريط فوق الكيبورد عبر adjustResize الأصلي. مستمع JS
+    // كان يعيد تخطيط حقل الإدخال (paddingBottom) مع كل حدث كيبورد فيتقاتل مع الـIME
+    // على سامسونج (وميض فتح/قفل + شاشة سوداء). نُبقيه على iOS فقط حيث يُضاف
+    // keyboardHeight صراحةً للحشوة (سطر ~5030)؛ على أندرويد يبقى 0 بلا إعادة تخطيط.
+    if (Platform.OS !== 'ios') return;
+    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
       setKeyboardHeight(e.endCoordinates.height);
     });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
+    const hideSub = Keyboard.addListener('keyboardWillHide', () => {
       setKeyboardHeight(0);
     });
     return () => { showSub.remove(); hideSub.remove(); };
