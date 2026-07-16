@@ -48,7 +48,9 @@ const IS_RTL = I18nManager.isRTL;
 const ROW = 'row';
 const START = IS_RTL ? 'right' : 'left';
 const WD = IS_RTL ? 'rtl' : 'ltr';
-const END_SIDE = IS_RTL ? 'left' : 'right'; // للعناصر المطلقة (FAB)
+// زر إنشاء المنشور على اليسار الفعلي (طلب المالك 2026-07-16 — كان على اليمين):
+// مع فرض RTL يعكس RN قيم left/right للعناصر المطلقة، فقيمة 'right' هنا تُرسم يساراً.
+const END_SIDE = IS_RTL ? 'right' : 'left'; // للعناصر المطلقة (FAB)
 
 const PAGE_BG = '#F7F7F9';
 const INK = '#15151A';
