@@ -41,6 +41,8 @@
     "android": {
       "package": "com.linkup.app",
       "versionCode": 10,
+      "backgroundColor": "#0A0506",
+      "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services1.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png"

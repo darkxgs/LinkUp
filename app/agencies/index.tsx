@@ -152,6 +152,16 @@ export default function AgenciesScreen() {
       setShowJoinModal(false);
       setJoinCode('');
 
+      // الانضمام بالكود صار طلباً معلّقاً بانتظار موافقة الوكيل (تدفق الموافقة
+      // المُفعَّل) — كانت الرسالة تقول «أصبحت عضواً» زوراً ثم يجد «ليس لديك وكالة بعد»
+      if ((result as { pending?: boolean }).pending) {
+        Alert.alert(
+          t('agency.text451502'),
+          t('agency.joinPendingApproval', 'تم إرسال طلب الانضمام — بانتظار موافقة الوكيل'),
+        );
+        return;
+      }
+
       if (result.needsGenderVerification) {
         Alert.alert(
           t('agency.text451502'),

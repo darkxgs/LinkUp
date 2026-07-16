@@ -203,7 +203,23 @@ export function RoomBottomToolbar({
   const pillPadV = tight ? 5 : 6;
   // يتوسّع الشريط فقط أثناء تركيز حقل الكتابة — لا بمجرد وجود نص
   const [focused, setFocused] = useState(false);
-  const expanded = focused;
+  // أندرويد: نؤجّل تبديل الأزرار (توسّع الحقل) حتى يستقر فتح الكيبورد —
+  // إعادة تخطيط حقل مركّز أثناء حركة الـIME كانت تعيد تشغيل InputConnection
+  // على Gboord/سامسونج فيغلق الكيبورد ويعيد الفتح (وميض متواصل + فراغ أبيض)
+  const [expandedVisual, setExpandedVisual] = useState(false);
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      setExpandedVisual(focused);
+      return;
+    }
+    if (!focused) {
+      setExpandedVisual(false);
+      return;
+    }
+    const tm = setTimeout(() => setExpandedVisual(true), 300);
+    return () => clearTimeout(tm);
+  }, [focused]);
+  const expanded = expandedVisual;
   const kbUp = keyboardHeight > 0;
   const restingPad = Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 8);
   const bottomPad = kbUp
@@ -277,6 +293,10 @@ export function RoomBottomToolbar({
               gap: rowGap,
               paddingHorizontal: pillPadH,
               paddingVertical: pillPadV,
+              // ارتفاع ثابت عبر حالتَي التركيز: أطول عنصر (أيقونة الهدية) يحدّد
+              // ارتفاع الراحة — تبديل الأزرار عند التركيز كان يغيّر ارتفاع الشريط
+              // فيُعاد تخطيط الشاشة كلها أثناء فتح الكيبورد (محرك الوميض)
+              minHeight: giftSize + pillPadV * 2,
             },
           ]}
         >

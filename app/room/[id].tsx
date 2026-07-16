@@ -4657,12 +4657,18 @@ export default function RoomScreen() {
     if (!agencyInvitePopup) return;
     setAgencyInviteLoading(true);
     try {
-      await acceptDirectAgencyInvite(agencyInvitePopup.id);
+      const inviteResult = (await acceptDirectAgencyInvite(agencyInvitePopup.id)) as
+        | { pendingAgentConfirm?: boolean }
+        | undefined;
       setAgencyInvitePopup(null);
       showAlert({
         type: 'success',
         title: t('common.done'),
-        message: t('room.inviteAgencyAccepted'),
+        // مصافحة الطرفين: قبولك قد يبقى بانتظار تأكيد الوكيل النهائي — لا نقل
+        // «تم القبول بنجاح» زوراً (كان يظهر عضواً ثم «ليس لديك وكالة بعد»)
+        message: inviteResult?.pendingAgentConfirm
+          ? t('agency.joinPendingApproval', 'تم إرسال طلب الانضمام — بانتظار موافقة الوكيل')
+          : t('room.inviteAgencyAccepted'),
       });
     } catch (e: unknown) {
       showAlert({
@@ -5334,7 +5340,11 @@ export default function RoomScreen() {
       <RoomBottomToolbar
         dockCollapsed={dockCollapsed}
         onToggleDock={toggleDockCollapsed}
-        onLayoutHeight={setToolbarHeight}
+        onLayoutHeight={(h) =>
+          // تجاهل اهتزاز القياس (<2px) أثناء حركة الكيبورد — كان يعيد تخطيط
+          // الشاشة كاملة مع كل إطار من حركة الـIME فيغذّي وميض الكيبورد
+          setToolbarHeight((prev) => (Math.abs(h - prev) > 1 ? h : prev))
+        }
         keyboardHeight={keyboardHeight}
         chatText={chatText}
         onChangeChat={handleChangeChat}

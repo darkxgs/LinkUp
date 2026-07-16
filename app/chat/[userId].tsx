@@ -900,6 +900,12 @@ function PersonalChatScreen({ userId }: { userId: string }) {
   };
   const handleCall = useCallback(async (type: 'voice' | 'video') => {
     if (!userId || !user?.uid || !otherUser) return;
+    // لا اتصال (صوت/فيديو) بالوكلاء (طلب المالك 2026-07-16) — يحرس أيضاً
+    // زر إعادة الاتصال في سجل المكالمات وأي مسار آخر يمر من هنا
+    if (isAgencyAgent(otherUser)) {
+      Alert.alert(t('common.error'), t('chat.cannotCallAgent', 'لا يمكن الاتصال بالوكلاء'));
+      return;
+    }
     if (!canMakeCalls) {
       Alert.alert(
         t('common.error'),
@@ -1655,8 +1661,8 @@ function PersonalChatScreen({ userId }: { userId: string }) {
         </Pressable>
       )}
 
-      {/* مكالمات سريعة — نفس الوظائف السابقة */}
-      {!chatBlocked && !isSupportAccount(userId ?? '') && canMakeCalls ? (
+      {/* مكالمات سريعة — تُخفى كلياً عند الوكلاء (لا صوت ولا فيديو للوكيل) */}
+      {!chatBlocked && !isSupportAccount(userId ?? '') && canMakeCalls && !isAgencyAgent(otherUser) ? (
         <View style={styles.quickActions}>
           <Pressable
             onPress={() => handleCall('voice')}
