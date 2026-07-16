@@ -92,7 +92,10 @@ export const uploadImage = async (
   skipCompress = false,
 ): Promise<string> => {
   const user = await ensureUploadAuth();
-  const preset = skipCompress ? undefined : COMPRESS_BY_FOLDER[folder];
+  const rawExt = getExtension(uri);
+  const isGif = rawExt === 'gif';
+  // skipCompress: keep PNG transparency; GIF: keep animation (SVIP animated avatar)
+  const preset = skipCompress || isGif ? undefined : COMPRESS_BY_FOLDER[folder];
   let uploadUri = uri;
   try {
     uploadUri = preset ? await compressImageForUpload(uri, preset) : uri;
@@ -100,7 +103,7 @@ export const uploadImage = async (
     uploadUri = uri;
   }
 
-  const ext = preset ? 'jpg' : getExtension(uploadUri);
+  const ext = isGif ? 'gif' : (preset ? 'jpg' : getExtension(uploadUri));
   const contentType = guessImageContentType(uploadUri, ext);
   const fileName = generateFileName(user.uid, ext);
   const path = `${folder}/${user.uid}/${fileName}`;

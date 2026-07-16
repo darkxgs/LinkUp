@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { X, ChevronDown, Volume2, Gift } from 'lucide-react-native';
+import { X, ChevronDown, Volume2, Gift, Crown } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Image } from 'expo-image';
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
@@ -57,6 +57,7 @@ type GiftCellProps = {
 const GiftCell = memo(
   function GiftCell({ gift, selected, colW, onSelect }: GiftCellProps) {
     const hasSound = giftHasSound(gift);
+    const isVipExclusive = (gift.requiredVipLevel ?? 0) > 0;
     const thumbSize = colW * 0.5;
     const animate = selected && isAnimatedGiftType(gift) && giftHasGifAnimation(gift);
 
@@ -68,6 +69,11 @@ const GiftCell = memo(
         {hasSound ? (
           <View style={styles.soundBadge}>
             <Volume2 size={9} color="#D97706" strokeWidth={2.5} />
+          </View>
+        ) : null}
+        {isVipExclusive ? (
+          <View style={styles.vipBadge}>
+            <Crown size={9} color="#B45309" strokeWidth={2.5} />
           </View>
         ) : null}
         <View style={[styles.giftThumb, { backgroundColor: `${gift.iconColor}22` }]}>
@@ -313,8 +319,11 @@ export function RoomGiftPickerModal({
     void preloadGiftSound(selectedGift.soundUrl!.trim());
   }, [visible, selectedGift?.id, selectedGift?.soundUrl]);
 
+  const hasVipGifts = useMemo(() => gifts.some((g) => (g.requiredVipLevel ?? 0) > 0), [gifts]);
+
   const filtered = useMemo(() => {
     if (activeCategory === 'all') return gifts;
+    if (activeCategory === '__vip__') return gifts.filter((g) => (g.requiredVipLevel ?? 0) > 0);
     return gifts.filter((g) => g.category === activeCategory);
   }, [gifts, activeCategory]);
 
@@ -539,6 +548,20 @@ export function RoomGiftPickerModal({
                 {t('common.all')}
               </RNText>
             </Pressable>
+            {hasVipGifts ? (
+              <Pressable
+                onPress={() => setActiveCategory('__vip__')}
+                style={[styles.catPill, activeCategory === '__vip__' && styles.catPillActive]}
+              >
+                {activeCategory === '__vip__' ? (
+                  <LinearGradient colors={['#F59E0B', '#B45309']} style={StyleSheet.absoluteFill} />
+                ) : null}
+                <Crown size={12} color={activeCategory === '__vip__' ? '#fff' : '#F59E0B'} strokeWidth={2.5} style={{ marginRight: 3 }} />
+                <RNText style={[styles.catText, activeCategory === '__vip__' && styles.catTextActive]} numberOfLines={1}>
+                  VIP
+                </RNText>
+              </Pressable>
+            ) : null}
             {categories.map((c) => {
               const active = activeCategory === c.id;
               return (
@@ -940,6 +963,18 @@ const styles = StyleSheet.create({
     height: 16,
     borderRadius: 8,
     backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vipBadge: {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    zIndex: 2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FDE68A',
     alignItems: 'center',
     justifyContent: 'center',
   },

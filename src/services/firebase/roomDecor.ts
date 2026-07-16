@@ -264,10 +264,19 @@ export const clearRoomFrame = async (roomId: string): Promise<void> => {
   await updateRoomSettings(roomId, { frameId: '' });
 };
 
-/** تفعيل خلفية على الروم (مجانية) */
+/** تفعيل خلفية على الروم — يتطلب امتياز SVIP «خلفية الغرفة» أو غرفة وكالة */
 export const applyBackgroundToRoom = async (
   roomId: string,
   imageUrl: string,
+  opts?: { skipVipCheck?: boolean },
 ): Promise<void> => {
+  if (!opts?.skipVipCheck) {
+    const user = auth.currentUser;
+    if (!user) throw new Error('يجب تسجيل الدخول');
+    const { checkUserHasVipFeature } = await import('./vipSystem');
+    if (!(await checkUserHasVipFeature(user.uid, 'roomBackground'))) {
+      throw new Error('هذا الامتياز حصري لأعضاء SVIP المؤهّلين');
+    }
+  }
   await updateRoomSettings(roomId, { background: imageUrl });
 };

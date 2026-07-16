@@ -88,7 +88,7 @@ import {
   shouldHideWealthLevel,
   shouldHideSvipIdentity,
 } from '@/utils/privacyDisplay';
-import { hasVipPrivilege, resolveVipPrivilegeAsset } from '@/services/firebase/vipSystem';
+import { hasVipPrivilege, resolveVipPrivilegeAsset, getEffectiveVipLevel } from '@/services/firebase/vipSystem';
 import { resolveAgencyPrinceBadgeForUser } from '@/services/firebase/agencyPrinceBadge';
 import { ProfileImageBadge } from '@/components/profile/ProfileBadgesRow';
 import { resolveAristocracyBadgeUrl } from '@/services/firebase/aristocracySystem';
@@ -416,7 +416,7 @@ export default function UserProfileScreen() {
     getCountryByCode(profile.country)?.name ?? profile.country ?? '—';
   const level = resolveWealthLevel(profile as unknown as Record<string, unknown>);
   const xp = statsFromFirestoreDoc(profile as unknown as Record<string, unknown>).xp;
-  const vipLevel = profile.vipLevel ?? 0;
+  const vipLevel = getEffectiveVipLevel(profile as unknown as Record<string, unknown>);
   const vipLabel = `SVIP${vipLevel}`;
   const agencyRole = (profile as unknown as { agency?: { role?: string } }).agency?.role;
   const profilePrivacy = getUserPrivacy(profile as unknown as Record<string, unknown>);
