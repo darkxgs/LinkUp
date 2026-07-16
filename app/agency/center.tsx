@@ -62,7 +62,6 @@ import {
   getAgencyLevelProgress,
   getAgencyLevelDef,
 } from '@/services/agencyLevels';
-import { getAgencyPeriodWeekKey } from '@/services/agencyService';
 import { useAgencyLevelsConfig } from '@/hooks/useAgencyLevelsConfig';
 import {
   subscribeToAgencyChat,
@@ -568,11 +567,10 @@ function IncomeTab({
   const [isExpanded, setIsExpanded] = useState(false);
   const levelsConfig = useAgencyLevelsConfig();
 
+  // مستوى الوكالة تراكمي دائم — كل كوينز الدعم تُحسب للأبد ولا تُصفَّر أسبوعياً
   const periodSupportCoins = useMemo(() => {
     if (!agency) return 0;
-    const weekKey = getAgencyPeriodWeekKey();
-    if (String(agency.periodSupportWeekKey ?? '') !== weekKey) return 0;
-    return Math.max(0, Number(agency.periodSupportCoins) || 0);
+    return Math.max(0, Number(agency.lifetimeSupportCoins) || 0);
   }, [agency]);
 
   const totalEarnings = summary?.totalEarnings ?? 0;

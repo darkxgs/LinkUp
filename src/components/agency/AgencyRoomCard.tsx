@@ -89,12 +89,27 @@ function AudienceStat({
   );
 }
 
+/** شارة مستوى الوكالة أسفل صورة الوكالة (مثل LV9) */
+function LevelPill({ label }: { label: string }) {
+  return (
+    <LinearGradient
+      colors={['#8B5CF6', '#5B21B6']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.levelPill}
+    >
+      <RNText style={styles.levelPillText}>{label}</RNText>
+    </LinearGradient>
+  );
+}
+
 export const AgencyRoomCard = React.memo(function AgencyRoomCard({
   agency,
   room,
   width,
   layout,
   supportPercent,
+  levelLabel,
   frameUrl,
   hasActiveLuckyBag = false,
   presence,
@@ -106,6 +121,8 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
   width: number;
   layout: AgencyCardLayout;
   supportPercent: number;
+  /** شارة مستوى الوكالة أسفل الصورة (مثل "LV9") — تُخفى إن غابت */
+  levelLabel?: string;
   frameUrl?: string;
   /** حقيبة حظ نشطة داخل غرفة الوكالة */
   hasActiveLuckyBag?: boolean;
@@ -142,14 +159,21 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
     const thumbW = 92;
     return (
       <Pressable onPress={onPress} style={[styles.listCard, dark && styles.listCardDark, { width }]}>
-        <FramedAgencyCover
-          imageUri={thumb}
-          frameUri={resolvedFrame}
-          width={thumbW}
-          aspect={1}
-          fallbackGrad={grad}
-          borderRadius={8}
-        />
+        <View>
+          <FramedAgencyCover
+            imageUri={thumb}
+            frameUri={resolvedFrame}
+            width={thumbW}
+            aspect={1}
+            fallbackGrad={grad}
+            borderRadius={8}
+          />
+          {levelLabel ? (
+            <View style={styles.levelPillWrap} pointerEvents="none">
+              <LevelPill label={levelLabel} />
+            </View>
+          ) : null}
+        </View>
 
         <View style={styles.listBody}>
           <View style={styles.listTitleRow}>
@@ -228,6 +252,11 @@ export const AgencyRoomCard = React.memo(function AgencyRoomCard({
         {showLive ? (
           <View style={styles.gridPartyBottom}>
             <PartyPill />
+          </View>
+        ) : null}
+        {levelLabel ? (
+          <View style={styles.levelPillWrap} pointerEvents="none">
+            <LevelPill label={levelLabel} />
           </View>
         ) : null}
       </FramedAgencyCover>
@@ -422,6 +451,30 @@ const styles = StyleSheet.create({
     bottom: 10,
     start: 10,
     zIndex: 4,
+  },
+  // شارة المستوى — منتصف الحافة السفلية لصورة الوكالة (مثل مرجع LV9)
+  levelPillWrap: {
+    position: 'absolute',
+    bottom: -2,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  levelPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.55)',
+  },
+  levelPillText: {
+    color: '#fff',
+    fontSize: 9.5,
+    fontWeight: '900',
+    fontFamily: lu.fonts.bodyHeavy,
+    includeFontPadding: false,
+    letterSpacing: 0.3,
   },
   gridFooter: {
     flexDirection: 'row',

@@ -55,6 +55,11 @@ export interface Agency {
   description: string;
   periodSupportCoins?: number;
   periodSupportWeekKey?: string;
+  /** كوينز دعم المستوى التراكمي الدائم — لا يُصفَّر (يكتبه الخادم حصرياً) */
+  lifetimeSupportCoins?: number;
+  /** تثبيت المستوى يدوياً من لوحة التحكم */
+  periodLevel?: number;
+  periodLevelManual?: boolean;
   /** إطار بطاقة الوكالة في قائمة الغرف */
   cardFrameId?: string;
   cardFrameUrl?: string;
@@ -95,6 +100,9 @@ function mapAgencyDoc(id: string, data: Record<string, unknown>, index: number):
     periodSupportWeekKey: data.periodSupportWeekKey
       ? String(data.periodSupportWeekKey)
       : undefined,
+    lifetimeSupportCoins: Number(data.lifetimeSupportCoins ?? 0) || 0,
+    periodLevel: data.periodLevel != null ? Number(data.periodLevel) || 0 : undefined,
+    periodLevelManual: data.periodLevelManual === true,
     cardFrameId: data.cardFrameId ? String(data.cardFrameId) : undefined,
     cardFrameUrl: data.cardFrameUrl ? String(data.cardFrameUrl) : undefined,
     cardBackgroundUrl: data.cardBackgroundUrl ? String(data.cardBackgroundUrl) : undefined,

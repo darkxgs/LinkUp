@@ -41,7 +41,6 @@ import { countFilledSeats, type Room } from '@/services/firebase/rooms';
 import {
   subscribeToAgencyMembers,
   subscribeToAgencyById,
-  getAgencyPeriodWeekKey,
   type Agency,
   type AgencyMember,
 } from '@/services/agencyService';
@@ -283,11 +282,10 @@ export function RoomInformationModal({
     return assignableRolesForUid(uid).length > 0;
   };
 
+  // مستوى الوكالة تراكمي دائم — لا يُصفَّر أسبوعياً
   const periodSupportCoins = useMemo(() => {
     if (!agencyDoc) return 0;
-    const weekKey = getAgencyPeriodWeekKey();
-    if (String(agencyDoc.periodSupportWeekKey ?? '') !== weekKey) return 0;
-    return Math.max(0, Number(agencyDoc.periodSupportCoins) || 0);
+    return Math.max(0, Number(agencyDoc.lifetimeSupportCoins) || 0);
   }, [agencyDoc]);
 
   const agencyLevelProgress = useMemo(() => {

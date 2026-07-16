@@ -79,6 +79,8 @@ export interface Agency {
   /** دعم الفترة الحالية (كوينز هدايا داخل الوكالة) */
   periodSupportCoins?: number;
   periodSupportWeekKey?: string;
+  /** كوينز دعم المستوى التراكمي الدائم — لا يُصفَّر أبداً (يكتبه الخادم حصرياً) */
+  lifetimeSupportCoins?: number;
   /** كوينز العمل المتراكمة لمحفظة راتب الوكيل (لا تُصفَّر أسبوعياً) */
   walletWorkCoins?: number;
   /** آخر شهر تم فيه سحب راتب الوكيل (YYYY-MM) — يمنع تكرار السحب */
@@ -311,16 +313,17 @@ async function loadAgencyLevelsConfigDoc(): Promise<AgencyLevelsRuntimeConfig> {
   }
 }
 
-/** دعم الفترة الحالية بالكوينز */
+/** كوينز دعم المستوى — التراكمي الدائم (قرار المالك 2026-07-16: المستوى لا يُصفَّر
+ *  أبداً؛ كل كوينز الدعم تُحسب للأبد). يكتبه الخادم حصرياً في
+ *  bumpAgencyPeriodSupportOnGiftSent. يغذّي getAgencyPeriodLevel ومنه مزامنة
+ *  مستوى الروم وسقف المشرفين والعرش. */
 export async function getAgencyPeriodSupportCoins(agencyId: string): Promise<number> {
   if (!agencyId) return 0;
   try {
     const snap = await getDoc(doc(firestore, 'agencies', agencyId));
     if (!snap.exists()) return 0;
     const data = snap.data();
-    const weekKey = getAgencyPeriodWeekKey();
-    if (String(data?.periodSupportWeekKey ?? '') !== weekKey) return 0;
-    return Math.max(0, Number(data?.periodSupportCoins) || 0);
+    return Math.max(0, Number(data?.lifetimeSupportCoins) || 0);
   } catch {
     return 0;
   }

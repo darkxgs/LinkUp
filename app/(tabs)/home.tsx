@@ -62,8 +62,11 @@ import {
   type RecentRoom,
 } from '@/services/roomFeatures';
 import { enterAgencyRoomAndNavigate, navigateToRoom } from '@/utils/navigateToRoom';
-import { getAgencyPeriodWeekKey } from '@/services/agencyService';
-import { getAgencyLevelProgress, type AgencyLevelsRuntimeConfig } from '@/services/agencyLevels';
+import {
+  getAgencyLevelProgress,
+  resolveAgencyPeriodLevelIndex,
+  type AgencyLevelsRuntimeConfig,
+} from '@/services/agencyLevels';
 import { useAgencyLevelsConfig } from '@/hooks/useAgencyLevelsConfig';
 import { AgencyRoomCard, type AgencyCardLayout } from '@/components/agency/AgencyRoomCard';
 import {
@@ -115,13 +118,26 @@ function resolveAgencySupportPercent(
   agency: Agency,
   levelsConfig: AgencyLevelsRuntimeConfig,
 ): number {
-  const weekKey = getAgencyPeriodWeekKey();
-  const coins =
-    String(agency.periodSupportWeekKey ?? '') === weekKey
-      ? Math.max(0, Number(agency.periodSupportCoins) || 0)
-      : 0;
+  // مستوى الوكالة تراكمي دائم — التقدّم نحو المستوى التالي من الإجمالي الدائم
+  const coins = Math.max(0, Number(agency.lifetimeSupportCoins) || 0);
   const progress = getAgencyLevelProgress(coins, levelsConfig);
   return Math.round(progress.progressRatio * 100);
+}
+
+/** شارة مستوى الوكالة على البطاقة (مثل "LV9") — يحترم التثبيت اليدوي من لوحة التحكم */
+function resolveAgencyLevelLabel(
+  agency: Agency,
+  levelsConfig: AgencyLevelsRuntimeConfig,
+): string | undefined {
+  const coins = Math.max(0, Number(agency.lifetimeSupportCoins) || 0);
+  const idx = resolveAgencyPeriodLevelIndex(
+    coins,
+    agency.periodLevel,
+    agency.periodLevelManual,
+    levelsConfig,
+  );
+  const level = idx >= 0 ? levelsConfig.levels[idx]?.level ?? 0 : 0;
+  return level >= 1 ? `LV${level}` : undefined;
 }
 
 const FALLBACK_GRADIENTS: readonly (readonly [string, string])[] = [
@@ -557,6 +573,7 @@ export default function RoomsScreen() {
             dark={isDark}
             layout={agencyViewMode}
             supportPercent={resolveAgencySupportPercent(agency, levelsConfig)}
+            levelLabel={resolveAgencyLevelLabel(agency, levelsConfig)}
             frameUrl={frameUrl}
             hasActiveLuckyBag={hasActiveLuckyBag}
             presence={presence}
