@@ -58,8 +58,12 @@ export function resolveEntranceVideoUrls(
 function getEquippedEntranceIdFromUserData(data: Record<string, unknown> | undefined): string | null {
   const raw = data?.equippedEntranceId;
   if (raw === '' || raw === null) return null;
-  if (typeof raw === 'string' && raw.length > 0) return raw;
-  return null;
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  // انتهاء صلاحية الدخولية المجهّزة (تُكتب عند التجهيز؛ 0/غياب = دائمة) — دخولية
+  // منتهية كانت تبقى تعمل لأن هذا المسار السريع لم يكن يتحقق من الصلاحية
+  const exp = Number(data?.equippedEntranceExpiresAt ?? 0) || 0;
+  if (exp > 0 && exp < Date.now()) return null;
+  return raw;
 }
 
 async function fetchEquippedEntranceIdFromInventory(uid: string): Promise<string | null> {
@@ -170,11 +174,9 @@ export async function resolveRoomEntryForUser(
     const staffEntry = resolveStaffRoomEntryFromData(data);
     if (staffEntry) return staffEntry;
 
-    // 2) SVIP entry from equipped entrances / SVIP privilege fallback.
-    const { vipLevel: fallbackVipLevel } = readVipUserState(data);
-    const vipLevel = getEffectiveVipLevel(data) || fallbackVipLevel;
-    if (!userHasRoomEntryPrivilege(vipLevel, privileges)) return null;
-
+    // 2) دخولية المتجر المجهّزة (شراء/هدية) — لا تتطلب SVIP: من اشتراها أو
+    //    أُهديت له يستخدمها ما دامت صلاحيتها سارية (بوابة الـVIP كانت تمنع
+    //    غير الـSVIP من رؤية دخولية اشتراها من المتجر).
     let entranceId = getEquippedEntranceIdFromUserData(data);
     if (!entranceId) {
       entranceId = await fetchEquippedEntranceIdFromInventory(uid);
@@ -191,8 +193,13 @@ export async function resolveRoomEntryForUser(
         videoUrlMp4 = media.videoUrlMp4;
       }
     }
+    if (videoUrl) return { videoUrl, videoUrlMp4 };
 
-    // Fallback to SVIP entrance privilege if no custom entrance is equipped
+    // 3) امتياز دخولية SVIP الافتراضي — هذا وحده يتطلب مستوى الـVIP المناسب
+    const { vipLevel: fallbackVipLevel } = readVipUserState(data);
+    const vipLevel = getEffectiveVipLevel(data) || fallbackVipLevel;
+    if (!userHasRoomEntryPrivilege(vipLevel, privileges)) return null;
+
     if (!videoUrl) {
       const activeEntryPriv = vipSystem
         ? (resolveVipPrivilegeAsset(vipLevel, 'entryEffect', vipSystem) || resolveVipPrivilegeAsset(vipLevel, 'vipEntry', vipSystem))

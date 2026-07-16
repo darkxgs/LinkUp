@@ -1145,20 +1145,29 @@ export const toggleEquipItem = async (
   if (currentDoc.exists()) {
     const wasEquipped = currentDoc.data().isEquipped === true;
     const nextEquipped = !wasEquipped;
+    const expiresAt = Number(currentDoc.data().expiresAt ?? 0) || 0;
+    // لا يجوز تفعيل عنصر انتهت صلاحيته (مدة الصلاحية يحددها الأدمن لكل منتج)
+    if (nextEquipped && expiresAt > 0 && expiresAt < Date.now()) {
+      throw new Error('انتهت صلاحية هذا العنصر — لا يمكن تفعيله');
+    }
     await updateDoc(currentRef, {
       isEquipped: nextEquipped,
     });
 
+    // نكتب انتهاء صلاحية العنصر المجهّز على وثيقة المستخدم حتى تتحقق منه مسارات
+    // العرض السريعة (فقاعة/دخولية) بلا قراءة إضافية — 0 = دائم
     if (itemType === 'bubble') {
       const itemId = typeof currentDoc.data().itemId === 'string' ? currentDoc.data().itemId : '';
       await updateDoc(doc(firestore, 'users', user.uid), {
         equippedBubbleId: nextEquipped && itemId ? itemId : '',
+        equippedBubbleExpiresAt: nextEquipped && itemId ? expiresAt : 0,
       });
     }
     if (itemType === 'entrance') {
       const itemId = typeof currentDoc.data().itemId === 'string' ? currentDoc.data().itemId : '';
       await updateDoc(doc(firestore, 'users', user.uid), {
         equippedEntranceId: nextEquipped && itemId ? itemId : '',
+        equippedEntranceExpiresAt: nextEquipped && itemId ? expiresAt : 0,
       });
     }
   }

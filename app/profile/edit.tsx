@@ -31,7 +31,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
-import { X, Camera, HelpCircle, Plus, Mic, Edit3, Check, Trash2, Award, Hash } from 'lucide-react-native';
+import { X, Camera, HelpCircle, Plus, Mic, Edit3, Check, Trash2, Award, Hash, Package } from 'lucide-react-native';
 import { lu } from '@/theme/lu-brand';
 import { ForwardChevron } from '@/components/ui/RtlChevron';
 import i18n from '@/localization/i18n';
@@ -692,6 +692,18 @@ export default function EditProfileScreen() {
               )}
             </Pressable>
           ) : null}
+
+          {/* مقتنياتي — خزانة العناصر المملوكة (إطارات/دخوليات/فقاعات): يعرض كل
+              ما يملكه المستخدم ويختار ماذا يرتدي؛ المنتهي يسقط تلقائياً */}
+          <Pressable
+            onPress={() => router.push('/store/inventory' as any)}
+            style={styles.wardrobeBtn}
+          >
+            <Package size={16} color="#7C3AED" strokeWidth={2.2} />
+            <Text variant="caption" weight="bold" color="#7C3AED">
+              {t('store.myItems', 'مقتنياتي — الإطارات والدخوليات والفقاعات')}
+            </Text>
+          </Pressable>
 
           {/* Albums header */}
           <View style={styles.albumsHeader}>
@@ -1652,6 +1664,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2',
     borderWidth: 1,
     borderColor: '#FECACA',
+  },
+  // زر «مقتنياتي» — مدخل خزانة العناصر من تعديل البروفايل
+  wardrobeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    gap: 6,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radius.full,
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
   },
 
   // Albums

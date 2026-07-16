@@ -13,6 +13,7 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  TextInput,
   useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -45,6 +46,7 @@ import { useAuthStore, type User } from '@/stores/authStore';
 import { purchaseStoreItem, purchaseAndSendStoreItem, getUserInventory, type StoreItem } from '@/services/firebase/shop';
 import { getFollowing } from '@/services/firebase/follow';
 import { getUser } from '@/services/firebase/users';
+import { resolveUserIdentifier } from '@/services/userIdentifier';
 import {
   subscribeToRoomFrames,
   getOwnedFrames,
@@ -209,6 +211,12 @@ export default function StoreScreen() {
   const [sendRecipients, setSendRecipients] = useState<{ uid: string; name: string; avatar?: string }[]>([]);
   const [sendLoading, setSendLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  // إرسال بالـID (سيناريو المالك): تبويب ثانٍ في ورقة الإرسال — نفس نمط GiftRecipientPickerModal
+  const [sendMode, setSendMode] = useState<'friends' | 'id'>('friends');
+  const [sendIdInput, setSendIdInput] = useState('');
+  const [sendIdResolving, setSendIdResolving] = useState(false);
+  const [sendIdPreview, setSendIdPreview] = useState<{ uid: string; name: string; avatar?: string } | null>(null);
+  const [sendIdError, setSendIdError] = useState('');
   const [frameBusy, setFrameBusy] = useState(false);
 
   const equippedFrameId = useMemo(() => {
@@ -329,6 +337,10 @@ export default function StoreScreen() {
     if (!user?.uid) return;
     setSendItem(item);
     setSendRecipients([]);
+    setSendMode('friends');
+    setSendIdInput('');
+    setSendIdPreview(null);
+    setSendIdError('');
     setSendLoading(true);
     try {
       const followingIds = await getFollowing(user.uid, 50);
@@ -348,6 +360,40 @@ export default function StoreScreen() {
       setSendLoading(false);
     }
   }, [user?.uid]);
+
+  // تحقّق من الـID المُدخل (UID كامل أو رقم حساب عام) وأظهر معاينة المستلم قبل الإرسال
+  const handleResolveSendId = useCallback(async () => {
+    const raw = sendIdInput.trim();
+    if (!raw || sendIdResolving) return;
+    setSendIdResolving(true);
+    setSendIdError('');
+    setSendIdPreview(null);
+    try {
+      const uid = await resolveUserIdentifier(raw);
+      if (!uid) {
+        setSendIdError(t('gifts.recipientNotFound'));
+        return;
+      }
+      if (uid === user?.uid) {
+        setSendIdError(t('gifts.cannotSendToSelf'));
+        return;
+      }
+      const profile = await getUser(uid);
+      if (!profile) {
+        setSendIdError(t('gifts.recipientNotFound'));
+        return;
+      }
+      setSendIdPreview({
+        uid: profile.uid,
+        name: profile.displayName || 'مستخدم',
+        avatar: profile.avatar,
+      });
+    } catch {
+      setSendIdError(t('gifts.recipientNotFound'));
+    } finally {
+      setSendIdResolving(false);
+    }
+  }, [sendIdInput, sendIdResolving, user?.uid, t]);
 
   const handleCardBuy = useCallback((item: StoreDisplayItem) => setSelectedItem(item), []);
   const handleCardSend = useCallback((item: StoreDisplayItem) => { void openSendPicker(item); }, [openSendPicker]);
@@ -753,7 +799,81 @@ export default function StoreScreen() {
                 {sendItem.name} · {sendItem.price.toLocaleString('en-US')}
               </Text>
             ) : null}
-            {sendLoading ? (
+
+            {/* تبويبا الإرسال: أصدقاء | بالـID — نفس نمط إرسال الهدايا العادي */}
+            <View style={styles.sendModeTabs}>
+              {(['friends', 'id'] as const).map((mode) => (
+                <Pressable
+                  key={mode}
+                  style={[styles.sendModeTab, sendMode === mode && styles.sendModeTabActive]}
+                  onPress={() => setSendMode(mode)}
+                  disabled={sending}
+                >
+                  <Text
+                    weight="bold"
+                    style={[styles.sendModeTabText, sendMode === mode && styles.sendModeTabTextActive]}
+                  >
+                    {mode === 'friends' ? t('gifts.recipientFriends') : t('gifts.recipientById')}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {sendMode === 'id' ? (
+              <View>
+                <View style={styles.sendIdRow}>
+                  <TextInput
+                    style={styles.sendIdInput}
+                    value={sendIdInput}
+                    onChangeText={(v) => {
+                      setSendIdInput(v);
+                      setSendIdPreview(null);
+                      setSendIdError('');
+                    }}
+                    placeholder={t('gifts.idInputPlaceholder')}
+                    placeholderTextColor="#9CA3AF"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!sending && !sendIdResolving}
+                    onSubmitEditing={() => void handleResolveSendId()}
+                    returnKeyType="search"
+                  />
+                  <Pressable
+                    style={[styles.sendIdCheckBtn, (!sendIdInput.trim() || sendIdResolving) && { opacity: 0.5 }]}
+                    disabled={!sendIdInput.trim() || sendIdResolving || sending}
+                    onPress={() => void handleResolveSendId()}
+                  >
+                    {sendIdResolving ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text weight="bold" style={{ color: '#fff', fontSize: 13 }}>
+                        {t('common.search', 'بحث')}
+                      </Text>
+                    )}
+                  </Pressable>
+                </View>
+                {sendIdError ? <Text style={styles.sendIdError}>{sendIdError}</Text> : null}
+                {sendIdPreview ? (
+                  <Pressable
+                    style={styles.sendRow}
+                    disabled={sending}
+                    onPress={() => void handleSendToUser(sendIdPreview.uid, sendIdPreview.name)}
+                  >
+                    {sendIdPreview.avatar ? (
+                      <Image source={{ uri: sendIdPreview.avatar }} style={styles.sendAvatar} contentFit="cover" cachePolicy="memory-disk" />
+                    ) : (
+                      <View style={[styles.sendAvatar, styles.sendAvatarPlaceholder]}>
+                        <Text weight="bold" style={styles.sendAvatarLetter}>
+                          {sendIdPreview.name.charAt(0)}
+                        </Text>
+                      </View>
+                    )}
+                    <Text weight="bold" style={styles.sendName}>{sendIdPreview.name}</Text>
+                    <Send size={16} color={lu.colors.purple} />
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : sendLoading ? (
               <ActivityIndicator color={lu.colors.purple} style={{ marginVertical: 24 }} />
             ) : sendRecipients.length === 0 ? (
               <Text style={styles.sendEmpty}>{t('store.noFollowingToSend')}</Text>
@@ -1427,6 +1547,55 @@ const styles = StyleSheet.create({
   sendSheetSub: { fontSize: 13, color: lu.colors.ink2, textAlign: 'center', marginTop: 4 },
   sendEmpty: { fontSize: 13, color: lu.colors.ink2, textAlign: 'center', marginVertical: 24 },
   sendList: { marginTop: 12, maxHeight: 320 },
+  // تبويبا «أصدقاء | بالـID» في ورقة الإرسال
+  sendModeTabs: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(242,63,63,0.06)',
+    borderRadius: 10,
+    padding: 3,
+    marginTop: 12,
+    gap: 4,
+  },
+  sendModeTab: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  sendModeTabActive: { backgroundColor: lu.colors.purple },
+  sendModeTabText: { fontSize: 12.5, color: lu.colors.ink2 },
+  sendModeTabTextActive: { color: '#fff' },
+  sendIdRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  sendIdInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(242,63,63,0.2)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 13,
+    color: lu.colors.ink,
+    textAlign: 'right',
+  },
+  sendIdCheckBtn: {
+    backgroundColor: lu.colors.purple,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendIdError: {
+    fontSize: 12,
+    color: '#DC2626',
+    textAlign: 'center',
+    marginTop: 8,
+  },
   sendRow: {
     flexDirection: 'row',
     alignItems: 'center',

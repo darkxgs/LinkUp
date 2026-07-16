@@ -54,8 +54,12 @@ export function resolveBubbleImageUrl(
 function getEquippedBubbleIdFromUserData(data: Record<string, unknown> | undefined): string | null {
   const raw = data?.equippedBubbleId;
   if (raw === '' || raw === null) return null;
-  if (typeof raw === 'string' && raw.length > 0) return raw;
-  return null;
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  // انتهاء صلاحية الفقاعة المجهّزة (تُكتب عند التجهيز؛ 0/غياب = دائمة) — فقاعة
+  // منتهية كانت تبقى تظهر للجميع لأن هذا المسار السريع لم يكن يتحقق من الصلاحية
+  const exp = Number(data?.equippedBubbleExpiresAt ?? 0) || 0;
+  if (exp > 0 && exp < Date.now()) return null;
+  return raw;
 }
 
 async function fetchEquippedBubbleIdFromInventory(uid: string): Promise<string | null> {
