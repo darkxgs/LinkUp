@@ -45,6 +45,7 @@ import {
   useTabHeaderMetrics,
 } from '@/components/layout/TabScreenHeader';
 import { useAuth } from '@/hooks/useAuth';
+import { useHasUnreadNotifications } from '@/hooks/useHasUnreadNotifications';
 import { subscribeToMyFollowingIds } from '@/services/firebase/follow';
 import { useRooms } from '@/hooks/useRooms';
 import { Room, isRoomLive, quickCreateRoom } from '@/services/firebase/rooms';
@@ -193,6 +194,7 @@ export default function RoomsScreen() {
   const headerMetrics = useTabHeaderMetrics(W);
   const { isDark } = useThemeMode();
   const { user } = useAuth();
+  const hasUnreadNotifs = useHasUnreadNotifications();
   const { rooms, loading } = useRooms(50);
   const levelsConfig = useAgencyLevelsConfig();
 
@@ -647,7 +649,7 @@ export default function RoomsScreen() {
             <DesignIcon xml={SearchSvg} size={headerMetrics.iconSize} />
           )}
         </HeaderIconButton>
-        <HeaderIconButton dark={isDark} badge onPress={() => router.push('/notifications' as any)}>
+        <HeaderIconButton dark={isDark} badge={hasUnreadNotifs} onPress={() => router.push('/notifications' as any)}>
           {isDark ? (
             <Bell size={headerMetrics.iconSize} color="#fff" strokeWidth={2.2} />
           ) : (

@@ -157,14 +157,16 @@ export const followUser = async (followedUid: string): Promise<void> => {
     createdAt: Date.now(),
   });
 
-  // 2) حدّث العدّادات (ذرّياً — stats + الجذر)
+  // 2) حدّث العدّادات (ذرّياً — stats + الجذر) بلا حجب الواجهة: كتابة عدّاد
+  //    المتابَع تكتب على مستند مستخدم آخر وقد لا تُصدّق فوراً (بلا persistence
+  //    تُحلّ الوعود عند تصديق الخادم فقط)، فكان await يُعلّق زر المتابعة إلى
+  //    الأبد. العدّاد المحلي + مستمع subscribeToSocialCounts يبقيان العدّ صحيحاً.
   const prevFollowing = useAuthStore.getState().user?.stats.following ?? 0;
-  await Promise.all([
+  patchLocalSocialStats(me, { following: prevFollowing + 1 });
+  void Promise.all([
     updateDoc(doc(firestore, 'users', me), buildSocialIncrementPatch('following', 1)),
     updateDoc(doc(firestore, 'users', followedUid), buildSocialIncrementPatch('followers', 1)),
-  ]);
-
-  patchLocalSocialStats(me, { following: prevFollowing + 1 });
+  ]).catch((e) => console.warn('follow counters:', e));
 
   const { notifyNewFollower } = await import('./activityNotifications');
   void notifyNewFollower(followedUid);
@@ -186,14 +188,14 @@ export const unfollowUser = async (followedUid: string): Promise<void> => {
   // 1) احذف وثيقة المتابعة
   await deleteDoc(ref);
 
-  // 2) أنقص العدّادات
+  // 2) أنقص العدّادات بلا حجب الواجهة (نفس علة followUser: كتابة عدّاد المتابَع
+  //    على مستند مستخدم آخر كانت تُعلّق زر «إلغاء المتابعة» على «...» للأبد).
   const prevFollowing = useAuthStore.getState().user?.stats.following ?? 0;
-  await Promise.all([
+  patchLocalSocialStats(me, { following: Math.max(0, prevFollowing - 1) });
+  void Promise.all([
     updateDoc(doc(firestore, 'users', me), buildSocialIncrementPatch('following', -1)),
     updateDoc(doc(firestore, 'users', followedUid), buildSocialIncrementPatch('followers', -1)),
-  ]);
-
-  patchLocalSocialStats(me, { following: Math.max(0, prevFollowing - 1) });
+  ]).catch((e) => console.warn('unfollow counters:', e));
 };
 
 /**

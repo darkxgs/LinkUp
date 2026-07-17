@@ -45,6 +45,7 @@ import { lu } from '@/theme/lu-brand';
 import { useThemeMode } from '@/stores/themeStore';
 import { useAppLanguage } from '@/localization/useAppLanguage';
 import { useAuth } from '@/hooks/useAuth';
+import { useHasUnreadNotifications } from '@/hooks/useHasUnreadNotifications';
 import { useDiscoverUsers } from '@/hooks/useUsers';
 import { UserDoc } from '@/services/firebase/users';
 import { subscribeToMyFollowingIds } from '@/services/firebase/follow';
@@ -126,6 +127,7 @@ export default function DiscoverScreen() {
   const insets = useSafeAreaInsets();
   const { width: W } = useWindowDimensions();
   const { user: currentUser } = useAuth();
+  const hasUnreadNotifs = useHasUnreadNotifications();
   const PAD = W < 360 ? 14 : 16;
   const headerMetrics = useTabHeaderMetrics(W);
   const GAP = 13;
@@ -414,7 +416,7 @@ export default function DiscoverScreen() {
           <HeaderIconButton dark={isDark} onPress={() => router.push('/search' as any)}>
             <Search size={headerMetrics.iconSize} color={pal.headerIcon} strokeWidth={2.2} />
           </HeaderIconButton>
-          <HeaderIconButton dark={isDark} badge onPress={() => router.push('/notifications' as any)}>
+          <HeaderIconButton dark={isDark} badge={hasUnreadNotifs} onPress={() => router.push('/notifications' as any)}>
             <Bell size={headerMetrics.iconSize} color={pal.headerIcon} strokeWidth={2.2} />
           </HeaderIconButton>
         </TabScreenHeader>

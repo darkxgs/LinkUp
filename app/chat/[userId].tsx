@@ -361,8 +361,33 @@ function PersonalChatScreen({ userId }: { userId: string }) {
               ])
             : Promise.resolve([false, false] as const);
 
-        // 1. Load other user
-        let other = await getUser(userId);
+        // 1. Load other user — بمهلة قصوى حتى لا تعلّق شاشة التحميل على قراءة
+        //    بطيئة/غير مُصدّقة (Firestore بلا persistence: القراءة قد لا تُحلّ على
+        //    شبكة ضعيفة فتبقى الشاشة «تحمّل» للأبد). عند انقضاء المهلة نفتح بعنصر
+        //    نائب ونُرطّب في الخلفية.
+        let timedOut = false;
+        let other = await Promise.race([
+          getUser(userId),
+          new Promise<Awaited<ReturnType<typeof getUser>>>((resolve) =>
+            setTimeout(() => {
+              timedOut = true;
+              resolve(null);
+            }, 6000),
+          ),
+        ]);
+        if (!other && timedOut) {
+          // ترطيب في الخلفية — يحدّث اسم/صورة الطرف عند وصول القراءة
+          void getUser(userId, { fresh: true })
+            .then((u) => {
+              if (!u) return;
+              setOtherUser({
+                ...u,
+                displayName: resolveDisplayName({ displayName: u.displayName, email: u.email }),
+                avatar: resolveUserDocAvatar(u as unknown as Record<string, unknown>, userId),
+              });
+            })
+            .catch(() => {});
+        }
         if (!other) {
           // Demo user fallback
           other = {
@@ -410,7 +435,10 @@ function PersonalChatScreen({ userId }: { userId: string }) {
       }
     };
     setup();
-  }, [userId, user]);
+    // user يُقرأ عبر userRef الحيّ — الاعتماد على كائن user كان يعيد كامل إعداد
+    // الشبكة (كتابة محادثة + قراءات) مع كل تحديث رصيد/هدية
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, user?.uid]);
 
   // Subscribe to messages — وصفّر العدّاد عند الفتح وعند وصول رسالة جديدة
   useEffect(() => {
