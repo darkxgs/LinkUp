@@ -518,6 +518,30 @@ export async function userHasAgencyMembership(uid: string): Promise<boolean> {
 }
 
 /**
+ * هل لدى المستخدم طلب انضمام معلّق بانتظار موافقة الوكيل؟
+ * (وثيقة agencyInvites بـstatus='requested' — يكتبها الخادم عند الانضمام بكود
+ * مع تفعيل agencyJoinRequiresApproval). تُستخدم لمنع تكرار الإرسال وعرض
+ * الحالة الدائمة في البروفايل/صفحة الانضمام.
+ */
+export async function hasPendingAgencyJoinRequest(uid?: string): Promise<boolean> {
+  const me = uid ?? auth.currentUser?.uid;
+  if (!me) return false;
+  try {
+    const snap = await getDocs(
+      query(
+        collection(firestore, 'agencyInvites'),
+        where('invitedUid', '==', me),
+        where('status', '==', 'requested'),
+        limit(1),
+      ),
+    );
+    return !snap.empty;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * العضو يقبل دعوة باستخدام كود — عبر Cloud Function
  */
 export const acceptAgencyInviteByCode = async (

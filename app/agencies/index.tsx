@@ -40,6 +40,7 @@ import { Text, Card, BackButton, RealCountryFlag } from '@/components/ui';
 import { getAgencies, Agency } from '@/services/firebase/social';
 import {
   acceptAgencyInviteByCode,
+  hasPendingAgencyJoinRequest,
   subscribeToMyAgency,
   type Agency as MyAgency,
 } from '@/services/agencyService';
@@ -146,6 +147,15 @@ export default function AgenciesScreen() {
     if (!code) return;
     setJoining(true);
     try {
+      // حارس الطلب المعلّق — يمنع تكرار الإرسال بينما طلب سابق بانتظار الموافقة
+      if (await hasPendingAgencyJoinRequest()) {
+        setShowJoinModal(false);
+        Alert.alert(
+          t('agency.text451502'),
+          t('agency.joinRequestAlreadyPending', 'لديك طلب انضمام معلّق بالفعل — بانتظار موافقة الوكيل'),
+        );
+        return;
+      }
       const result = await acceptAgencyInviteByCode(code);
       setShowJoinModal(false);
       setJoinCode('');

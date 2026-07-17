@@ -23,7 +23,7 @@ import { KeyRound, Headphones, FileText } from 'lucide-react-native';
 import { Text, useAlert } from '@/components/ui';
 import { BackChevron } from '@/components/ui/RtlChevron';
 import { useAuth } from '@/hooks/useAuth';
-import { acceptAgencyInviteByCode, userHasAgencyMembership } from '@/services/agencyService';
+import { acceptAgencyInviteByCode, userHasAgencyMembership, hasPendingAgencyJoinRequest } from '@/services/agencyService';
 import { sendAgencyJoinRequestToSupport, SUPPORT_UID } from '@/services/supportAccount';
 import { getDisplayAccountId } from '@/services/userIdentifier';
 import { resolveDisplayName } from '@/utils/displayName';
@@ -55,6 +55,15 @@ export default function AgencyJoinScreen() {
     }
     if (user?.uid && (await userHasAgencyMembership(user.uid))) {
       showAlert({ type: 'warning', title: t('common.error'), message: t('agencyHub.alreadyInAgency') });
+      return;
+    }
+    // حارس الطلب المعلّق — يمنع تكرار الإرسال بينما طلب سابق بانتظار موافقة الوكيل
+    if (user?.uid && (await hasPendingAgencyJoinRequest(user.uid))) {
+      showAlert({
+        type: 'warning',
+        title: t('agency.text451502'),
+        message: t('agency.joinRequestAlreadyPending', 'لديك طلب انضمام معلّق بالفعل — بانتظار موافقة الوكيل'),
+      });
       return;
     }
 

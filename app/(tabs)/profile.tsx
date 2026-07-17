@@ -171,6 +171,8 @@ export default function ProfileScreen() {
   const uid = user?.uid ?? '';
   const [accountId, setAccountId] = useState(() => getDisplayAccountId(user?.publicAccountId, uid));
   const [hasPendingInvite, setHasPendingInvite] = useState(false);
+  // طلب انضمام أرسلته المضيفة بانتظار موافقة الوكيل (status='requested')
+  const [hasPendingJoinRequest, setHasPendingJoinRequest] = useState(false);
   const [roomStats, setRoomStats] = useState({ joined: 0, agencies: 0, favorites: 0 });
 
   const followers = stats.followers ?? 0;
@@ -242,14 +244,26 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (!uid) return;
+    // مستمع واحد لدعوات الوكيل المعلّقة (pending) وطلبات الانضمام المُرسلة
+    // بانتظار موافقته (requested) معاً
     const q = query(
       collection(firestore, 'agencyInvites'),
       where('invitedUid', '==', uid),
-      where('status', '==', 'pending'),
+      where('status', 'in', ['pending', 'requested']),
     );
     const unsub = onSnapshot(
       q,
-      (snap) => setHasPendingInvite(!snap.empty),
+      (snap) => {
+        let invite = false;
+        let requested = false;
+        snap.docs.forEach((d) => {
+          const s = (d.data() as { status?: string }).status;
+          if (s === 'pending') invite = true;
+          if (s === 'requested') requested = true;
+        });
+        setHasPendingInvite(invite);
+        setHasPendingJoinRequest(requested);
+      },
       (err) => console.warn('Error listening to agency invites:', err),
     );
     return () => unsub();
@@ -327,6 +341,18 @@ export default function ProfileScreen() {
     menu.push({ Icon: ShieldCheck, label: t('profile.verificationCenter'), route: '/wallet/kyc' });
     if (showHostTasks) {
       menu.push({ Icon: Award, label: t('profile.hostTasksPage'), route: '/host/tasks' });
+    }
+    // المضيفة الموثّقة غير المنتسبة لوكالة: مدخل طلب الانضمام بكود الدعوة —
+    // يتحول للحالة المعلّقة بعد الإرسال (طلب المالك 2026-07-17)
+    if (showHostTasks && !isHost && !isAgent) {
+      menu.push({
+        Icon: Briefcase,
+        label: hasPendingJoinRequest
+          ? t('profile.agencyJoinPending', 'طلب الانضمام قيد موافقة الوكيل')
+          : t('profile.agencyJoinRequest', 'الانضمام إلى وكالة'),
+        route: '/agency/join',
+        isNew: !hasPendingJoinRequest,
+      });
     }
   }
 
