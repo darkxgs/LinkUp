@@ -231,11 +231,20 @@ class RoomMusicPlaybackManager {
           return;
         }
         // stopped: AllLoopsCompleted = نهاية طبيعية → التالية؛
-        // StoppedByUser = نحن أوقفناه (تبديل/إيقاف) → لا شيء
-        if (event.semantic === 'stopped' && event.allLoopsCompleted) {
-          const roomId = c.roomId;
-          this.clearCurrent();
-          this.advanceAfterEnd(roomId);
+        // StoppedByUser = نحن أوقفناه (تبديل/إيقاف) → لا شيء؛
+        // غير ذلك = الخلط مات خارجياً (فقدان تركيز الصوت لفيديو هدية/مقاطعة
+        // نظام) والنية «يعزف» — أعد البدء من آخر موضع وإلا بقيت الحبة «تعزف» صامتة
+        if (event.semantic === 'stopped') {
+          if (event.allLoopsCompleted) {
+            const roomId = c.roomId;
+            this.clearCurrent();
+            this.advanceAfterEnd(roomId);
+            return;
+          }
+          if (!event.stoppedByUser && this.isOnRoomChannel(c.roomId)) {
+            void this.restartCurrentMix(c);
+          }
+          return;
         }
         return;
       }

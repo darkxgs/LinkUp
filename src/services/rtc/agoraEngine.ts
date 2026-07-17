@@ -55,7 +55,9 @@ export type AgoraRtcEvent =
    * حالة خلط الموسيقى على هذا الجهاز (onAudioMixingStateChanged) —
    * state/reason خامان من SDK + ترجمة دلالية وأعلام جاهزة:
    * allLoopsCompleted = انتهى المقطع طبيعياً (تشغيل التالي)،
-   * canNotOpen = تعذّر فتح الملف (صيغة غير مدعومة/مسار خاطئ → تخطٍّ).
+   * canNotOpen = تعذّر فتح الملف (صيغة غير مدعومة/مسار خاطئ → تخطٍّ)،
+   * stoppedByUser = نحن أوقفناه (تبديل/إيقاف) — غيابه مع stopped يعني موتاً
+   * خارجياً (فقدان تركيز الصوت/مقاطعة نظام) يستوجب إعادة البدء.
    */
   | {
       type: 'audioMixingStateChanged';
@@ -64,6 +66,7 @@ export type AgoraRtcEvent =
       semantic: AgoraMixingSemantic;
       allLoopsCompleted: boolean;
       canNotOpen: boolean;
+      stoppedByUser: boolean;
     };
 
 export type AgoraEventListener = (event: AgoraRtcEvent) => void;
@@ -525,6 +528,8 @@ class AgoraEngineManager {
           allLoopsCompleted:
             reason === m.AudioMixingReasonType.AudioMixingReasonAllLoopsCompleted,
           canNotOpen: reason === m.AudioMixingReasonType.AudioMixingReasonCanNotOpen,
+          stoppedByUser:
+            reason === m.AudioMixingReasonType.AudioMixingReasonStoppedByUser,
         });
       },
     };

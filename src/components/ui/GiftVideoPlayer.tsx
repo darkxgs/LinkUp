@@ -37,6 +37,9 @@ export function GiftVideoPlayer({
     p.muted = false;
     p.volume = 1;
     p.playbackRate = playbackRate;
+    // فيديو الهدية/الدخولية يجب ألا يسرق تركيز الصوت من Agora — الافتراضي (auto)
+    // يطلب AUDIOFOCUS_GAIN كاملاً على أندرويد فيقتل خلط الموسيقى (startAudioMixing)
+    p.audioMixingMode = 'mixWithOthers';
   });
 
   useEffect(() => {
