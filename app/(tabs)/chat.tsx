@@ -97,7 +97,8 @@ const CHAT_SHORTCUTS = [
   },
   {
     id: 'gifts',
-    route: '/gifts' as const,
+    // زر «المكافآت» يفتح مركز المكافآت — كان يفتح مركز الهدايا /gifts خطأً
+    route: '/rewards' as const,
     Icon: LuGiftIcon,
     iconFilled: true,
     colors: ['rgba(255, 238, 240, 0.65)', 'rgba(255, 228, 232, 0.55)'] as const,
