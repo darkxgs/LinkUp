@@ -667,9 +667,7 @@ export default function RoomsScreen() {
                   <RNText style={[styles.interestHint, isDark && { color: lu.colors.nightMuted }]}>{t('rooms.interestRecentHint')}</RNText>
                 ) : null}
               </View>
-              <Pressable onPress={() => router.push('/agencies' as any)}>
-                <RNText style={[styles.viewAllText, isDark && { color: '#FF5C6C' }]}>{t('common.viewAll')}</RNText>
-              </Pressable>
+              {/* أُزيل «عرض الكل» (طلب المالك 2026-07-17) */}
             </View>
             <ScrollView
               horizontal
@@ -706,13 +704,11 @@ export default function RoomsScreen() {
 
         <View style={[styles.sectionHead, { paddingHorizontal: pad, marginTop: 4 }]}>
           <View style={styles.sectionTitleRow}>
-            {/* #2: التبويب «الغرف» — وكالات + غرف شخصية عامة مدموجة */}
-            <RoomSectionTitle dark={isDark}>{t('rooms.title')}</RoomSectionTitle>
+            {/* الرئيسية وكالات فقط (قرار المالك) — العنوان «الوكالات» بدل «الغرف» */}
+            <RoomSectionTitle dark={isDark}>{t('home.agenciesSection', 'الوكالات')}</RoomSectionTitle>
             <Crown size={16} color="#F0C75A" fill="#F0C75A" strokeWidth={0} />
           </View>
-          <Pressable onPress={() => router.push('/agencies' as any)}>
-            <RNText style={[styles.viewAllText, isDark && { color: '#FF5C6C' }]}>{t('common.viewAll')}</RNText>
-          </Pressable>
+          {/* أُزيل «عرض الكل» (طلب المالك 2026-07-17) */}
         </View>
 
         <View style={[styles.agencyToolbar, { paddingHorizontal: pad }]}>
