@@ -64,10 +64,17 @@ export function enterGamePresence(category: GameCategory): () => void {
   };
 }
 
-/** بث مباشر لعدد المتصلين في كل قسم لعبة */
-export function subscribeToGamePresenceCounts(
-  callback: (counts: GamePresenceCounts) => void,
-): () => void {
+/**
+ * بث مباشر لعدد المتصلين في كل قسم لعبة — مستمع واحد مشترَك مهما تعدد الطالبون.
+ * (كان كل شاشة تفتح مستمعاً كاملاً على شجرة gamePresence + مؤقتاً خاصاً بها —
+ * الرئيسية واكتشف معاً = ضعف التنزيل وإعادة الحساب مع كل نبضة لاعب، ومرقاب
+ * [heat] أظهره ×2.)
+ */
+const presenceSubscribers = new Set<(counts: GamePresenceCounts) => void>();
+let presenceTeardown: (() => void) | null = null;
+let presenceLatestCounts: GamePresenceCounts | null = null;
+
+function startSharedPresenceListener(): void {
   const rootRef = ref(realtimeDb, 'gamePresence');
   let latest: Record<string, unknown> = {};
 
@@ -83,7 +90,8 @@ export function subscribeToGamePresenceCounts(
       }
       counts[cat] = count;
     }
-    callback(counts);
+    presenceLatestCounts = counts;
+    for (const cb of presenceSubscribers) cb(counts);
   };
 
   const handler = (snap: DataSnapshot) => {
@@ -91,12 +99,32 @@ export function subscribeToGamePresenceCounts(
     compute();
   };
 
-  onValue(rootRef, handler, () => callback({ ...EMPTY_GAME_PRESENCE }));
+  onValue(rootRef, handler, () => {
+    presenceLatestCounts = { ...EMPTY_GAME_PRESENCE };
+    for (const cb of presenceSubscribers) cb({ ...EMPTY_GAME_PRESENCE });
+  });
   // إعادة الحساب دورياً لإسقاط الأشباح المنتهية حتى دون وصول لقطة جديدة
   const expiryTimer = setInterval(compute, 30 * 1000);
 
-  return () => {
+  presenceTeardown = () => {
     off(rootRef, 'value', handler);
     clearInterval(expiryTimer);
+  };
+}
+
+export function subscribeToGamePresenceCounts(
+  callback: (counts: GamePresenceCounts) => void,
+): () => void {
+  presenceSubscribers.add(callback);
+  if (presenceLatestCounts) callback(presenceLatestCounts);
+  if (!presenceTeardown) startSharedPresenceListener();
+
+  return () => {
+    presenceSubscribers.delete(callback);
+    if (presenceSubscribers.size === 0 && presenceTeardown) {
+      presenceTeardown();
+      presenceTeardown = null;
+      presenceLatestCounts = null;
+    }
   };
 }

@@ -5,8 +5,12 @@
  */
 
 import React, { useEffect } from 'react';
-import { Stack } from 'expo-router';
-import { startPerfHeatMonitor } from '@/utils/perfHeatMonitor';
+import { Stack, usePathname } from 'expo-router';
+import {
+  startPerfHeatMonitor,
+  setPerfCurrentRoute,
+  reportRenderCommit,
+} from '@/utils/perfHeatMonitor';
 
 // مرقاب الحرارة/الأداء — وضع التطوير فقط: يبدأ من الإقلاع ليحصي كل المؤقتات
 // منذ لحظتها الأولى ويطبع [heat] كل 10 ثوانٍ (تشخيص سخونة الهاتف وبطئه)
@@ -71,6 +75,16 @@ import { OfflineBanner } from '@/components/OfflineBanner';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+// متعقّب الشاشة الحالية لمرقاب الحرارة — مكوّن صفري معزول حتى لا يعيد
+// usePathname رندر جذر التطبيق كله مع كل تنقّل
+function PerfRouteTracker() {
+  const pathname = usePathname();
+  useEffect(() => {
+    setPerfCurrentRoute(pathname);
+  }, [pathname]);
+  return null;
+}
+
 export default function RootLayout() {
   const initialize = useAuthStore((s) => s.initialize);
 
@@ -123,6 +137,8 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* Profiler لمرقاب الحرارة — يجمع عدد الـcommits وزمنها (لا يعمل في الإنتاج) */}
+      <React.Profiler id="app" onRender={reportRenderCommit}>
       {/* حاجز الأخطاء العام — أي خطأ render كان يترك شاشة بيضاء ميتة؛
           الآن شاشة عربية ودّية مع «إعادة المحاولة» + تسجيل العطل */}
       <AppErrorBoundary>
@@ -132,6 +148,7 @@ export default function RootLayout() {
             <AlertProvider>
             <DeepLinkHandler />
             <NetworkMonitor />
+            <PerfRouteTracker />
             {/* معظم شاشات التطبيق فاتحة — أيقونات داكنة افتراضياً؛
                 الشاشات الداكنة (سبلاش/روم/مكالمات) تستخدم useLightStatusBarOnFocus */}
             <StatusBar style="dark" />
@@ -280,6 +297,7 @@ export default function RootLayout() {
           </I18nextProvider>
       </SafeAreaProvider>
       </AppErrorBoundary>
+      </React.Profiler>
     </GestureHandlerRootView>
   );
 }

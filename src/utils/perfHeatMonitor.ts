@@ -1,14 +1,15 @@
 /**
  * مرقاب الحرارة والأداء — وضع التطوير فقط.
  *
- * يطبع كل 10 ثوانٍ سطر «[heat] …» موجزاً في الكونسول يكشف المصادر الشائعة
- * لسخونة الهاتف وبطئه:
- *  - انشغال خيط JS (تأخر نبضة 500ms عن موعدها) — التقطيع والحسابات الثقيلة.
- *  - عدد المؤقتات الحية (intervals) مع أسماء منشئيها — التسريبات تستنزف البطارية.
- *  - عدد المهلات المعلّقة (timeouts) — تراكمها مؤشر حلقات إعادة جدولة.
- *  - معدل الإطارات التقريبي (عينة ثانية واحدة كل دورة — لا حلقة rAF دائمة).
+ * يطبع كل 10 ثوانٍ تقريراً «[heat]» يشخّص مصادر سخونة الهاتف وبطئه:
+ *  - الشاشة الحالية (لربط أي ارتفاع بمكانه).
+ *  - انشغال خيط JS: متوسط/أقصى تأخر نبضة 500ms + نسبة الانشغال الكلية.
+ *  - الريندر (React Profiler حول الشجرة): عدد الـcommits، زمنها الكلي، أثقلها.
+ *  - الشبكة (fetch/XHR مغلّفان): عدد الطلبات، الحجم التقريبي، أعلى المضيفين.
+ *  - المؤقتات الحية بأسماء منشئيها وإيقاعها + معدل جدولة المهلات في النافذة.
+ *  - ذاكرة Hermes إن توفرت + معدل الإطارات (عينة ثانية واحدة، لا rAF دائم).
  *
- * لا يعمل في نسخ الإنتاج (__DEV__ فقط من نقطة التركيب) ولا يضيف أي حمل يُذكر.
+ * لا يعمل في الإنتاج (__DEV__ فقط من نقطة التركيب) وكلفته نفسها شبه معدومة.
  */
 import { AppState } from 'react-native';
 
@@ -16,25 +17,117 @@ type IntervalInfo = { tag: string; ms: number };
 
 const liveIntervals = new Map<number, IntervalInfo>();
 const liveTimeouts = new Set<number>();
+let timeoutsScheduledInWindow = 0;
 let patched = false;
 let started = false;
 let lags: number[] = [];
 
+// ─── الشاشة الحالية (يضبطها _layout عبر usePathname) ───────────────────────
+let currentRoute = '?';
+export function setPerfCurrentRoute(route: string | null | undefined): void {
+  currentRoute = route || '?';
+}
+
+// ─── تجميع الريندر (React Profiler onRender من _layout) ────────────────────
+let renderCommits = 0;
+let renderTotalMs = 0;
+let renderWorstMs = 0;
+let renderWorstAtRoute = '';
+export function reportRenderCommit(
+  _id: string,
+  _phase: 'mount' | 'update' | 'nested-update',
+  actualDuration: number,
+): void {
+  renderCommits += 1;
+  renderTotalMs += actualDuration;
+  if (actualDuration > renderWorstMs) {
+    renderWorstMs = actualDuration;
+    renderWorstAtRoute = currentRoute;
+  }
+}
+
+// ─── إحصاء الشبكة (fetch + XHR) ─────────────────────────────────────────────
+let netRequests = 0;
+let netBytes = 0;
+const netHosts = new Map<string, number>();
+
+function noteRequest(url: string, bytes: number): void {
+  netRequests += 1;
+  netBytes += Math.max(0, bytes);
+  try {
+    const host = url.replace(/^https?:\/\//, '').split('/')[0]?.split(':')[0] ?? '?';
+    // اختصار مضيفي جوجل الطويلة لأسماء مقروءة
+    const short = host
+      .replace('firestore.googleapis.com', 'firestore')
+      .replace(/.*firebasestorage.*/, 'storage')
+      .replace(/.*firebaseio\.com$/, 'rtdb')
+      .replace('firebasedatabase.app', 'rtdb')
+      .replace('identitytoolkit.googleapis.com', 'auth')
+      .replace('cloudfunctions.net', 'functions');
+    netHosts.set(short, (netHosts.get(short) ?? 0) + 1);
+  } catch {
+    /* لا شيء */
+  }
+}
+
+function patchNetwork(): void {
+  const g = globalThis as Record<string, any>;
+
+  const origFetch = g.fetch?.bind(g);
+  if (origFetch) {
+    g.fetch = async (input: any, init?: any) => {
+      const url = typeof input === 'string' ? input : (input?.url ?? '');
+      const res = await origFetch(input, init);
+      const len = Number(res?.headers?.get?.('content-length')) || 0;
+      noteRequest(String(url), len);
+      return res;
+    };
+  }
+
+  const XHR = g.XMLHttpRequest;
+  if (XHR?.prototype) {
+    const origOpen = XHR.prototype.open;
+    const origSend = XHR.prototype.send;
+    XHR.prototype.open = function (method: string, url: string, ...rest: unknown[]) {
+      (this as any).__heatUrl = String(url ?? '');
+      return origOpen.call(this, method, url, ...rest);
+    };
+    XHR.prototype.send = function (...args: unknown[]) {
+      this.addEventListener?.('loadend', () => {
+        let len = 0;
+        try {
+          len = Number(this.getResponseHeader?.('content-length')) || 0;
+          if (!len && typeof (this as any).response === 'string') {
+            len = (this as any).response.length;
+          }
+        } catch {
+          /* لا شيء */
+        }
+        noteRequest((this as any).__heatUrl ?? '', len);
+      });
+      return origSend.apply(this, args as never[]);
+    };
+  }
+}
+
+// ─── وسم منشئ المؤقت من الـstack ────────────────────────────────────────────
 // إطارات داخلية (React/Metro) لا تدل على المنشئ الحقيقي — نتخطاها لأقرب اسم تطبيقي
 const INTERNAL_FRAMES = [
   'perfHeatMonitor',
-  'commitHookEffectList',
-  'commitPassiveMount',
+  'commitHook',
+  'PassiveMount',
+  'PassiveEffect',
+  'commitLayoutEffect',
   'loadModuleImplementation',
   'guardedLoadModule',
   'metroRequire',
   'requireImpl',
   'flushPassiveEffects',
-  'invokePassiveEffect',
   'callFunctionReturnFlushedQueue',
+  'safelyCall',
+  'recursivelyTraverse',
 ];
 
-/** اسم الدالة المنشئة من الـstack — في وضع التطوير الأسماء غير مصغّرة */
 function callerTag(): string {
   const stack = new Error().stack ?? '';
   const lines = stack.split('\n').slice(2, 14);
@@ -73,6 +166,7 @@ function patchTimers(): void {
     return origClearInterval(id);
   };
   g.setTimeout = (fn: (...a: unknown[]) => void, ms?: number, ...rest: unknown[]) => {
+    timeoutsScheduledInWindow += 1;
     let idNum = -1;
     const id = origSetTimeout(
       (...a: unknown[]) => {
@@ -92,18 +186,39 @@ function patchTimers(): void {
   };
 }
 
-/** أعلى منشئي المؤقتات الحية — مجمّعة بالاسم */
-function topIntervalTags(max = 4): string {
-  const counts = new Map<string, number>();
+/** أعلى منشئي المؤقتات الحية — مجمّعة بالاسم مع الإيقاع */
+function topIntervalTags(max = 5): string {
+  const groups = new Map<string, { n: number; ms: number }>();
   for (const info of liveIntervals.values()) {
-    if (info.tag.includes('perfHeatMonitor') || info.tag.includes('startPerfHeatMonitor')) continue;
-    counts.set(info.tag, (counts.get(info.tag) ?? 0) + 1);
+    if (info.tag.includes('PerfHeatMonitor') || info.tag.includes('perfHeatMonitor')) continue;
+    const g = groups.get(info.tag) ?? { n: 0, ms: info.ms };
+    g.n += 1;
+    g.ms = Math.min(g.ms, info.ms);
+    groups.set(info.tag, g);
   }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, max)
-    .map(([tag, n]) => (n > 1 ? `${tag}×${n}` : tag))
-    .join('، ') || 'لا شيء';
+  const fmtMs = (ms: number) => (ms >= 1000 ? `${Math.round(ms / 1000)}ث` : `${ms}مث`);
+  return (
+    [...groups.entries()]
+      .sort((a, b) => b[1].n - a[1].n)
+      .slice(0, max)
+      .map(([tag, g]) => `${tag}(${fmtMs(g.ms)})${g.n > 1 ? `×${g.n}` : ''}`)
+      .join('، ') || 'لا شيء'
+  );
+}
+
+function hermesHeapMb(): string {
+  try {
+    const g = globalThis as Record<string, any>;
+    const stats = g.HermesInternal?.getInstrumentedStats?.();
+    const bytes =
+      Number(stats?.js_allocatedBytes) ||
+      Number(stats?.hermes_allocatedBytes) ||
+      Number(g.performance?.memory?.usedJSHeapSize) ||
+      0;
+    return bytes > 0 ? `${(bytes / (1024 * 1024)).toFixed(1)}MB` : '؟';
+  } catch {
+    return '؟';
+  }
 }
 
 const HEARTBEAT_MS = 500;
@@ -113,6 +228,7 @@ export function startPerfHeatMonitor(): void {
   if (started) return;
   started = true;
   patchTimers();
+  patchNetwork();
 
   // نبضة قياس انشغال خيط JS — الانحراف عن الموعد = مدة انسداد الخيط
   let expected = Date.now() + HEARTBEAT_MS;
@@ -127,6 +243,31 @@ export function startPerfHeatMonitor(): void {
     lags = [];
     const avg = window.length ? Math.round(window.reduce((a, b) => a + b, 0) / window.length) : 0;
     const max = window.length ? Math.max(...window) : 0;
+    // نسبة الانشغال: مجموع التأخيرات إلى طول النافذة
+    const busyPct = Math.min(99, Math.round((window.reduce((a, b) => a + b, 0) / REPORT_MS) * 100));
+
+    const commits = renderCommits;
+    const renderMs = Math.round(renderTotalMs);
+    const worstMs = Math.round(renderWorstMs);
+    const worstAt = renderWorstAtRoute;
+    renderCommits = 0;
+    renderTotalMs = 0;
+    renderWorstMs = 0;
+    renderWorstAtRoute = '';
+
+    const reqs = netRequests;
+    const kb = Math.round(netBytes / 1024);
+    const hosts = [...netHosts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([h, n]) => `${h}:${n}`)
+      .join('، ');
+    netRequests = 0;
+    netBytes = 0;
+    netHosts.clear();
+
+    const timeoutChurn = timeoutsScheduledInWindow;
+    timeoutsScheduledInWindow = 0;
 
     // عيّنة إطارات لثانية واحدة فقط — بلا حلقة rAF دائمة تستهلك بنفسها
     let frames = 0;
@@ -139,19 +280,24 @@ export function startPerfHeatMonitor(): void {
         const fps = Math.min(60, frames);
         const intervals = Math.max(0, liveIntervals.size - 2); // باستثناء مؤقّتَي المرقاب
         console.log(
-          `[heat] JS-lag متوسط ${avg}ms أقصى ${max}ms | إطارات ~${fps}fps | ` +
-            `مؤقتات حية ${intervals} (أعلى المنشئين: ${topIntervalTags()}) | ` +
-            `مهلات معلّقة ${liveTimeouts.size} | الحالة ${AppState.currentState}`,
+          `[heat] 📍${currentRoute} | JS: متوسط ${avg}ms أقصى ${max}ms انشغال ${busyPct}% | ` +
+            `إطارات ~${fps}fps | ريندر: ${commits} commit بمجموع ${renderMs}ms (أثقلها ${worstMs}ms${worstAt && worstAt !== currentRoute ? ` @${worstAt}` : ''}) | ` +
+            `شبكة: ${reqs} طلب ~${kb}KB (${hosts || 'لا شيء'}) | ` +
+            `مؤقتات ${intervals} [${topIntervalTags()}] | مهلات: ${liveTimeouts.size} معلّقة، ${timeoutChurn} جُدولت | ` +
+            `ذاكرة ${hermesHeapMb()} | ${AppState.currentState}`,
         );
         if (max >= 1000) {
           console.warn(
-            `[heat] ⚠️ خيط JS انسدّ ${max}ms خلال آخر 10ث — افتح/اقفل الشاشة الحالية وراقب أي سطر يتكرر معها`,
+            `[heat] ⚠️ خيط JS انسدّ ${max}ms على ${currentRoute} — اذكر ماذا فعلت لحظتها (فتح شاشة؟ هدية؟ رسالة؟)`,
           );
+        }
+        if (kb >= 2048) {
+          console.warn(`[heat] ⚠️ تنزيل كثيف: ~${Math.round(kb / 1024)}MB خلال 10ث على ${currentRoute} (${hosts})`);
         }
       }
     };
     if (raf) raf(sample);
   }, REPORT_MS);
 
-  console.log('[heat] مرقاب الحرارة يعمل — سطر كل 10 ثوانٍ. ابعث السطور المرتفعة للمطوّر.');
+  console.log('[heat] مرقاب الحرارة v2 يعمل — تقرير كل 10 ثوانٍ. ابعث السطور المرتفعة للمطوّر.');
 }
