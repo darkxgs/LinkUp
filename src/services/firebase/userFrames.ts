@@ -3,7 +3,7 @@
  * البيانات على users/{uid}: frameInventory, equippedFrameId
  */
 
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, documentId, getDocs } from 'firebase/firestore';
 import { firestore } from './index';
 import type { RoomFrame } from './roomDecor';
 
@@ -160,10 +160,48 @@ export async function fetchEquippedFrameUrlsForUsers(
   // جلب إعداد VIP مرة واحدة للدفعة كلها بدل قراءة لكل uid (خفض 2N → N+1)
   const vipConfig = await getVipSystemCached();
   const map: Record<string, string> = {};
+
+  // استخدم الكاش الطازج فوراً، واجمع الغائبين فقط
+  const misses: string[] = [];
+  for (const uid of unique) {
+    const cached = frameUrlCache.get(uid);
+    if (cached && now - cached.ts < FRAME_URL_TTL_MS) {
+      if (cached.url) map[uid] = cached.url;
+    } else {
+      misses.push(uid);
+    }
+  }
+  if (!misses.length) return map;
+
+  // قراءة مجمّعة documentId() in دفعات 30 بدل قراءة منفصلة لكل uid
+  // (40 مؤلفاً: 40 قراءة → قراءتان) — أكبر مكسب N+1 في اللحظات/الشات/المتجر
+  const chunks: string[][] = [];
+  for (let i = 0; i < misses.length; i += 30) chunks.push(misses.slice(i, i + 30));
+  const usersCol = collection(firestore, 'users');
   await Promise.all(
-    unique.map(async (uid) => {
-      const url = await fetchEquippedFrameUrlForUser(uid, catalog, now, vipConfig);
-      if (url) map[uid] = url;
+    chunks.map(async (chunk) => {
+      try {
+        const snap = await getDocs(query(usersCol, where(documentId(), 'in', chunk)));
+        const found = new Set<string>();
+        snap.forEach((d) => {
+          found.add(d.id);
+          const url = getEquippedFrameUrlFromUserData(
+            d.data() as Record<string, unknown>,
+            catalog,
+            now,
+            undefined,
+            vipConfig,
+          );
+          frameUrlCache.set(d.id, { url, ts: Date.now() });
+          if (url) map[d.id] = url;
+        });
+        // uids غير موجودة — خزّنها كـundefined حتى لا نعيد قراءتها كل مرة
+        for (const uid of chunk) {
+          if (!found.has(uid)) frameUrlCache.set(uid, { url: undefined, ts: Date.now() });
+        }
+      } catch {
+        // تجاهل فشل دفعة — الباقي يظهر، وستُعاد المحاولة بعد انتهاء الـTTL
+      }
     }),
   );
   return map;

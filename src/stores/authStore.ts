@@ -942,6 +942,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const fbUser = auth.currentUser;
     const uid = currentUser?.uid ?? fbUser?.uid;
     if (!uid) return;
+    // مستمع users/{uid} حيّ يبثّ الحالة بعد كل معاملة تلقائياً — loadUser كان
+    // يضيف getDoc + syncVipMaintenance + reconcileBalances (حتى قراءتان وكتابتان)
+    // عند كل جولة لعبة/هدية/استلام (16 موضع نداء). لا حاجة له والمستمع قائم.
+    if (userDocUnsubscribe && currentUser?.uid === uid) return;
     await get().loadUser(uid);
   },
 

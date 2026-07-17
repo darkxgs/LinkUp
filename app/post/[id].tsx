@@ -2,7 +2,7 @@
  * تفاصيل المنشور + التعليقات (حية)
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -163,23 +163,26 @@ export default function PostDetailScreen() {
     });
   }, [id, authReady]);
 
-  const commentIdsKey = useMemo(
-    () => comments.map((c) => c.id).sort().join(','),
-    [comments],
-  );
-
+  // نجلب حالة إعجاب التعليقات الجديدة فقط (غير المفحوصة) بدل إعادة جلب الكل مع
+  // كل لقطة تعليقات — كانت أي إضافة/إعجاب تعيد قراءة إعجاب كل التعليقات
+  // (عاصفة 88-98 طلب/10ث على /post). نفس نمط feed.tsx.
+  const checkedCommentLikeIds = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!id || !authReady || !user || !commentIdsKey) {
+    if (!id || !authReady || !user || comments.length === 0) {
       setLikedCommentIds(new Set());
+      checkedCommentLikeIds.current = new Set();
       return;
     }
-    const ids = commentIdsKey.split(',');
+    const fresh = comments.map((c) => c.id).filter((cid) => !checkedCommentLikeIds.current.has(cid));
+    if (fresh.length === 0) return;
+    fresh.forEach((cid) => checkedCommentLikeIds.current.add(cid));
     let cancelled = false;
-    getLikedCommentIds(id, ids).then((set) => {
-      if (!cancelled) setLikedCommentIds(set);
+    getLikedCommentIds(id, fresh).then((set) => {
+      if (cancelled) return;
+      setLikedCommentIds((prev) => { const n = new Set(prev); set.forEach((cid) => n.add(cid)); return n; });
     });
     return () => { cancelled = true; };
-  }, [id, authReady, user, commentIdsKey]);
+  }, [id, authReady, user?.uid, comments]);
 
   const handleCommentLikeChange = useCallback((commentId: string, nextLiked: boolean) => {
     setLikedCommentIds((prev) => {

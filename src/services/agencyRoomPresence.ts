@@ -143,14 +143,24 @@ export function subscribeToAgencyRoomLivePresence(
     room = data;
     emit();
   });
-  const unsubAudience = subscribeToAudience(roomId, (list) => {
-    audience = list;
-    emit();
-  });
-  const unsubUids = subscribeToRoomAudienceUids(roomId, (uids) => {
-    audienceUids = uids;
-    emit();
-  });
+  // sideEffects=false: البطاقات تراقب فقط ولا تكتب audienceCount ولا تنظّف مقاعد
+  // (شاشة الغرفة هي المُصالِح المُخوَّل) — يقطع حلقة التغذية الراجعة على كل الأجهزة
+  const unsubAudience = subscribeToAudience(
+    roomId,
+    (list) => {
+      audience = list;
+      emit();
+    },
+    { sideEffects: false },
+  );
+  const unsubUids = subscribeToRoomAudienceUids(
+    roomId,
+    (uids) => {
+      audienceUids = uids;
+      emit();
+    },
+    { sideEffects: false },
+  );
 
   return () => {
     unsubRoom();

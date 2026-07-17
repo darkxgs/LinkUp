@@ -2289,7 +2289,9 @@ function schedulePruneStaleRoomSeats(roomId: string): void {
 export function subscribeToRoomAudienceUids(
   roomId: string,
   callback: (uids: Set<string>) => void,
+  options?: { sideEffects?: boolean },
 ): () => void {
+  const sideEffects = options?.sideEffects !== false;
   const audRef = ref(realtimeDb, `roomAudience/${roomId}`);
   let current = new Set<string>();
   let seeded = false;
@@ -2302,7 +2304,7 @@ export function subscribeToRoomAudienceUids(
     current = collectAudienceUids(snap);
     seeded = true;
     emit();
-    schedulePruneStaleRoomSeats(roomId);
+    if (sideEffects) schedulePruneStaleRoomSeats(roomId);
   };
 
   const addedHandler = (snap: DataSnapshot) => {
@@ -2319,7 +2321,7 @@ export function subscribeToRoomAudienceUids(
     if (!uid || !current.has(uid)) return;
     current.delete(uid);
     if (seeded) emit();
-    schedulePruneStaleRoomSeats(roomId);
+    if (sideEffects) schedulePruneStaleRoomSeats(roomId);
   };
 
   onValue(audRef, valueHandler);
@@ -2569,12 +2571,20 @@ export async function cleanupStaleRoomPresence(
   await remove(pointerRef).catch(() => {});
 }
 
-// الاشتراك في الحضور — قائمة فريدة حسب uid (بدون حد = الكل فوراً)
+type SubscribeAudienceOptions = { limit?: number; sideEffects?: boolean };
+
+// الاشتراك في الحضور — قائمة فريدة حسب uid (بدون حد = الكل فوراً).
+// sideEffects=false للمشتركين المراقِبين فقط (بطاقات الرئيسية): كانت كل بطاقة
+// تُشغّل reconcileAudienceCount الذي يكتب audienceCount فيعيد إطلاق
+// subscribeToRooms على كل الأجهزة (حلقة تغذية راجعة = 88-100 طلب/10ث).
+// شاشة الغرفة وحدها هي المُصالِح المُخوَّل (sideEffects=true الافتراضي).
 export const subscribeToAudience = (
   roomId: string,
   callback: (audience: RoomAudienceMember[]) => void,
-  limit?: number,
+  options?: number | SubscribeAudienceOptions,
 ): (() => void) => {
+  const limit = typeof options === 'number' ? options : options?.limit;
+  const sideEffects = typeof options === 'object' ? options.sideEffects !== false : true;
   const baseRef = ref(realtimeDb, `roomAudience/${roomId}`);
   const audRef =
     limit != null && limit > 0
@@ -2583,8 +2593,10 @@ export const subscribeToAudience = (
 
   const handler = (snap: DataSnapshot) => {
     callback(parseRoomAudienceSnapshot(snap));
-    scheduleReconcileAudienceCount(roomId);
-    schedulePruneStaleRoomSeats(roomId);
+    if (sideEffects) {
+      scheduleReconcileAudienceCount(roomId);
+      schedulePruneStaleRoomSeats(roomId);
+    }
   };
   onValue(audRef, handler);
   return () => off(audRef, 'value', handler);
