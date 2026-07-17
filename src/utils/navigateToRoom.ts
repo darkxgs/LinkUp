@@ -9,6 +9,7 @@ import {
   roomRequiresPassword,
 } from '@/services/roomEntryGate';
 import { useRoomEntryGateStore } from '@/stores/roomEntryGateStore';
+import { useRoomSessionStore } from '@/stores/roomSessionStore';
 import { enterAgencyLiveRoom } from '@/services/agencyService';
 
 type NavigateRoomOptions = {
@@ -20,6 +21,17 @@ function goToRoom(router: Router, roomId: string, options?: NavigateRoomOptions)
   if (options?.replace) {
     router.replace(href as any);
     return;
+  }
+  // جلسة غرفة نشطة وشاشتها قد تكون مدفونة في الـstack (غرفة ← شات ← «انضم»):
+  // push فوقها كان يترك الغرفة القديمة حيّة بكل اشتراكاتها (رسائل/مقاعد/حضور
+  // مضاعفة = حرارة وتقطيع — مرقاب [heat] أظهر subscribeToRoomMessages×2).
+  // نطوي الـstack للجذر أولاً فتُفكك القديمة ثم نفتح الجديدة نظيفة.
+  if (useRoomSessionStore.getState().roomId) {
+    try {
+      (router as { dismissAll?: () => void }).dismissAll?.();
+    } catch {
+      // لا شيء يُطوى (نحن على الجذر أصلاً) — نتابع
+    }
   }
   router.push(href as any);
 }

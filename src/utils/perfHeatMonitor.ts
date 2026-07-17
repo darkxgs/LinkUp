@@ -20,17 +20,37 @@ let patched = false;
 let started = false;
 let lags: number[] = [];
 
+// إطارات داخلية (React/Metro) لا تدل على المنشئ الحقيقي — نتخطاها لأقرب اسم تطبيقي
+const INTERNAL_FRAMES = [
+  'perfHeatMonitor',
+  'commitHookEffectList',
+  'commitPassiveMount',
+  'loadModuleImplementation',
+  'guardedLoadModule',
+  'metroRequire',
+  'requireImpl',
+  'flushPassiveEffects',
+  'invokePassiveEffect',
+  'callFunctionReturnFlushedQueue',
+];
+
 /** اسم الدالة المنشئة من الـstack — في وضع التطوير الأسماء غير مصغّرة */
 function callerTag(): string {
   const stack = new Error().stack ?? '';
-  const lines = stack.split('\n').slice(2, 8);
+  const lines = stack.split('\n').slice(2, 14);
+  let fallback = 'anonymous';
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line || line.includes('perfHeatMonitor')) continue;
+    if (!line) continue;
     const fn = line.replace(/^at\s+/, '').split(' ')[0];
-    if (fn && fn !== 'anonymous' && !fn.startsWith('http')) return fn.slice(0, 48);
+    if (!fn || fn === 'anonymous' || fn.startsWith('http')) continue;
+    if (INTERNAL_FRAMES.some((f) => fn.includes(f))) {
+      if (fallback === 'anonymous') fallback = fn.slice(0, 48);
+      continue;
+    }
+    return fn.slice(0, 48);
   }
-  return 'anonymous';
+  return fallback;
 }
 
 function patchTimers(): void {
