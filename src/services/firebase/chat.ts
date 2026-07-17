@@ -749,8 +749,33 @@ export async function isBlockedBetweenCached(uid: string, toUid: string): Promis
   return blocked;
 }
 
+// طابور إرسال لكل محادثة — الإرسالات السريعة كانت تنطلق متوازية فتصل الخادم
+// بترتيب عشوائي وتُخزَّن serverAt بترتيب الالتزام لا ترتيب الكتابة، فتظهر
+// الرسائل مخربطة للطرفين (اختبار 1→20 وصل 11،14،16،19…). التسلسل يجعل
+// ترتيب الالتزام مطابقاً لترتيب الإرسال، وفشل رسالة لا يكسر الطابور.
+const conversationSendQueues = new Map<string, Promise<unknown>>();
+function enqueueConversationSend<T>(
+  conversationId: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const prev = conversationSendQueues.get(conversationId) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(task);
+  conversationSendQueues.set(conversationId, next);
+  return next;
+}
+
 // === Send message ===
-export const sendChatMessage = async (
+export const sendChatMessage = (
+  conversationId: string,
+  toUid: string,
+  text: string,
+  replyTo?: ChatReplySnapshot,
+): Promise<void> =>
+  enqueueConversationSend(conversationId, () =>
+    sendChatMessageNow(conversationId, toUid, text, replyTo),
+  );
+
+const sendChatMessageNow = async (
   conversationId: string,
   toUid: string,
   text: string,
@@ -921,7 +946,17 @@ export type { ChatGiftPayload } from './chatGifts';
  * إرسال رسالة صورة
  * - يرفع الصورة إلى Storage ثم يخزّن رابطها
  */
-export const sendImageMessage = async (
+export const sendImageMessage = (
+  conversationId: string,
+  toUid: string,
+  localUri: string,
+  dimensions?: { width: number; height: number },
+): Promise<void> =>
+  enqueueConversationSend(conversationId, () =>
+    sendImageMessageNow(conversationId, toUid, localUri, dimensions),
+  );
+
+const sendImageMessageNow = async (
   conversationId: string,
   toUid: string,
   localUri: string,
@@ -986,7 +1021,17 @@ export const sendImageMessage = async (
  * إرسال رسالة صوتية
  * - يرفع التسجيل إلى Storage ثم يخزّن رابطه + المدّة
  */
-export const sendVoiceMessage = async (
+export const sendVoiceMessage = (
+  conversationId: string,
+  toUid: string,
+  localUri: string,
+  durationSeconds: number,
+): Promise<void> =>
+  enqueueConversationSend(conversationId, () =>
+    sendVoiceMessageNow(conversationId, toUid, localUri, durationSeconds),
+  );
+
+const sendVoiceMessageNow = async (
   conversationId: string,
   toUid: string,
   localUri: string,
@@ -1047,7 +1092,18 @@ const MAX_CHAT_FILE_BYTES = 15 * 1024 * 1024;
 /**
  * إرسال ملف (PDF، مستند، إلخ) — للدعم والشات
  */
-export const sendFileMessage = async (
+export const sendFileMessage = (
+  conversationId: string,
+  toUid: string,
+  localUri: string,
+  fileName: string,
+  mimeType?: string,
+): Promise<void> =>
+  enqueueConversationSend(conversationId, () =>
+    sendFileMessageNow(conversationId, toUid, localUri, fileName, mimeType),
+  );
+
+const sendFileMessageNow = async (
   conversationId: string,
   toUid: string,
   localUri: string,
@@ -1379,7 +1435,12 @@ export const subscribeToMessages = (
         if (user && m.hiddenFor?.[user.uid]) return false;
         return true;
       });
-    msgs.sort((a, b) => (a.sortAt || a.createdAt || 0) - (b.sortAt || b.createdAt || 0));
+    // كسر التعادل بساعة العميل — رسالتان بنفس مللي ثانية الخادم تحفظان ترتيب كتابتهما
+    msgs.sort(
+      (a, b) =>
+        (a.sortAt || a.createdAt || 0) - (b.sortAt || b.createdAt || 0) ||
+        (a.createdAt || 0) - (b.createdAt || 0),
+    );
     // فور تسليم قائمة غير فارغة نرفع العلم كي لا نمحوها لاحقاً بخطأ عابر
     if (msgs.length > 0) deliveredNonEmpty = true;
     callback(msgs);
