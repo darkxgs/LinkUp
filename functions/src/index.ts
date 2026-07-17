@@ -5884,6 +5884,11 @@ export const acceptAgencyHostInviteByCode = onCall(async (request) => {
     };
   }
 
+  // شرط الانضمام بالكود: حساب موثّق («عاملة تحقق») قبل إنشاء الطلب أو الانضمام
+  if (!isUserFullyVerified(userData)) {
+    throw new HttpsError('failed-precondition', 'شرط الانضمام للوكالة: توثيق الحساب أولاً');
+  }
+
   await assertUserCanJoinAgency(uid, agencyId);
 
   // السيناريو 1 الجديد: عند تفعيل موافقة الوكيل، لا ننضمّ فوراً — نُنشئ طلباً معلّقاً
