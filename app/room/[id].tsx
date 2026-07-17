@@ -4178,7 +4178,8 @@ export default function RoomScreen() {
           roomId,
           roomName: room.name ?? t('room.defaultRoomName'),
           seatIdx: seatIdx ?? inviteSeatIdx ?? undefined,
-          includeMembership: false,
+          // «اعطاء المايك» = عضوية غرفة دائمة: تنقّل حر بين المقاعد وتنجو من الخروج والدخول
+          includeMembership: true,
           inviterName: resolveDisplayName({
             displayName: user?.profile?.displayName,
             email: user?.email,
@@ -5713,7 +5714,7 @@ export default function RoomScreen() {
         roomName={room?.name ?? ''}
         connectedUsers={enrichedAudienceMembers}
         frameByUid={userFrameByUid}
-        includeMembership={false}
+        includeMembership={true}
       />
 
       {/* Contribution List Modal */}

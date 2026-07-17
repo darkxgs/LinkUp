@@ -24,6 +24,7 @@ import { Text, useAlert } from '@/components/ui';
 import { BackChevron } from '@/components/ui/RtlChevron';
 import { useAuth } from '@/hooks/useAuth';
 import { acceptAgencyInviteByCode, userHasAgencyMembership, hasPendingAgencyJoinRequest } from '@/services/agencyService';
+import { isHostessVerified } from '@/services/firebase/hostTasks';
 import { sendAgencyJoinRequestToSupport, SUPPORT_UID } from '@/services/supportAccount';
 import { getDisplayAccountId } from '@/services/userIdentifier';
 import { resolveDisplayName } from '@/utils/displayName';
@@ -63,6 +64,19 @@ export default function AgencyJoinScreen() {
         type: 'warning',
         title: t('agency.text451502'),
         message: t('agency.joinRequestAlreadyPending', 'لديك طلب انضمام معلّق بالفعل — بانتظار موافقة الوكيل'),
+      });
+      return;
+    }
+    // شرط الانضمام بالكود: حساب موثّق (عاملة تحقق)
+    if (!isHostessVerified(user)) {
+      showAlert({
+        type: 'warning',
+        title: t('agency.text451502'),
+        message: t('agency.joinRequiresVerification', 'شرط الانضمام للوكالة: توثيق الحساب أولاً'),
+        buttons: [
+          { text: t('common.ok') },
+          { text: 'توثيق الحساب', onPress: () => router.push('/wallet/kyc' as any) },
+        ],
       });
       return;
     }

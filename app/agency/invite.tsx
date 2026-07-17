@@ -50,6 +50,8 @@ type FoundUser = {
   agencyId?: string;
   agencyName?: string;
   agencyRole: AgencyRole;
+  /** دعوة المضيفات متاحة فقط لحسابات الإناث الموثّقة */
+  isVerifiedFemale: boolean;
 };
 
 function normalizeAgencyRole(value: unknown): AgencyRole {
@@ -154,6 +156,8 @@ export default function InviteScreen() {
       const agencyId = typeof data.agencyId === 'string' ? data.agencyId : undefined;
       const agencyRole = normalizeAgencyRole(data.agencyRole);
       const agencyData = agencyId ? await getAgencyById(agencyId) : null;
+      const gender = data.profile?.gender ?? data.gender;
+      const isVerified = data.isVerified === true || data.verificationStatus === 'approved';
       setFoundUser({
         uid: snap.id,
         name: data.profile?.displayName ?? data.displayName ?? t('rooms.userFallback'),
@@ -163,6 +167,7 @@ export default function InviteScreen() {
         agencyId,
         agencyName: agencyData?.name ?? undefined,
         agencyRole,
+        isVerifiedFemale: gender === 'female' && isVerified,
       });
     } catch (e: any) {
       showAlert({
@@ -177,6 +182,14 @@ export default function InviteScreen() {
 
   const handleInvite = async () => {
     if (!foundUser || !agency) return;
+    if (!foundUser.isVerifiedFemale) {
+      showAlert({
+        type: 'warning',
+        title: t('agency.text5865'),
+        message: 'الدعوة كمضيفة متاحة فقط لحسابات الإناث الموثّقة — اطلب منها توثيق حسابها أولاً',
+      });
+      return;
+    }
     setInviting(true);
     try {
       await inviteUserToAgencyWithNotification({
@@ -403,24 +416,40 @@ export default function InviteScreen() {
                           الحالة: {formatAgencyRoleLabel(foundUser.agencyRole)}
                         </Text>
                       </>
-                    ) : null}
+                    ) : (
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: foundUser.isVerifiedFemale ? '#10B981' : '#EF4444',
+                          marginTop: 2,
+                        }}
+                      >
+                        {foundUser.isVerifiedFemale
+                          ? 'حساب موثّق — مؤهّلة للدعوة كمضيفة'
+                          : 'الدعوة كمضيفة تتطلب حساب أنثى موثّقة'}
+                      </Text>
+                    )}
                   </View>
                   {foundUser.hasAgency ? (
                     <Text weight="bold" style={{ fontSize: 12, color: '#EF4444' }}>
                       ينتمي للوكالة
                     </Text>
-                  ) : (
+                  ) : foundUser.isVerifiedFemale ? (
                     <CheckCircle2 size={20} color="#10B981" />
+                  ) : (
+                    <Text weight="bold" style={{ fontSize: 12, color: '#EF4444' }}>
+                      غير موثّقة
+                    </Text>
                   )}
                 </View>
               )}
 
               <Pressable
                 onPress={handleInvite}
-                disabled={!foundUser || foundUser.hasAgency || inviting}
+                disabled={!foundUser || foundUser.hasAgency || !foundUser.isVerifiedFemale || inviting}
                 style={[
                   styles.inviteBtnCustom,
-                  (!foundUser || foundUser.hasAgency || inviting) && { opacity: 0.4 },
+                  (!foundUser || foundUser.hasAgency || !foundUser.isVerifiedFemale || inviting) && { opacity: 0.4 },
                 ]}
               >
                 {inviting ? (

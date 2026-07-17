@@ -1714,12 +1714,7 @@ export const changeSeat = async (
     canJoinHostSeat(roomDataForLock, user.uid) ||
     myRoleForLock === 'blue_supervisor' ||
     myRoleForLock === 'yellow_supervisor';
-  if (managedMicLock?.active && !exemptFromManagedLock) {
-    // مثبّت على مقعد بإضافة المدير — لا يغيّر مقعده بنفسه
-    if (toSeatIdx !== managedMicLock.seatIdx || toSeatIdx !== currentSeatIdx) {
-      throw new Error('لا يمكنك تغيير مقعدك — فقط إدارة الغرفة تستطيع نقلك');
-    }
-  } else if (managedMicLock && (!managedMicLock.active || exemptFromManagedLock)) {
+  if (managedMicLock && (!managedMicLock.active || exemptFromManagedLock)) {
     // سجلّ قفل قديم غير نشط أو صاحبه مشرف/مدير — يُنظَّف ولا يقيّد
     void set(ref(realtimeDb, `rooms/${roomId}/managedMicLocks/${user.uid}`), null).catch(() => {});
   }
@@ -1786,6 +1781,10 @@ export const changeSeat = async (
     return map;
   });
   if (!tx.committed) throw new Error('المقعد محجوز');
+  // قفل التثبيت يتبع صاحبه — التنقّل الحر بين المقاعد الفارغة مسموح، وشرط «امتلاك منحة للصعود» في joinSeat يبقى متّسقاً
+  if (managedMicLock?.active && !exemptFromManagedLock) {
+    void setManagedMicSeatLock(roomId, user.uid, toSeatIdx, true).catch(() => {});
+  }
   // ربط onDisconnect + موازنة العدّ بالخلفية (لا نُعطّل ظهور الانتقال)
   void bindSeatOnDisconnect(roomId, toSeatIdx);
   void reconcileAudienceCount(roomId);

@@ -45,6 +45,7 @@ import {
   type Agency as MyAgency,
 } from '@/services/agencyService';
 import { enterAgencyRoomAndNavigate } from '@/utils/navigateToRoom';
+import { isHostessVerified } from '@/services/firebase/hostTasks';
 import { useAuth } from '@/hooks/useAuth';
 import { colors, radius, spacing, shadows } from '@/theme';
 import { lu } from '@/theme/lu-brand';
@@ -153,6 +154,15 @@ export default function AgenciesScreen() {
         Alert.alert(
           t('agency.text451502'),
           t('agency.joinRequestAlreadyPending', 'لديك طلب انضمام معلّق بالفعل — بانتظار موافقة الوكيل'),
+        );
+        return;
+      }
+      // شرط الانضمام بالكود: حساب موثّق (عاملة تحقق)
+      if (!isHostessVerified(user)) {
+        setShowJoinModal(false);
+        Alert.alert(
+          t('agency.text451502'),
+          t('agency.joinRequiresVerification', 'شرط الانضمام للوكالة: توثيق الحساب أولاً'),
         );
         return;
       }
