@@ -18,6 +18,8 @@ type IntervalInfo = { tag: string; ms: number };
 const liveIntervals = new Map<number, IntervalInfo>();
 const liveTimeouts = new Set<number>();
 let timeoutsScheduledInWindow = 0;
+// منشئو المهلات في النافذة الحالية — يكشف عواصف إعادة الجدولة بالاسم
+const timeoutCreators = new Map<string, number>();
 let patched = false;
 let started = false;
 let lags: number[] = [];
@@ -167,6 +169,8 @@ function patchTimers(): void {
   };
   g.setTimeout = (fn: (...a: unknown[]) => void, ms?: number, ...rest: unknown[]) => {
     timeoutsScheduledInWindow += 1;
+    const tag = callerTag();
+    timeoutCreators.set(tag, (timeoutCreators.get(tag) ?? 0) + 1);
     let idNum = -1;
     const id = origSetTimeout(
       (...a: unknown[]) => {
@@ -268,6 +272,12 @@ export function startPerfHeatMonitor(): void {
 
     const timeoutChurn = timeoutsScheduledInWindow;
     timeoutsScheduledInWindow = 0;
+    const topTimeoutCreators = [...timeoutCreators.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([tag, n]) => `${tag}:${n}`)
+      .join('، ');
+    timeoutCreators.clear();
 
     // عيّنة إطارات لثانية واحدة فقط — بلا حلقة rAF دائمة تستهلك بنفسها
     let frames = 0;
@@ -283,7 +293,7 @@ export function startPerfHeatMonitor(): void {
           `[heat] 📍${currentRoute} | JS: متوسط ${avg}ms أقصى ${max}ms انشغال ${busyPct}% | ` +
             `إطارات ~${fps}fps | ريندر: ${commits} commit بمجموع ${renderMs}ms (أثقلها ${worstMs}ms${worstAt && worstAt !== currentRoute ? ` @${worstAt}` : ''}) | ` +
             `شبكة: ${reqs} طلب ~${kb}KB (${hosts || 'لا شيء'}) | ` +
-            `مؤقتات ${intervals} [${topIntervalTags()}] | مهلات: ${liveTimeouts.size} معلّقة، ${timeoutChurn} جُدولت | ` +
+            `مؤقتات ${intervals} [${topIntervalTags()}] | مهلات: ${liveTimeouts.size} معلّقة، ${timeoutChurn} جُدولت (${topTimeoutCreators || 'لا شيء'}) | ` +
             `ذاكرة ${hermesHeapMb()} | ${AppState.currentState}`,
         );
         if (max >= 1000) {
