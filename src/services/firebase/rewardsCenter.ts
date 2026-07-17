@@ -444,6 +444,10 @@ async function computeTaskProgress(
   }
 }
 
+// مهام الشات الموجهة للداعم الذكر — تُخفى عن حسابات الإناث (قاعدة المالك:
+// وقت المضيفة أولى بمستخدم تستفيد منه، ومحادثة مضيفة⇄مضيفة مجانية بلا عائد)
+const MALE_ONLY_TASK_METRICS = new Set(['messages_to_female', 'relationship_level_2', 'chat_rounds']);
+
 export async function getTaskProgressList(
   config: RewardsCenterConfig,
   progress: RewardsProgress,
@@ -451,8 +455,11 @@ export async function getTaskProgressList(
   userData: Record<string, unknown>,
   section: 'daily' | 'newUser',
 ): Promise<TaskProgressView[]> {
+  const viewerGender =
+    (userData?.profile as { gender?: unknown } | undefined)?.gender ?? userData?.gender;
   const tasks = (section === 'daily' ? config.dailyTasks : config.newUserTasks)
     .filter((t) => t.enabled)
+    .filter((t) => !(viewerGender === 'female' && MALE_ONLY_TASK_METRICS.has(t.metric)))
     .sort((a, b) => a.order - b.order);
 
   const claimedIds =
@@ -489,7 +496,14 @@ export const trackRewardsMessageSent = async (
     const snap = await tx.get(userRef);
     if (!snap.exists()) return;
 
-    const progress = readRewardsProgress(snap.data() as Record<string, unknown>);
+    const data = snap.data() as Record<string, unknown>;
+    // قاعدة المالك: مهام الشات محرّكها الداعم الذكر → لا احتساب لمرسِلة أنثى
+    // (مضيفة⇄مضيفة رسائل مجانية بلا فائدة اقتصادية — تُستثنى من كل العدّادات)
+    const senderGender =
+      (data.profile as { gender?: unknown } | undefined)?.gender ?? data.gender;
+    if (senderGender === 'female') return;
+
+    const progress = readRewardsProgress(data);
     const stats = { ...progress.daily.stats };
 
     if (recipientIsFemale) {
@@ -497,7 +511,8 @@ export const trackRewardsMessageSent = async (
       stats.femaleMessageCounts = { ...stats.femaleMessageCounts, [toUid]: prev + 1 };
     }
 
-    if (hadIncomingReply) {
+    // جولات الدردشة تُحسب مع طرف أنثى فقط — نفس منطق «أرسل رسائل إلى فتاة»
+    if (hadIncomingReply && recipientIsFemale) {
       const prevRounds = stats.partnerChatRounds[toUid] ?? 0;
       stats.partnerChatRounds = { ...stats.partnerChatRounds, [toUid]: prevRounds + 1 };
     }

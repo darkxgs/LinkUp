@@ -723,10 +723,26 @@ async function chargeForChatMessage(
   }
 
   const userRef = doc(firestore, 'users', user.uid);
+  // بطاقة رسائل مجانية (مركز المكافآت) تُصرف قبل الكوينز — كانت البطاقات
+  // تُكسَب من المهام بلا أي مسار صرف، فلا «استفادة» فعلية منها
+  let paidWithCard = false;
   await runTransaction(firestore, async (tx) => {
     const snap = await tx.get(userRef);
     if (!snap.exists()) throw new Error('المستخدم غير موجود');
-    const stats = statsFromFirestoreDoc(snap.data() as Record<string, unknown>);
+    const data = snap.data() as Record<string, unknown>;
+    const freeCards = Number(
+      (data.rewardsProgress as { freeMessageCards?: unknown } | undefined)?.freeMessageCards ?? 0,
+    );
+    if (freeCards > 0) {
+      // صرف بطاقة واحدة — لا يدخل كاش الإعفاء (إعفاء لمرّة لا صفة دائمة)
+      tx.update(userRef, {
+        'rewardsProgress.freeMessageCards': increment(-1),
+        updatedAt: Date.now(),
+      });
+      paidWithCard = true;
+      return;
+    }
+    const stats = statsFromFirestoreDoc(data);
     if (stats.coins < price) {
       throw new Error(
         `رصيدك ${stats.coins.toLocaleString('en-US')} كوين — تحتاج ${price.toLocaleString('en-US')} كوين لإرسال هذه الرسالة`,
@@ -741,17 +757,17 @@ async function chargeForChatMessage(
         : 'صورة';
   await addDoc(collection(firestore, 'transactions'), {
     uid: user.uid,
-    type: 'chat_message',
+    type: paidWithCard ? 'message_card_used' : 'chat_message',
     messageType,
-    amount: -price,
-    currency: 'coins',
+    amount: paidWithCard ? -1 : -price,
+    currency: paidWithCard ? 'message_cards' : 'coins',
     toUid,
-    itemName: label,
+    itemName: paidWithCard ? `${label} (بطاقة مجانية)` : label,
     status: 'completed',
     createdAt: Date.now(),
   });
 
-  return price;
+  return paidWithCard ? 0 : price;
 }
 
 // ⚡ كاش فحص الحظر — القيمة «غير محظور» تصلح لثوانٍ؛ الحظر الفعلي تفرضه القواعد
