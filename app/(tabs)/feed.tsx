@@ -142,7 +142,31 @@ export default function FeedScreen() {
   useEffect(() => {
     setLoading(true);
     const unsub = subscribeToFeedPosts(tab, followingSet, (data) => {
-      setPosts(data); setLoading(false); setRefreshing(false);
+      // إبقاء مراجع المنشورات غير المتغيّرة ثابتة حتى يعمل React.memo على PostCard —
+      // setPosts(data) الخام كان يمنح كل منشور هويةً جديدة فيعيد رندر القائمة كلها
+      // مع أي إعجاب/تعليق على منشور واحد.
+      setPosts((prev) => {
+        const prevById = new Map(prev.map((p) => [p.id, p]));
+        let changed = prev.length !== data.length;
+        const next = data.map((p) => {
+          const old = prevById.get(p.id);
+          if (
+            old &&
+            old.likes === p.likes &&
+            old.comments === p.comments &&
+            old.shares === p.shares &&
+            old.gifts === p.gifts &&
+            old.text === p.text &&
+            old.status === p.status
+          ) {
+            return old;
+          }
+          changed = true;
+          return p;
+        });
+        return changed ? next : prev;
+      });
+      setLoading(false); setRefreshing(false);
     });
     return unsub;
   }, [tab, followingSet]);
