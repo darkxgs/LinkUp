@@ -19,6 +19,8 @@ import { radius, spacing } from '@/theme';
 type Props = {
   msg: ChatMessage;
   isMine: boolean;
+  /** الوضع الداكن */
+  night?: boolean;
   onPress?: () => void;
 };
 
@@ -29,7 +31,7 @@ function formatCallDuration(sec: number): string {
   return `${m}:${r.toString().padStart(2, '0')}`;
 }
 
-function ChatCallBubbleBase({ msg, isMine, onPress }: Props) {
+function ChatCallBubbleBase({ msg, isMine, onPress , night = true }: Props) {
   const { t } = useTranslation();
   const isVideo = msg.callType === 'video';
   const status = msg.callStatus ?? 'missed';
@@ -88,7 +90,9 @@ function ChatCallBubbleBase({ msg, isMine, onPress }: Props) {
       disabled={!onPress}
       style={({ pressed }) => [
         styles.card,
-        isOutgoing ? styles.cardOutgoing : styles.cardIncoming,
+        night
+          ? (isOutgoing ? styles.cardOutgoing : styles.cardIncoming)
+          : styles.cardLight,
         pressed && onPress ? { opacity: 0.92 } : null,
       ]}
     >
@@ -103,11 +107,11 @@ function ChatCallBubbleBase({ msg, isMine, onPress }: Props) {
           </Text>
         </View>
         {status === 'completed' && duration > 0 ? (
-          <Text variant="caption" color="#6B7280" style={styles.duration}>
+          <Text variant="caption" color={night ? 'rgba(255,255,255,0.6)' : '#6B7280'} style={styles.duration}>
             {formatCallDuration(duration)}
           </Text>
         ) : onPress ? (
-          <Text variant="caption" color="#9CA3AF" style={styles.duration}>
+          <Text variant="caption" color={night ? 'rgba(255,255,255,0.5)' : '#9CA3AF'} style={styles.duration}>
             {t('chat.tapToCallAgain')}
           </Text>
         ) : null}
@@ -120,6 +124,7 @@ export const ChatCallBubble = React.memo(
   ChatCallBubbleBase,
   (prev, next) =>
     prev.isMine === next.isMine &&
+    prev.night === next.night &&
     prev.msg.id === next.msg.id &&
     prev.msg.callStatus === next.msg.callStatus &&
     prev.msg.callDurationSeconds === next.msg.callDurationSeconds &&
@@ -136,14 +141,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
     borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(15, 23, 42, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,77,94,0.35)',
   },
   cardOutgoing: {
-    backgroundColor: '#F0FDF4',
+    backgroundColor: 'rgba(40,26,31,0.94)',
   },
   cardIncoming: {
+    backgroundColor: 'rgba(40,22,27,0.96)',
+  },
+  cardLight: {
     backgroundColor: '#FFFFFF',
+    borderColor: '#F0BABA',
   },
   iconCircle: {
     width: 40,

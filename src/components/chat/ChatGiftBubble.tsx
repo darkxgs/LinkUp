@@ -37,6 +37,8 @@ type Props = {
   isMine?: boolean;
   /** محادثة خاصة أو شات الغرفة */
   context?: 'dm' | 'room';
+  /** الوضع الداكن */
+  night?: boolean;
 };
 
 function formatGiftValue(n: number): string {
@@ -44,7 +46,7 @@ function formatGiftValue(n: number): string {
   return Math.round(n).toLocaleString('en-US');
 }
 
-function ChatGiftBubbleBase({ msg, gift, isMine = false, context = 'dm' }: Props) {
+function ChatGiftBubbleBase({ msg, gift, isMine = false, context = 'dm', night = true }: Props) {
   const { t } = useTranslation();
   const qty = Math.max(1, msg.giftQuantity ?? 1);
   const name = (msg.giftName ?? gift?.name ?? msg.text ?? '').trim() || t('chat.messagePreviewGift');
@@ -80,28 +82,28 @@ function ChatGiftBubbleBase({ msg, gift, isMine = false, context = 'dm' }: Props
     qty > 1 ? `${name} ×${qty}` : name;
 
   return (
-    <View style={styles.card}>
-      <View style={styles.header}>
+    <View style={[styles.card, !night && styles.cardLight]}>
+      <View style={[styles.header, !night && styles.headerLight]}>
         <View style={styles.thumbWrap}>
           <GiftVisual gift={displayGift} size={44} preferAnimation={false} />
         </View>
-        <Text variant="bodySmall" weight="semibold" color="#1E3A5F" style={styles.headerText}>
+        <Text variant="bodySmall" weight="semibold" color={night ? '#FFFFFF' : '#15151A'} style={styles.headerText}>
           {headerText}
         </Text>
       </View>
-      <View style={styles.footer}>
+      <View style={[styles.footer, !night && styles.footerLight]}>
         <View style={styles.valueRow}>
           <LuCoinIcon size={16} />
-          <Text variant="bodySmall" weight="bold" color="#2563EB" style={styles.valueText}>
+          <Text variant="bodySmall" weight="bold" color={night ? '#FF4D5A' : '#B00E0E'} style={styles.valueText}>
             {formatGiftValue(totalValue)}
           </Text>
         </View>
-        <Text variant="caption" weight="semibold" color="#374151" numberOfLines={1} style={styles.nameText}>
+        <Text variant="caption" weight="semibold" color={night ? 'rgba(255,255,255,0.88)' : '#374151'} numberOfLines={1} style={styles.nameText}>
           {footerName}
         </Text>
       </View>
       {msg.isGroupGift && msg.recipientCount ? (
-        <Text variant="caption" color="#6B7280" style={styles.groupHint}>
+        <Text variant="caption" color={night ? 'rgba(255,255,255,0.6)' : '#6B7280'} style={styles.groupHint}>
           {msg.recipientCount} {t('room.sendToAll')}
           {msg.toName ? ` · ${msg.toName}` : ''}
         </Text>
@@ -114,6 +116,7 @@ export const ChatGiftBubble = React.memo(
   ChatGiftBubbleBase,
   (prev, next) =>
     prev.gift === next.gift &&
+    prev.night === next.night &&
     prev.isMine === next.isMine &&
     prev.context === next.context &&
     prev.msg.id === next.msg.id &&
@@ -129,9 +132,9 @@ const styles = StyleSheet.create({
     width: 248,
     borderRadius: radius.lg,
     overflow: 'hidden',
-    backgroundColor: '#fff',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(15, 23, 42, 0.08)',
+    backgroundColor: 'rgba(40,22,27,0.96)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,77,94,0.4)',
   },
   header: {
     flexDirection: 'row',
@@ -139,13 +142,13 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
-    backgroundColor: '#E8F3FC',
+    backgroundColor: 'rgba(255,45,60,0.12)',
   },
   thumbWrap: {
     width: 48,
     height: 48,
     borderRadius: radius.md,
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -162,7 +165,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.25)',
   },
   valueRow: {
     flexDirection: 'row',
@@ -177,6 +180,16 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
     fontSize: 12,
+  },
+  cardLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#F0BABA',
+  },
+  headerLight: {
+    backgroundColor: 'rgba(225,20,20,0.07)',
+  },
+  footerLight: {
+    backgroundColor: '#FFFFFF',
   },
   groupHint: {
     paddingHorizontal: spacing.md,

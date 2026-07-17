@@ -9,6 +9,8 @@ export type ChatBackgroundBlob = {
   top: `${number}%` | number;
   left: `${number}%` | number;
   opacity?: number;
+  /** شكل الزخرفة — قلب للثيم الليلي، دائرة افتراضياً */
+  shape?: 'circle' | 'heart';
 };
 
 export type ChatBackground = {
@@ -28,14 +30,39 @@ export type ChatBackground = {
 
 export const DEFAULT_CHAT_BACKGROUND_ID = 'lavender';
 
+/** الخلفية الافتراضية للوضع الفاتح — نفس هوية ديسكفر النهارية */
+export const LIGHT_DEFAULT_CHAT_BACKGROUND: ChatBackground = {
+  id: 'lavender-light',
+  name: 'نهار LinkUp',
+  minBondLevel: 1,
+  colors: ['#FBEAEA', '#FBF1F1', '#F8F6F7'],
+  start: { x: 0, y: 0 },
+  end: { x: 0.3, y: 1 },
+  blobs: [
+    { color: '#E11414', size: 64, top: '30%', left: '72%', opacity: 0.06, shape: 'heart' },
+    { color: '#E11414', size: 34, top: '36%', left: '86%', opacity: 0.05, shape: 'heart' },
+    { color: '#E11414', size: 76, top: '62%', left: '6%', opacity: 0.055, shape: 'heart' },
+    { color: '#E11414', size: 40, top: '58%', left: '20%', opacity: 0.045, shape: 'heart' },
+    { color: '#E11414', size: 30, top: '78%', left: '80%', opacity: 0.045, shape: 'heart' },
+  ],
+  enabled: true,
+};
+
 export const DEFAULT_CHAT_BACKGROUNDS: ChatBackground[] = [
   {
     id: 'lavender',
-    name: 'لافندر',
+    name: 'ليل LinkUp',
     minBondLevel: 1,
-    colors: [...lu.gradients.pageChat],
+    colors: ['#2E1B22', '#231A1F', '#161114'],
     start: { x: 0, y: 0 },
     end: { x: 0.3, y: 1 },
+    blobs: [
+      { color: '#FF2D3C', size: 64, top: '30%', left: '72%', opacity: 0.12, shape: 'heart' },
+      { color: '#FF2D3C', size: 34, top: '36%', left: '86%', opacity: 0.09, shape: 'heart' },
+      { color: '#FF2D3C', size: 76, top: '62%', left: '6%', opacity: 0.11, shape: 'heart' },
+      { color: '#E11414', size: 40, top: '58%', left: '20%', opacity: 0.08, shape: 'heart' },
+      { color: '#FF2D3C', size: 30, top: '78%', left: '80%', opacity: 0.08, shape: 'heart' },
+    ],
     enabled: true,
     sort: 0,
     isDefault: true,

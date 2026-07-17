@@ -258,7 +258,9 @@
     "welcomeTaglinePrefix": "تواصل. طابق.",
     "welcomeBackPrefix": "مرحباً",
     "welcomeBackAccent": "بعودتك",
-    "continueWithSnapchat": "المتابعة عبر سناب شات"
+    "continueWithSnapchat": "المتابعة عبر سناب شات",
+    "dailyGift": "هدية يومية",
+    "loginWithGoogle": "تسجيل الدخول عبر Google"
   },
   "tabs": {
     "home": "اكتشف",
@@ -1071,7 +1073,9 @@
     "giftSent": "تم إرسال الهدية",
     "giftSendFailed": "فشل إرسال الهدية",
     "insufficientCoinsForGift": "رصيد غير كافٍ",
-    "luckyGameOnline": "{{count}} متصل"
+    "luckyGameOnline": "{{count}} متصل",
+    "sameAgencyFreeHint": "الدردشة مجانية — أنتما ضمن وكالة واحدة، لا تُخصم عملات على الرسائل",
+    "cannotCallAgent": "لا يمكن الاتصال بالوكلاء"
   },
   "feed": {
     "title": "اللحظات",

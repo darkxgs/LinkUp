@@ -258,7 +258,9 @@
     "welcomeTaglinePrefix": "Connect. Match.",
     "welcomeBackPrefix": "Welcome",
     "welcomeBackAccent": "Back",
-    "continueWithSnapchat": "Continue with Snapchat"
+    "continueWithSnapchat": "Continue with Snapchat",
+    "dailyGift": "Daily Gift",
+    "loginWithGoogle": "Login with Google"
   },
   "tabs": {
     "home": "Discover",
@@ -1071,7 +1073,9 @@
     "giftSent": "Gift sent",
     "giftSendFailed": "Failed to send gift",
     "insufficientCoinsForGift": "Insufficient balance",
-    "luckyGameOnline": "{{count}} online"
+    "luckyGameOnline": "{{count}} online",
+    "sameAgencyFreeHint": "Chat is free — you are both in the same agency, no coins are charged for messages",
+    "cannotCallAgent": "Agents cannot be called"
   },
   "feed": {
     "title": "Moments",
