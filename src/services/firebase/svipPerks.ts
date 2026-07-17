@@ -97,12 +97,19 @@ export async function isOnlineHiddenStrict(uid: string): Promise<boolean> {
 // تأثير صوتي مميز (specialSoundEffect) — صوت دخول الغرفة
 // ─────────────────────────────────────────────────────────────
 
-/** يُرجع رابط صوت الدخول إن كان المستخدم يملك امتياز «تأثير صوتي مميز» */
-export async function resolveEntrySoundUrl(uid: string): Promise<string | null> {
+/** يُرجع رابط صوت الدخول إن كان المستخدم يملك امتياز «تأثير صوتي مميز».
+ *  يقبل بيانات مستخدم مُجلبة مسبقاً لتفادي قراءة إضافية عند كل دخول. */
+export async function resolveEntrySoundUrl(
+  uid: string,
+  prefetched?: Record<string, unknown> | null,
+): Promise<string | null> {
   try {
-    const snap = await getDoc(doc(firestore, 'users', uid));
-    if (!snap.exists()) return null;
-    const data = snap.data() as Record<string, unknown>;
+    let data = prefetched ?? null;
+    if (!data) {
+      const snap = await getDoc(doc(firestore, 'users', uid));
+      if (!snap.exists()) return null;
+      data = snap.data() as Record<string, unknown>;
+    }
     const cfg = await getVipSystemCached();
     if (!userHasVipFeature(data, 'specialSoundEffect', cfg)) return null;
     const { vipLevel } = readVipUserState(data);

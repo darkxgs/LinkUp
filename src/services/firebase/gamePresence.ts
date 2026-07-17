@@ -90,6 +90,14 @@ function startSharedPresenceListener(): void {
       }
       counts[cat] = count;
     }
+    // تخطّي البث إن لم تتغيّر الأعداد — التكة الدورية (30ث) كانت تبثّ نفس القيم
+    // فتعيد رندر الرئيسية/الاكتشاف بلا داعٍ (المفاتيح ثابتة GAME_CATEGORIES)
+    if (
+      presenceLatestCounts &&
+      GAME_CATEGORIES.every((c) => presenceLatestCounts![c] === counts[c])
+    ) {
+      return;
+    }
     presenceLatestCounts = counts;
     for (const cb of presenceSubscribers) cb(counts);
   };

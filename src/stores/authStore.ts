@@ -229,6 +229,18 @@ const PRESENCE_NOISE_KEYS = [
 function comparableUserSnapshot(u: User): string {
   const clone: Record<string, unknown> = { ...(u as unknown as Record<string, unknown>) };
   for (const k of PRESENCE_NOISE_KEYS) delete clone[k];
+  // عدّادات دقائق الغرفة/المايك اليومية «ضجيج» أيضاً — لا شيء بالواجهة يعتمدها
+  // لحظياً (شاشة المكافآت تُحدَّث عند فتحها)، وكتابتها كل بضع دقائق كانت تُطلق
+  // set() فيعيد رندر ~88 مستهلك useAuth = عاصفة ريندر بالغرفة.
+  const rp = clone.rewardsProgress as
+    | { daily?: { stats?: Record<string, unknown> } }
+    | undefined;
+  if (rp?.daily?.stats) {
+    const stats = { ...rp.daily.stats };
+    delete stats.roomMinutes;
+    delete stats.micMinutes;
+    clone.rewardsProgress = { ...rp, daily: { ...rp.daily, stats } };
+  }
   return JSON.stringify(clone);
 }
 

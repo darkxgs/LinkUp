@@ -905,9 +905,13 @@ export default function RoomScreen() {
       if (gift.videoUrlMp4?.trim()) preloadVideoBackground(gift.videoUrlMp4.trim());
       else if (gift.videoUrl?.trim()) preloadVideoBackground(gift.videoUrl.trim());
     });
-    GIFTS_CATALOG.forEach((gift) => {
-      if (gift.soundUrl?.trim()) void preloadGiftSound(gift.soundUrl.trim());
-    });
+    // تحميل أصوات أغلى 6 هدايا فقط بدل الكتالوج كله — كل صوت محمّل = مشغّل
+    // MediaPlayer أصلي مقيم؛ الباقي يُحمّل عند أول إهداء (تأخير أول مرة ضئيل).
+    [...GIFTS_CATALOG]
+      .filter((g) => g.soundUrl?.trim())
+      .sort((a, b) => (b.price ?? 0) - (a.price ?? 0))
+      .slice(0, 6)
+      .forEach((gift) => void preloadGiftSound(gift.soundUrl!.trim()));
     return () => {
       void stopRoomSound();
     };
@@ -1881,8 +1885,8 @@ export default function RoomScreen() {
             const entryAvatar =
               resolveOfficialUserAvatar(userData ?? {}, member.uid!) || member.avatar || '';
 
-            // امتياز SVIP «تأثير صوتي مميز» — صوت دخول
-            void resolveEntrySoundUrl(member.uid).then((soundUrl) => {
+            // امتياز SVIP «تأثير صوتي مميز» — صوت دخول (يعيد استخدام userData المُجلب)
+            void resolveEntrySoundUrl(member.uid, userData).then((soundUrl) => {
               if (soundUrl) {
                 void configureSoundEffectsAudio().then(() => playGiftSound(soundUrl)).catch(() => {});
               }
@@ -1894,6 +1898,7 @@ export default function RoomScreen() {
               vipSystem.privileges,
               vipSystem,
               aristocracy,
+              userData,
             );
             if (svipEntry?.videoUrl) {
               enqueueEntryVideo({
@@ -2429,13 +2434,15 @@ export default function RoomScreen() {
     [messages],
   );
 
+  // إطارات المقاعد + مرسلي الشات فقط (مرئية دائماً) — أُزيل الحضور غير المحدود
+  // الذي كان يجعل عدد قراءات Firestore ينمو مع حجم الغرفة وطول الجلوس؛
+  // إطارات الجمهور تُجلب كسولاً عند فتح ورقة المتصلين (فيها جلب دفعي أصلاً).
   const frameLookupUids = useMemo(() => {
     const uids = new Set<string>();
     allSeats.forEach((s) => { if (s?.uid) uids.add(s.uid); });
     chatSenderUids.forEach((uid) => uids.add(uid));
-    liveAudience.forEach((a) => { if (a.uid) uids.add(a.uid); });
     return [...uids];
-  }, [allSeats, chatSenderUids, liveAudience]);
+  }, [allSeats, chatSenderUids]);
 
   // مفتاح مرتّب ثابت: يتغيّر فقط عند تغيّر مجموعة الـuids فعلاً (لا عند مجرد إعادة الترتيب)
   // فيمنع إعادة جلب الإطارات/الميتاداتا مع كل رسالة جديدة
@@ -2677,13 +2684,11 @@ export default function RoomScreen() {
   }, [seatAvatarPrefetchKey, room?.hostAvatar]);
 
   useEffect(() => {
-    if (!frameLookupUids.length || !roomFrames.length) {
-      setUserFrameByUid({});
-      return;
-    }
+    if (!frameLookupUids.length || !roomFrames.length) return;
     let cancelled = false;
     fetchEquippedFrameUrlsForUsers(frameLookupUids, roomFrames).then((map) => {
-      if (!cancelled) setUserFrameByUid(map);
+      // دمج بدل استبدال — لا نمسح إطارات جُلبت سابقاً (الكاش يمنع إعادة القراءة)
+      if (!cancelled) setUserFrameByUid((prev) => ({ ...prev, ...map }));
     });
     return () => { cancelled = true; };
   }, [frameLookupKey, roomFrames]);
@@ -2741,16 +2746,36 @@ export default function RoomScreen() {
   useEffect(() => {
     onSeatForXpRef.current = !!mySeat;
   }, [mySeat]);
+  // تجميع الدقائق في refs والكتابة كل 5 دقائق بدل كل دقيقة — الكتابة الدقيقية
+  // كانت معاملة Firestore على وثيقة المستخدم الساخنة كل 60ث، وكل تحديث للوثيقة
+  // يعيد رندر شجرة الغرفة كلها عبر useAuth (~88 مستهلكاً) = عاصفة ريندر دورية.
+  const pendingRoomMinRef = useRef(0);
+  const pendingMicMinRef = useRef(0);
   useEffect(() => {
     if (!roomId) return;
-    const iv = setInterval(() => {
+    const flush = () => {
+      const m = pendingRoomMinRef.current;
+      const mic = pendingMicMinRef.current;
+      if (m < 1 && mic < 1) return;
+      pendingRoomMinRef.current = 0;
+      pendingMicMinRef.current = 0;
       void import('@/services/firebase/rewardsCenter')
-        .then(({ trackRewardsRoomMinutes }) =>
-          trackRewardsRoomMinutes(1, onSeatForXpRef.current ? 1 : 0),
-        )
-        .catch(() => {});
+        .then(({ trackRewardsRoomMinutes }) => trackRewardsRoomMinutes(m, mic))
+        .catch(() => {
+          // فشل الكتابة — أعد الدقائق للطابور بدل ضياعها
+          pendingRoomMinRef.current += m;
+          pendingMicMinRef.current += mic;
+        });
+    };
+    const iv = setInterval(() => {
+      pendingRoomMinRef.current += 1;
+      if (onSeatForXpRef.current) pendingMicMinRef.current += 1;
+      if (pendingRoomMinRef.current >= 5) flush();
     }, 60_000);
-    return () => clearInterval(iv);
+    return () => {
+      clearInterval(iv);
+      flush(); // تصفية الباقي عند الخروج حتى لا تضيع آخر دقائق
+    };
   }, [roomId]);
 
   /** على المايك: تثبيت العضوية وإلغاء onDisconnect — يبقى المقعد عند واتساب/فيسبوك */

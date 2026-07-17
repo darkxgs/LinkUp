@@ -430,6 +430,9 @@ function ExpoVideoPlayer({
       volume={muted ? 0 : VIDEO_DUCKED_VOLUME}
       resizeMode={ResizeMode.CONTAIN}
       useNativeControls={false}
+      // قراءة الموضع تتم بـgetStatusAsync كل 5ث لا بالأحداث — الافتراضي 500ms
+      // كان يبثّ أحداثاً لا أحد يستهلكها أثناء تشغيل فيديو المشاهدة المشتركة
+      progressUpdateIntervalMillis={10000}
       onLoad={(status: any) => {
         onReady();
         // إذا متحكّم وما عنده duration → احفظها

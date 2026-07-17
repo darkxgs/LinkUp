@@ -137,7 +137,10 @@ export function VoiceMessagePlayer({
         if (status.didJustFinish) {
           setIsPlaying(false);
           setPosition(0);
-          sound.stopAsync().then(() => sound.setPositionAsync(0)).catch(() => {});
+          // فرّغ المشغّل بدل إبقائه محمّلاً — إعادة التشغيل تُنشئه من جديد،
+          // فلا يبقى MediaPlayer مقيم لكل آخر رسالة صوتية شغّلها المستخدم
+          sound.unloadAsync().catch(() => {});
+          if (soundRef.current === sound) soundRef.current = null;
           clearActive();
         }
       });

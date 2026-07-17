@@ -193,12 +193,23 @@ export async function configureVideoPlaybackAudio(): Promise<void> {
   }
 }
 
+// حد أعلى للأصوات المحمّلة معاً — أصوات دخوليات الزائرين كانت تتراكم طوال
+// الجلسة (مشغّل MediaPlayer أصلي مقيم لكل رابط فريد سُمع = حرارة وذاكرة)
+const PRELOAD_CACHE_MAX = 8;
+
 function rememberInPreloadCache(key: string, sound: Sound): void {
   const existing = preloadedSounds.get(key);
   if (existing && existing !== sound) {
     existing.unloadAsync().catch(() => {});
   }
   preloadedSounds.set(key, sound);
+  while (preloadedSounds.size > PRELOAD_CACHE_MAX) {
+    const oldestKey = preloadedSounds.keys().next().value as string | undefined;
+    if (oldestKey == null) break;
+    const oldest = preloadedSounds.get(oldestKey);
+    preloadedSounds.delete(oldestKey);
+    oldest?.unloadAsync().catch(() => {});
+  }
 }
 
 function attachFinishHandler(sound: Sound, key: string): void {
@@ -257,7 +268,9 @@ async function cacheRemoteSound(url: string): Promise<void> {
       withSfxTimeout(
         AV.Audio.Sound.createAsync(
           { uri: key },
-          { shouldPlay: false, volume: 0.85, isLooping: false },
+          // progressUpdateIntervalMillis: لا شيء يقرأ تقدم هذه الأصوات — الافتراضي
+          // 500ms كان يبقي looper أندرويد الأصلي يدق مرتين/ثانية لكل صوت محمّل (حرارة)
+          { shouldPlay: false, volume: 0.85, isLooping: false, progressUpdateIntervalMillis: 10000 },
         ),
         (late) => late.sound.unloadAsync().catch(() => {}),
       ),
@@ -371,7 +384,7 @@ async function playGiftSoundInner(
   const { sound } = await withSfxTimeout(
     AV.Audio.Sound.createAsync(
       { uri: key },
-      { shouldPlay: true, volume, isLooping: false },
+      { shouldPlay: true, volume, isLooping: false, progressUpdateIntervalMillis: 10000 },
     ),
     (late) => late.sound.unloadAsync().catch(() => {}),
   );
@@ -397,7 +410,7 @@ export async function preloadRoomSoundAsset(cacheKey: string, source: number): P
       withSfxTimeout(
         AV.Audio.Sound.createAsync(
           source,
-          { shouldPlay: false, volume: 0.9, isLooping: false },
+          { shouldPlay: false, volume: 0.9, isLooping: false, progressUpdateIntervalMillis: 10000 },
         ),
         (late) => late.sound.unloadAsync().catch(() => {}),
       ),
@@ -483,7 +496,7 @@ async function playRoomSoundSourceInner(
   const { sound } = await withSfxTimeout(
     AV.Audio.Sound.createAsync(
       source,
-      { shouldPlay: true, volume, isLooping: false },
+      { shouldPlay: true, volume, isLooping: false, progressUpdateIntervalMillis: 10000 },
     ),
     (late) => late.sound.unloadAsync().catch(() => {}),
   );

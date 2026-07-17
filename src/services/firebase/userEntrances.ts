@@ -126,11 +126,15 @@ export async function resolveRoomEntryForUser(
   privileges: VipPrivilegeDef[],
   vipSystem?: VipSystemConfig,
   aristocracyConfig?: AristocracyConfig,
+  prefetched?: Record<string, unknown> | null,
 ): Promise<RoomEntryMedia | null> {
   try {
-    const userSnap = await getDoc(doc(firestore, 'users', uid));
-    if (!userSnap.exists()) return null;
-    const data = userSnap.data() as Record<string, unknown>;
+    let data = prefetched ?? null;
+    if (!data) {
+      const userSnap = await getDoc(doc(firestore, 'users', uid));
+      if (!userSnap.exists()) return null;
+      data = userSnap.data() as Record<string, unknown>;
+    }
 
     // 1) أولوية الأرستقراطية: فيديو دخولية محدد لكل مستوى من لوحة التحكم.
     const arCfg = aristocracyConfig ?? await getAristocracyConfigOnce();

@@ -66,7 +66,7 @@ export function resolveFrameImageUrl(frameId: string | null, catalog: RoomFrame[
   return catalog.find((f) => f.id === frameId)?.imageUrl;
 }
 
-import { hasVipPrivilege, getEffectiveVipLevel, getVipSystemOnce, resolveVipPrivilegeAsset, type VipPrivilegeDef, type VipSystemConfig } from './vipSystem';
+import { hasVipPrivilege, getEffectiveVipLevel, getVipSystemCached, resolveVipPrivilegeAsset, type VipPrivilegeDef, type VipSystemConfig } from './vipSystem';
 import { readUserAgencyPrince } from './agencyPrinceSystem';
 
 export function getEquippedFrameUrlFromUserData(
@@ -114,12 +114,20 @@ export function getEquippedFrameUrlFromUserData(
 }
 
 const frameUrlInFlight = new Map<string, Promise<string | undefined>>();
+// كاش نتيجة بـTTL — الغرفة كانت تعيد قراءة إطارات كل المستخدمين مع أي تغيّر في
+// الحضور/نافذة الشات (تصاعد Firestore 77→119 طلب/10ث كلما طال الجلوس)
+const FRAME_URL_TTL_MS = 5 * 60 * 1000;
+const frameUrlCache = new Map<string, { url: string | undefined; ts: number }>();
 
 async function fetchEquippedFrameUrlForUser(
   uid: string,
   catalog: RoomFrame[],
   now: number,
+  vipConfig: VipSystemConfig,
 ): Promise<string | undefined> {
+  const cached = frameUrlCache.get(uid);
+  if (cached && now - cached.ts < FRAME_URL_TTL_MS) return cached.url;
+
   const pending = frameUrlInFlight.get(uid);
   if (pending) return pending;
 
@@ -128,8 +136,9 @@ async function fetchEquippedFrameUrlForUser(
       const snap = await getDoc(doc(firestore, 'users', uid));
       if (!snap.exists()) return undefined;
       const userData = snap.data() as Record<string, unknown>;
-      const vipConfig = await getVipSystemOnce();
-      return getEquippedFrameUrlFromUserData(userData, catalog, now, undefined, vipConfig);
+      const url = getEquippedFrameUrlFromUserData(userData, catalog, now, undefined, vipConfig);
+      frameUrlCache.set(uid, { url, ts: Date.now() });
+      return url;
     } catch {
       return undefined;
     } finally {
@@ -148,10 +157,12 @@ export async function fetchEquippedFrameUrlsForUsers(
   const unique = [...new Set(uids.filter(Boolean))];
   if (!unique.length || !catalog.length) return {};
   const now = Date.now();
+  // جلب إعداد VIP مرة واحدة للدفعة كلها بدل قراءة لكل uid (خفض 2N → N+1)
+  const vipConfig = await getVipSystemCached();
   const map: Record<string, string> = {};
   await Promise.all(
     unique.map(async (uid) => {
-      const url = await fetchEquippedFrameUrlForUser(uid, catalog, now);
+      const url = await fetchEquippedFrameUrlForUser(uid, catalog, now, vipConfig);
       if (url) map[uid] = url;
     }),
   );
