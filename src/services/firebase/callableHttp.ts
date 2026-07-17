@@ -37,20 +37,30 @@ function shouldFallbackToSdk(err: unknown): boolean {
   );
 }
 
+/** 429/503 = رفض من البنية التحتية (ازدحام/حصة CPU) قبل تنفيذ الدالة — الإعادة آمنة */
+const RETRYABLE_HTTP_STATUS = new Set([429, 503]);
+
 /** يستدعي Callable Gen2 مع Authorization: Bearer <Firebase ID Token> */
 export async function callCallableHttp<TReq, TRes>(
   functionName: string,
   data: TReq,
   idToken: string,
 ): Promise<TRes> {
-  const response = await fetch(callableUrl(functionName), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify({ data }),
-  });
+  const doFetch = () =>
+    fetch(callableUrl(functionName), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ data }),
+    });
+
+  let response = await doFetch();
+  for (let retry = 1; retry <= 2 && RETRYABLE_HTTP_STATUS.has(response.status); retry++) {
+    await new Promise((r) => setTimeout(r, 700 * retry + Math.random() * 400));
+    response = await doFetch();
+  }
 
   let body: CallableEnvelope<TRes> | null = null;
   try {
