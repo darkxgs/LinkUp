@@ -43,7 +43,7 @@ import { ProfileBadgesRow } from '@/components/profile/ProfileBadgesRow';
 import { FramedAvatar, getFramedAvatarContainerSize } from '@/components/ui/FramedAvatar';
 import { useEquippedFrameUrl } from '@/hooks/useEquippedFrameUrl';
 import { reconcileSocialCounts, subscribeToSocialCounts } from '@/services/firebase/follow';
-import { reconcileVisitorCount, subscribeToProfileVisitorCount } from '@/services/firebase/profileVisitors';
+import { reconcileVisitorCount } from '@/services/firebase/profileVisitors';
 import { reconcileUserBalances } from '@/utils/userBalance';
 import { subscribeToMyRoomStats } from '@/services/roomFeatures';
 
@@ -209,10 +209,13 @@ export default function ProfileScreen() {
     return subscribeToMyAgency((agency) => setOwnsAgency(!!agency));
   }, [uid]);
 
+  // عدد الزوّار يُشتقّ من stats.visitors المتزامن عبر مستمع الحساب الحيّ —
+  // reconcileVisitorCount أعلاه يحدّث العدّ الحقيقي في المستند عند الدخول.
+  // (كان subscribeToProfileVisitorCount يفتح لقطة على 200 زيارة + getCountFromServer
+  //  + reconcile عند كل زيارة = ثقيل جداً على شاشة يفتحها الجميع.)
   useEffect(() => {
-    if (!uid) return;
-    return subscribeToProfileVisitorCount(uid, setVisitorCount);
-  }, [uid]);
+    setVisitorCount(user?.stats?.visitors ?? 0);
+  }, [user?.stats?.visitors]);
 
   useEffect(() => {
     if (!uid) return;

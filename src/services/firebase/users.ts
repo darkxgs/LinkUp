@@ -12,6 +12,7 @@ import {
   updateDoc,
   query,
   where,
+  documentId,
   orderBy,
   limit,
   startAfter,
@@ -167,9 +168,51 @@ export const getUsers = async (
   uids: string[],
 ): Promise<Map<string, UserDoc | null>> => {
   const unique = Array.from(new Set(uids.filter(Boolean)));
-  const results = await Promise.all(unique.map((uid) => getUser(uid)));
   const map = new Map<string, UserDoc | null>();
-  unique.forEach((uid, i) => map.set(uid, results[i] ?? null));
+  if (!unique.length) return map;
+
+  // استخدم الكاش الطازج فوراً، واجمع الغائبين فقط
+  const now = Date.now();
+  const misses: string[] = [];
+  for (const uid of unique) {
+    const hit = _userCache.get(uid);
+    if (hit && hit.exp > now) map.set(uid, hit.data);
+    else misses.push(uid);
+  }
+  if (!misses.length) return map;
+
+  // قراءة مجمّعة documentId() in دفعات 30 بدل قراءة منفصلة لكل uid
+  // (شريط الأصدقاء 60 قراءة / منتقي هدايا 51 طلباً / قائمة المحادثات 50 → دفعات)
+  const chunks: string[][] = [];
+  for (let i = 0; i < misses.length; i += 30) chunks.push(misses.slice(i, i + 30));
+  const usersCol = collection(firestore, 'users');
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      try {
+        const snap = await getDocs(query(usersCol, where(documentId(), 'in', chunk)));
+        const found = new Set<string>();
+        snap.forEach((d) => {
+          const data = normalizeUserDoc(d.id, d.data() as Record<string, unknown>);
+          _userCache.set(d.id, { data, exp: Date.now() + USER_CACHE_TTL });
+          map.set(d.id, data);
+          found.add(d.id);
+        });
+        for (const uid of chunk) {
+          if (!found.has(uid)) {
+            _userCache.set(uid, { data: null, exp: Date.now() + USER_CACHE_TTL });
+            map.set(uid, null);
+          }
+        }
+      } catch {
+        // فشل دفعة — رجوع فردي احتياطي حتى لا يفقد الصف بياناته
+        await Promise.all(
+          chunk.map(async (uid) => {
+            if (!map.has(uid)) map.set(uid, await getUser(uid));
+          }),
+        );
+      }
+    }),
+  );
   return map;
 };
 
