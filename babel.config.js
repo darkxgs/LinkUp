@@ -1,6 +1,12 @@
 module.exports = function (api) {
-  api.cache(true);
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.BABEL_ENV === 'production';
+  // الكاش يعتمد على البيئة حتى يُعاد تقييم isProduction لكل من dev/prod بدل
+  // تجميد أول تقييم (api.cache(true) كان قد يُجمّد وضع التطوير فلا تُزال الـlogs
+  // في بناء الإنتاج). api.env('production') هو الفحص المعياري في babel.
+  api.cache.using(() => process.env.NODE_ENV ?? process.env.BABEL_ENV ?? 'development');
+  const isProduction =
+    api.env('production') ||
+    process.env.NODE_ENV === 'production' ||
+    process.env.BABEL_ENV === 'production';
   return {
     presets: ['babel-preset-expo'],
     plugins: [
