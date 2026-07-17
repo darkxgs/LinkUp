@@ -24,7 +24,6 @@ import { Text } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import {
   getMyRelationships,
-  seedDemoRelationships,
   getOrCreateRelationship,
   calculateLevel,
   getPartnerInfo,
@@ -67,7 +66,6 @@ export default function RelationshipsScreen() {
 
   const load = useCallback(async () => {
     try {
-      await seedDemoRelationships();
       let data = await getMyRelationships();
 
       if (incomingUserId && user?.uid) {

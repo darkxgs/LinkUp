@@ -37,7 +37,7 @@ import {
 } from 'lucide-react-native';
 
 import { Text, Card, BackButton, RealCountryFlag } from '@/components/ui';
-import { getAgencies, seedDemoAgencies, Agency } from '@/services/firebase/social';
+import { getAgencies, Agency } from '@/services/firebase/social';
 import {
   acceptAgencyInviteByCode,
   subscribeToMyAgency,
@@ -78,8 +78,6 @@ export default function AgenciesScreen() {
     setLoading(true);
     const load = async () => {
       try {
-        // ⚡ زرع تجريبي للتطوير فقط — كان يحجب جلب الوكالات بقراءة مهدورة في الإنتاج
-        if (__DEV__) await seedDemoAgencies();
         const data = await getAgencies();
         setAgencies(data);
       } catch (e) {

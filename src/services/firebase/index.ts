@@ -141,7 +141,8 @@ export const verifyFirebaseConnection = async (): Promise<boolean> => {
   try {
     const ok = !!app && !!auth && !!firestore && !!realtimeDb;
     if (ok) {
-      console.log('✅ Firebase connected: supermarket-b66fd');
+      // اسم المشروع الحقيقي من الإعدادات — كان نصاً قديماً مضللاً من القالب الأصلي
+      console.log(`✅ Firebase connected: ${app.options?.projectId ?? 'unknown'}`);
     }
     return ok;
   } catch (e) {

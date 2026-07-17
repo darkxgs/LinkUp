@@ -7,7 +7,6 @@ import {
   getLeaderboard,
   subscribeToDiscoverUsers,
   UserDoc,
-  seedDemoUsers,
 } from '@/services/firebase/users';
 import { useAuth } from '@/hooks/useAuth';
 import { readListCache, writeListCache } from '@/utils/persistentListCache';
@@ -70,10 +69,7 @@ export const useDiscoverUsers = (
       },
     );
 
-    // زرع البيانات التجريبية في الخلفية أثناء التطوير فقط — لا يحجب التحميل
-    if (__DEV__) {
-      seedDemoUsers().catch(() => {});
-    }
+    // أُزيل الزرع التجريبي نهائياً (2026-07-17) — جلسات التطوير على مشروع الإنتاج
 
     return () => {
       mounted = false;
@@ -98,8 +94,6 @@ export const useLeaderboard = (
     let mounted = true;
     const load = async () => {
       try {
-        // ⚡ زرع البيانات التجريبية للتطوير فقط — كان يحجب جلب المتصدّرين في الإنتاج
-        if (__DEV__) await seedDemoUsers();
         const data = await getLeaderboard(category, period);
         if (mounted) {
           setUsers(data);

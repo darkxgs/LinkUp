@@ -9,7 +9,6 @@ import {
   subscribeToRoom,
   subscribeToHostPrivateRoom,
   Room,
-  seedDemoRooms,
 } from '@/services/firebase/rooms';
 import { readListCache, writeListCache } from '@/utils/persistentListCache';
 
@@ -24,10 +23,9 @@ export const useRooms = (limit: number = 20) => {
   useEffect(() => {
     let mounted = true;
 
-    // زرع الغرف التجريبية في الخلفية أثناء التطوير فقط — لا يحجب الاشتراك الحي
-    if (__DEV__) {
-      seedDemoRooms().catch(() => {});
-    }
+    // أُزيل زرع الغرف التجريبية نهائياً (2026-07-17): جلسات التطوير متوصلة
+    // بمشروع الإنتاج نفسه، ولو فرغت rooms لحظةً كان سيُزرع غرف وهمية
+    // بمضيفين وعدادات مزيفة في الإنتاج — دالة seedDemoRooms باقية للنداء اليدوي فقط.
 
     // فتح بارد: اعرض آخر غرف مخزّنة قرصياً فوراً ريثما يصل الاشتراك الحي
     if (roomsCache.length === 0) {
