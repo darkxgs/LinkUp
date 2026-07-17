@@ -13,14 +13,32 @@ type Props = {
   images: string[];
   /** نسبة عرض الصورة لارتفاعها — نفس مقاس البطاقة السابق افتراضياً */
   aspectRatio?: number;
+  /**
+   * تكيّف بنسبة أبعاد الصورة الأولى (ضمن حدود) بحيث تظهر الصورة كاملة بلا
+   * قصّ داخل البطاقة (طلب المالك) — والصور المختلفة النسبة تُحتوى بلا اقتصاص
+   */
+  adaptiveAspect?: boolean;
   onPressImage?: (index: number) => void;
   /** خصائص تُمرَّر لكل صورة (كاش/انتقال…) */
   imageProps?: Record<string, unknown>;
 };
 
-export function PostImagePager({ images, aspectRatio = 1.5, onPressImage, imageProps }: Props) {
+// حدود نسبة البطاقة المتكيفة — أعرض من 1.91 أو أطول من 0.7 يُقصّ لأقرب حد
+const ADAPTIVE_MAX_RATIO = 1.91;
+const ADAPTIVE_MIN_RATIO = 0.7;
+
+export function PostImagePager({
+  images,
+  aspectRatio = 1.5,
+  adaptiveAspect = false,
+  onPressImage,
+  imageProps,
+}: Props) {
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
+  const [naturalRatio, setNaturalRatio] = useState<number | null>(null);
+  const effectiveRatio = adaptiveAspect ? (naturalRatio ?? aspectRatio) : aspectRatio;
+  const fit = adaptiveAspect ? 'contain' : 'cover';
 
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
@@ -55,9 +73,26 @@ export function PostImagePager({ images, aspectRatio = 1.5, onPressImage, imageP
             <Pressable disabled={!onPressImage} onPress={() => onPressImage?.(i)}>
               <Image
                 source={{ uri: item }}
-                style={{ width, aspectRatio }}
-                contentFit="cover"
+                style={{ width, aspectRatio: effectiveRatio }}
+                contentFit={fit}
                 recyclingKey={item}
+                onLoad={
+                  adaptiveAspect && i === 0
+                    ? (e) => {
+                        const w = e.source?.width ?? 0;
+                        const h = e.source?.height ?? 0;
+                        if (w > 0 && h > 0) {
+                          const r = Math.min(
+                            ADAPTIVE_MAX_RATIO,
+                            Math.max(ADAPTIVE_MIN_RATIO, w / h),
+                          );
+                          setNaturalRatio((prev) =>
+                            prev == null || Math.abs(prev - r) > 0.01 ? r : prev,
+                          );
+                        }
+                      }
+                    : undefined
+                }
                 {...imageProps}
               />
             </Pressable>
@@ -65,7 +100,7 @@ export function PostImagePager({ images, aspectRatio = 1.5, onPressImage, imageP
         />
       ) : (
         // نقيس العرض أولاً — عنصر بنفس الارتفاع حتى لا يقفز التخطيط
-        <View style={{ width: '100%', aspectRatio }} />
+        <View style={{ width: '100%', aspectRatio: effectiveRatio }} />
       )}
       {images.length > 1 ? (
         <>

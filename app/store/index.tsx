@@ -275,16 +275,24 @@ export default function StoreScreen() {
     };
   }, [refreshOwned]);
 
-  // ⚡ أجّل التحميل المسبق لمصغّرات كل التبويبات بعد استقرار أول رسم حتى لا يزاحم
-  //    تنزيل صور التبويب المرئي على I/O/الشبكة (نفس نمط الهدايا في ConfigContext)
+  // ⚡ التحميل المسبق على مرحلتين: التبويب النشط أولاً (2ث) ثم بقية التبويبات
+  //    (10ث) — كان الكل يُسحب معاً بعد 2ث فتزاحم عشرات الميجابايت صور التبويب
+  //    المرئي نفسه على الشبكة (إطارات config/roomFrames أصلية غير مضغوطة)
   useEffect(() => {
     if (!roomFrames.length && !storeItems.length) return;
     const t = setTimeout(() => {
+      if (activeCategory === 'frame') prefetchStoreThumbs(roomFrames);
+      else prefetchStoreThumbs(storeItems);
+    }, 2000);
+    const tAll = setTimeout(() => {
       prefetchStoreThumbs(roomFrames);
       prefetchStoreThumbs(storeItems);
-    }, 2000);
-    return () => clearTimeout(t);
-  }, [roomFrames, storeItems]);
+    }, 10000);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(tAll);
+    };
+  }, [roomFrames, storeItems, activeCategory]);
 
   const lang = i18n.language?.startsWith('ar') ? 'ar' : 'en';
 
@@ -964,6 +972,9 @@ const StoreCard = memo(function StoreCard({
                 placeholder={{ blurhash: STORE_THUMB_BLURHASH }}
                 transition={150}
                 recyclingKey={mediaUrl}
+                // بعض الإطارات صورتها GIF متحرك بعدة ميجابايتات — لا نشغّله داخل
+                // كارت 150px (فك ترميز مستمر لكل الشبكة)؛ الحركة تظهر بورقة الشراء
+                autoplay={false}
                 onError={() => setThumbFailed(true)}
               />
             </View>

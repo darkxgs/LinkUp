@@ -29,6 +29,7 @@ import { formatTimeAgo } from '@/utils/timeAgo';
 
 import { Text, BackButton } from '@/components/ui';
 import { PostImagePager } from '@/components/post/PostImagePager';
+import { PostImageViewerModal } from '@/components/post/PostImageViewerModal';
 import { FramedAvatar } from '@/components/ui/FramedAvatar';
 import { useEquippedFrameUrl } from '@/hooks/useEquippedFrameUrl';
 import { subscribeToRoomFrames, type RoomFrame } from '@/services/firebase/roomDecor';
@@ -395,6 +396,7 @@ export default function PostDetailScreen() {
                   <PostImagePager
                     images={post.images}
                     aspectRatio={1.55}
+                    adaptiveAspect
                     onPressImage={(i) => {
                       setZoomIndex(i);
                       setZoomOpen(true);
@@ -569,45 +571,13 @@ export default function PostDetailScreen() {
         </View>
       </Modal>
 
-      <Modal
+      {/* عارض الصور بالحجم الكامل — مشترك مع بطاقة اللحظات */}
+      <PostImageViewerModal
+        images={post.images ?? []}
+        initialIndex={zoomIndex}
         visible={zoomOpen}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setZoomOpen(false)}
-      >
-        <View style={styles.modalBg}>
-          <Pressable style={styles.closeArea} onPress={() => setZoomOpen(false)} />
-          {/* تقليب أفقي بين الصور داخل التكبير — يبدأ من الصورة المضغوطة */}
-          <FlatList
-            data={post.images ?? []}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            initialScrollIndex={Math.min(zoomIndex, Math.max(0, (post.images?.length ?? 1) - 1))}
-            getItemLayout={(_, i) => ({ length: winW, offset: winW * i, index: i })}
-            keyExtractor={(url, i) => `${i}_${url}`}
-            renderItem={({ item }) => (
-              <ScrollView
-                maximumZoomScale={4}
-                minimumZoomScale={1}
-                showsHorizontalScrollIndicator={false}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.zoomScroll}
-                style={{ width: winW }}
-              >
-                <Image
-                  source={{ uri: item }}
-                  style={{ width: winW, height: winH * 0.8 }}
-                  contentFit="contain"
-                />
-              </ScrollView>
-            )}
-          />
-          <Pressable style={styles.closeBtn} onPress={() => setZoomOpen(false)}>
-            <Text style={styles.closeText}>✕</Text>
-          </Pressable>
-        </View>
-      </Modal>
+        onClose={() => setZoomOpen(false)}
+      />
     </LinearGradient>
   );
 }
