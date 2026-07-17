@@ -85,6 +85,24 @@ export function useCall({
       const snap = callSession.getSnapshot();
       // لا نقطع إذا connect لا يزال جارياً لنفس القناة (React StrictMode remount)
       if (snap.channelName === channelName && snap.callState === 'connecting') return;
+      // شبكة أمان: إزالة لم تمر بـbeforeRemove (reset/dismissAll) أثناء مكالمة متصلة —
+      // ثبّت وأظهر الفقاعة بدل القطع؛ الإنهاء الصريح يمر عبر leave() فيصبح ended قبل الوصول هنا
+      if (
+        snap.channelName === channelName &&
+        snap.callState === 'connected' &&
+        peerUid &&
+        auth.currentUser
+      ) {
+        useCallSessionStore.getState().minimize({
+          peerUid,
+          peerName: '', // الفقاعة تعرض بديل t('rooms.userFallback')
+          channelName,
+          isVideo,
+          billingSessionId,
+          source: callSource,
+        });
+        return;
+      }
       void callSession.leave();
     };
   }, [channelName, isVideo, peerUid, billingSessionId, callSource, autoJoin]);

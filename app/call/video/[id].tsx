@@ -35,6 +35,8 @@ import {
 import { Text, RealCountryFlag, CoinIcon } from '@/components/ui';
 import { colors, radius, spacing, shadows } from '@/theme';
 import { useCallSessionStore } from '@/stores/callSessionStore';
+import { callSession } from '@/services/callSession';
+import { useKeepCallAliveOnRemove } from '@/hooks/useKeepCallAliveOnRemove';
 import { CallRtcEnvironmentNotice } from '@/components/call/CallRtcEnvironmentNotice';
 import { isRtcEnvironmentError } from '@/utils/rtcEnvironmentMessage';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -86,10 +88,22 @@ export default function VideoCallScreen() {
     },
   });
 
-  const [duration, setDuration] = useState(0);
+  // بذر المدة من الجلسة الحية — العودة من الشات/الفقاعة تكمل العد بدل 00:00
+  const [duration, setDuration] = useState(() => callSession.getSnapshot().duration);
   const [showControls, setShowControls] = useState(true);
   const [selfViewExpanded, setSelfViewExpanded] = useState(false);
   const [peer, setPeer] = useState<UserDoc | null>(null);
+
+  // الرجوع (زر/إيماءة) أثناء مكالمة نشطة = تصغير للفقاعة، لا إنهاء
+  useKeepCallAliveOnRemove({
+    peerUid: id,
+    peerName: ((peer as any)?.profile?.displayName || peer?.displayName) ?? t('rooms.userFallback'),
+    peerAvatar: peer?.avatar,
+    channelName,
+    isVideo: true,
+    billingSessionId,
+    source: source === 'match' ? 'match' : 'chat',
+  });
 
   const isCameraOn = isVideoEnabled;
   const pricingRates = source === 'match' ? callPricing.match : callPricing.chat;

@@ -27,6 +27,7 @@ import {
 } from 'firebase/firestore';
 import { firestore, auth } from './index';
 import { resolveDisplayName } from '@/utils/displayName';
+import { parseLastSeen } from '@/utils/presence';
 import { resolveUserDocAvatar, resolveConversationPeerAvatar } from '@/utils/userAvatar';
 import { getUser } from './users';
 import { waitForFirestoreAuth, subscribeWhenAuthenticated } from './authReady';
@@ -375,6 +376,10 @@ function attachConversationsListener(
   const lastSeenCache = new Map<string, number>();
   const displayNameCache = new Map<string, string>();
   const avatarCache = new Map<string, string>();
+  // جلب تفاضلي: وقت آخر جلب لكل طرف — رسالة واردة كانت تعيد جلب كل الأطراف
+  // (~50 getDoc لكل لقطة) فتخنق خيط JS وتيار Firestore وتؤخر عرض الرسالة نفسها
+  const fetchedAt = new Map<string, number>();
+  const PEER_REFRESH_TTL_MS = 45_000;
 
   // حارس ترتيب اللقطات — الإثراء غير المتزامن (جلب مستندات الأطراف) كان يسمح
   // للقطة قديمة أن تكتمل بعد الأحدث فتستقر شارة «غير مقروء» وهمية/قديمة
@@ -401,61 +406,100 @@ function attachConversationsListener(
       return;
     }
 
+    // بثّ فوري من الكاش ثم ترقيع تفاضلي غير متزامن — كانت اللقطة تنتظر جلبات
+    // الأطراف (حتى 50 getDoc) قبل أي عرض، فتصل الرسالة الواردة بعد إشعارها بوضوح
+    const emit = (): Conversation[] => {
+      // ادمج isOnline + أسماء حقيقية + صور محدّثة (من الكاش)
+      const now = Date.now();
+      const enriched: Conversation[] = buildEnriched(now);
+      const visible = enriched.filter(
+        (c) =>
+          !c.hiddenBy?.[user.uid] &&
+          !c.deletedAtBy?.[user.uid] &&
+          !c.participants.some((p) => isOfficialHiddenInChatList(p)) &&
+          conversationHasThreadActivity(c),
+      );
+      visible.sort((a, b) => {
+        const aPinned = a.pinnedBy?.[user.uid] ? 1 : 0;
+        const bPinned = b.pinnedBy?.[user.uid] ? 1 : 0;
+        if (aPinned !== bPinned) return bPinned - aPinned;
+        return (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0);
+      });
+      callback(visible);
+      return enriched;
+    };
+
+    const firstPass = emit();
+    for (const c of firstPass) {
+      if (c.hiddenBy?.[user.uid] && !c.deletedAtBy?.[user.uid]) {
+        scheduleHiddenWelcomeConversationReveal(c.id, user.uid);
+      }
+      if (!(c.lastMessage ?? '').trim()) {
+        scheduleLastMessageRepair(c.id);
+      }
+    }
+
     await waitForFirestoreAuth(12_000);
 
-    // اجلب بيانات الأطراف الآخرين من Firestore
+    // اجلب بيانات الأطراف الآخرين — التفاضلي فقط (خارج TTL الإنعاش)
     const otherUids = new Set<string>();
     for (const c of baseConvs) {
       const other = c.participants.find((p) => p !== user.uid);
       if (other) otherUids.add(other);
     }
+    const missing = Array.from(otherUids).filter(
+      (uid) => Date.now() - (fetchedAt.get(uid) ?? 0) > PEER_REFRESH_TTL_MS,
+    );
+    if (missing.length === 0) return;
 
-    if (otherUids.size > 0) {
-      await Promise.all(
-        Array.from(otherUids).map(async (uid) => {
-          const officialName = resolveOfficialChatDisplayName(uid);
-          if (officialName) {
-            lastSeenCache.set(uid, 0);
-            if (!displayNameCache.has(uid)) displayNameCache.set(uid, officialName);
-            avatarCache.set(uid, '');
-            return;
-          }
-          try {
-            const userSnap = await getDoc(doc(firestore, 'users', uid));
-            if (userSnap.exists()) {
-              const data = userSnap.data() as Record<string, unknown>;
-              const { parseLastSeen } = await import('@/utils/presence');
-              lastSeenCache.set(uid, parseLastSeen(data.lastSeen));
-              if (!displayNameCache.has(uid)) {
-                displayNameCache.set(
-                  uid,
-                  resolveDisplayName({
-                    displayName: data.displayName as string | undefined,
-                    email: data.email as string | undefined,
-                  }),
-                );
-              }
-              avatarCache.set(uid, resolveUserDocAvatar(data, uid));
-            } else {
-              lastSeenCache.set(uid, 0);
-              if (!displayNameCache.has(uid)) displayNameCache.set(uid, 'مستخدم');
-              avatarCache.set(uid, '');
+    await Promise.all(
+      missing.map(async (uid) => {
+        const officialName = resolveOfficialChatDisplayName(uid);
+        if (officialName) {
+          lastSeenCache.set(uid, 0);
+          if (!displayNameCache.has(uid)) displayNameCache.set(uid, officialName);
+          avatarCache.set(uid, '');
+          fetchedAt.set(uid, Date.now());
+          return;
+        }
+        try {
+          const userSnap = await getDoc(doc(firestore, 'users', uid));
+          if (userSnap.exists()) {
+            const data = userSnap.data() as Record<string, unknown>;
+            lastSeenCache.set(uid, parseLastSeen(data.lastSeen));
+            if (!displayNameCache.has(uid)) {
+              displayNameCache.set(
+                uid,
+                resolveDisplayName({
+                  displayName: data.displayName as string | undefined,
+                  email: data.email as string | undefined,
+                }),
+              );
             }
-          } catch {
+            avatarCache.set(uid, resolveUserDocAvatar(data, uid));
+          } else {
             lastSeenCache.set(uid, 0);
             if (!displayNameCache.has(uid)) displayNameCache.set(uid, 'مستخدم');
             avatarCache.set(uid, '');
           }
-        }),
-      );
-    }
+          fetchedAt.set(uid, Date.now());
+        } catch {
+          // فشل الجلب لا يُسجَّل في fetchedAt — تُعاد المحاولة باللقطة التالية
+          lastSeenCache.set(uid, 0);
+          if (!displayNameCache.has(uid)) displayNameCache.set(uid, 'مستخدم');
+          avatarCache.set(uid, '');
+        }
+      }),
+    );
 
     // لقطة أحدث بدأت أثناء الإثراء — تجاهل هذه النتيجة القديمة كلياً
     if (seq !== snapshotSeq) return;
 
-    // ادمج isOnline + أسماء حقيقية + صور محدّثة
-    const now = Date.now();
-    const enriched: Conversation[] = baseConvs.map((c) => {
+    // بثّ ثانٍ بالبيانات المجلوبة حديثاً
+    emit();
+
+    function buildEnriched(now: number): Conversation[] {
+      return baseConvs.map((c) => {
       const other = c.participants.find((p) => p !== user.uid) ?? '';
       const lastSeen = lastSeenCache.get(other) ?? 0;
       const officialName = resolveOfficialChatDisplayName(other);
@@ -490,34 +534,8 @@ function attachConversationsListener(
         },
         isOnline: lastSeen > 0 && now - lastSeen < ONLINE_THRESHOLD_MS,
       };
-    });
-
-    // إخفاء المحادثات المحذوفة + الفارغة (فُتحت دون رسائل) + حسابات الدعم المكررة
-    const visible = enriched.filter(
-      (c) =>
-        !c.hiddenBy?.[user.uid] &&
-        !c.deletedAtBy?.[user.uid] &&
-        !c.participants.some((p) => isOfficialHiddenInChatList(p)) &&
-        conversationHasThreadActivity(c),
-    );
-
-    visible.sort((a, b) => {
-      const aPinned = a.pinnedBy?.[user.uid] ? 1 : 0;
-      const bPinned = b.pinnedBy?.[user.uid] ? 1 : 0;
-      if (aPinned !== bPinned) return bPinned - aPinned;
-      return (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0);
-    });
-
-    for (const c of enriched) {
-      if (c.hiddenBy?.[user.uid] && !c.deletedAtBy?.[user.uid]) {
-        scheduleHiddenWelcomeConversationReveal(c.id, user.uid);
-      }
-      if (!(c.lastMessage ?? '').trim()) {
-        scheduleLastMessageRepair(c.id);
-      }
+      });
     }
-
-    callback(visible);
   });
 }
 

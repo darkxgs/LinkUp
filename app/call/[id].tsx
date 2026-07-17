@@ -28,6 +28,8 @@ import { Text, CoinIcon } from '@/components/ui';
 import { colors, radius, spacing, shadows } from '@/theme';
 import { lu } from '@/theme/lu-brand';
 import { useCallSessionStore } from '@/stores/callSessionStore';
+import { callSession } from '@/services/callSession';
+import { useKeepCallAliveOnRemove } from '@/hooks/useKeepCallAliveOnRemove';
 import { CallRtcEnvironmentNotice } from '@/components/call/CallRtcEnvironmentNotice';
 import { isRtcEnvironmentError } from '@/utils/rtcEnvironmentMessage';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -74,8 +76,20 @@ export default function VoiceCallScreen() {
     },
   });
 
-  const [duration, setDuration] = useState(0);
+  // بذر المدة من الجلسة الحية — العودة من الشات/الفقاعة تكمل العد بدل 00:00
+  const [duration, setDuration] = useState(() => callSession.getSnapshot().duration);
   const [peer, setPeer] = useState<UserDoc | null>(null);
+
+  // الرجوع (زر/إيماءة) أثناء مكالمة نشطة = تصغير للفقاعة، لا إنهاء
+  useKeepCallAliveOnRemove({
+    peerUid: id,
+    peerName: ((peer as any)?.profile?.displayName || peer?.displayName) ?? t('rooms.userFallback'),
+    peerAvatar: peer?.avatar,
+    channelName,
+    isVideo: false,
+    billingSessionId,
+    source: source === 'match' ? 'match' : 'chat',
+  });
 
   useEffect(() => {
     const myUid = auth.currentUser?.uid;
