@@ -125,6 +125,9 @@ export function useAgencyRoomTracking(extraPeerUids: readonly string[] = []) {
     };
   }, [agencyId]);
 
+  // مفتاح ثابت من محتوى المجموعة — كان الـeffect يعتمد هوية Set التي تتغيّر مع
+  // كل لقطة محادثات فيهدم ويعيد إنشاء حتى 200+ مستمع حضور RTDB بلا داعٍ.
+  const trackedKey = useMemo(() => [...trackedUids].sort().join(','), [trackedUids]);
   useEffect(() => {
     if (trackedUids.size === 0) {
       setPresenceByUid({});
@@ -152,7 +155,8 @@ export function useAgencyRoomTracking(extraPeerUids: readonly string[] = []) {
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, [trackedUids, myUid]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackedKey, myUid]);
 
   const isAgencyMember = useMemo(
     () => (uid: string) => memberUids.has(uid),
