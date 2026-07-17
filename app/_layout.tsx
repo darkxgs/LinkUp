@@ -6,6 +6,11 @@
 
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
+import { startPerfHeatMonitor } from '@/utils/perfHeatMonitor';
+
+// مرقاب الحرارة/الأداء — وضع التطوير فقط: يبدأ من الإقلاع ليحصي كل المؤقتات
+// منذ لحظتها الأولى ويطبع [heat] كل 10 ثوانٍ (تشخيص سخونة الهاتف وبطئه)
+if (__DEV__) startPerfHeatMonitor();
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
