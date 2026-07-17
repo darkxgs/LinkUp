@@ -36,8 +36,6 @@ import { PostShareSheet } from '@/components/post/PostShareSheet';
 import { prefetchPostShareMessage, type PostShareInput } from '@/utils/postShare';
 import { PostGiftPickerModal } from '@/components/post/PostGiftPickerModal';
 import { PostOptionsModal } from '@/components/post/PostOptionsModal';
-import { PostImagePager } from '@/components/post/PostImagePager';
-import { PostImageViewerModal } from '@/components/post/PostImageViewerModal';
 import { getPostReportPath } from '@/services/firebase/reports';
 import { FramedAvatar } from '@/components/ui/FramedAvatar';
 import { subscribeToRoomFrames, type RoomFrame } from '@/services/firebase/roomDecor';
@@ -107,8 +105,6 @@ export default function FeedScreen() {
   const [followingUids, setFollowingUids] = useState<Set<string>>(new Set());
   const [giftTarget, setGiftTarget] = useState<Post | null>(null);
   const [shareTarget, setShareTarget] = useState<PostShareInput | null>(null);
-  // عارض الصور بالحجم الكامل — يُفتح مباشرة من الضغط على صورة البطاقة
-  const [imageViewer, setImageViewer] = useState<{ images: string[]; index: number } | null>(null);
   const [roomFrames, setRoomFrames] = useState<RoomFrame[]>([]);
   const [frameByUid, setFrameByUid] = useState<Record<string, string>>({});
 
@@ -230,7 +226,6 @@ export default function FeedScreen() {
             onLikeChange={handleLikeChange} onFollowChange={handleFollowChange}
             onPressUser={openProfile} onPressComments={openComments} onPressGift={handlePressGift}
             onPressShare={openShare} onPressEdit={openEdit} onDeleted={handleDeletedPost}
-            onPressImages={(images, index) => setImageViewer({ images, index })}
           />
         )}
         ListHeaderComponent={
@@ -376,19 +371,13 @@ export default function FeedScreen() {
       ) : null}
 
       <PostShareSheet visible={!!shareTarget} onClose={() => setShareTarget(null)} post={shareTarget} onShared={handleShareCount} />
-      <PostImageViewerModal
-        images={imageViewer?.images ?? []}
-        initialIndex={imageViewer?.index ?? 0}
-        visible={!!imageViewer}
-        onClose={() => setImageViewer(null)}
-      />
     </View>
   );
 }
 
 const PostCard = memo(function PostCard({
   post, currentUid, dark, liked: likedProp, following: followingProp, padX, frameUri,
-  onLikeChange, onFollowChange, onPressUser, onPressComments, onPressGift, onPressEdit, onPressShare, onDeleted, onPressImages,
+  onLikeChange, onFollowChange, onPressUser, onPressComments, onPressGift, onPressEdit, onPressShare, onDeleted,
 }: {
   post: Post; currentUid?: string; dark: boolean; liked: boolean; following: boolean; padX: number; frameUri?: string;
   onLikeChange: (id: string, liked: boolean) => void;
@@ -399,7 +388,6 @@ const PostCard = memo(function PostCard({
   onPressEdit: (id: string) => void;
   onPressShare: (post: PostShareInput) => void;
   onDeleted: (id: string) => void;
-  onPressImages: (images: string[], index: number) => void;
 }) {
   const router = useRouter();
   const { t } = useTranslation();
@@ -444,6 +432,8 @@ const PostCard = memo(function PostCard({
   };
 
   const imgs = post.images ?? [];
+  const extra = imgs.slice(1, 3);
+  const moreCount = imgs.length - 1 - extra.length;
 
   // لون العناصر الخاملة في شريط التفاعل حسب السمة.
   const dim = dark ? 'rgba(255,255,255,0.55)' : '#5C5C64';
@@ -518,18 +508,15 @@ const PostCard = memo(function PostCard({
       )}
 
       {imgs.length > 0 && (
-        // تقليب أفقي بين كل صور المنشور (كانت تظهر الأولى فقط ومصغّرات ركنية بلا تقليب)
-        <View style={styles.imageWrap}>
-          <PostImagePager
-            images={imgs}
-            aspectRatio={1.5}
-            // الصورة تظهر كاملة بلا قصّ داخل البطاقة (نسبة أبعادها الحقيقية)،
-            // والضغط عليها يفتحها بالحجم الكامل — النص/التعليقات يفتحان التفاصيل
-            adaptiveAspect
-            onPressImage={(i) => onPressImages(imgs, i)}
-            imageProps={IMG}
-          />
-        </View>
+        <Pressable onPress={() => onPressComments(post.id)} style={styles.imageWrap}>
+          <Image source={{ uri: imgs[0] }} style={styles.postImage} contentFit="cover" recyclingKey={imgs[0]} {...IMG} />
+          {(extra.length > 0 || moreCount > 0) && (
+            <View style={styles.imageStack}>
+              {extra.map((url, i) => <Image key={i} source={{ uri: url }} style={styles.stackAvatar} contentFit="cover" recyclingKey={url} {...IMG} />)}
+              {moreCount > 0 && <View style={[styles.stackAvatar, styles.stackMore]}><Text style={styles.stackMoreText}>+{moreCount}</Text></View>}
+            </View>
+          )}
+        </Pressable>
       )}
 
       {/* شريط التفاعل */}
