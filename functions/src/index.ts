@@ -1345,7 +1345,8 @@ async function resolveStoreCatalogEntry(
  * شراء عنصر متجر (إطار/فقاعة/دخولية…) وإرساله لمستخدم آخر — عبر السيرفر
  * لتجاوز قيود Firestore التي تمنع الكتابة على ownedFrames/frameInventory للغير.
  */
-export const purchaseAndSendStoreItem = onCall(async (request) => {
+// HOT: مسار شراء ساخن — الافتراضي (256MiB=تزامن 1 × 10 نسخ) كان يرمي 429 تحت ضغط المختبرين
+export const purchaseAndSendStoreItem = onCall(HOT_CALL_OPTS, async (request) => {
   const buyerUid = request.auth?.uid;
   if (!buyerUid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
 
@@ -1512,7 +1513,8 @@ export const purchaseAndSendStoreItem = onCall(async (request) => {
  * قاعدة inventory المفتوحة (كان أي مستخدم موثّق يسكّ عناصر مجاناً بكتابة مباشرة).
  * السعر/العملة/المدة من كتالوج الخادم؛ الخصم والمنح والسجل في معاملة ذرّية واحدة.
  */
-export const purchaseStoreItemForSelf = onCall(async (request) => {
+// HOT: مسار شراء ساخن — الافتراضي (256MiB=تزامن 1 × 10 نسخ) كان يرمي 429 تحت ضغط المختبرين
+export const purchaseStoreItemForSelf = onCall(HOT_CALL_OPTS, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول');
 
