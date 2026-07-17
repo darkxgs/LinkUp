@@ -36,6 +36,7 @@ import { PostShareSheet } from '@/components/post/PostShareSheet';
 import { prefetchPostShareMessage, type PostShareInput } from '@/utils/postShare';
 import { PostGiftPickerModal } from '@/components/post/PostGiftPickerModal';
 import { PostOptionsModal } from '@/components/post/PostOptionsModal';
+import { PostImagePager } from '@/components/post/PostImagePager';
 import { getPostReportPath } from '@/services/firebase/reports';
 import { FramedAvatar } from '@/components/ui/FramedAvatar';
 import { subscribeToRoomFrames, type RoomFrame } from '@/services/firebase/roomDecor';
@@ -432,8 +433,6 @@ const PostCard = memo(function PostCard({
   };
 
   const imgs = post.images ?? [];
-  const extra = imgs.slice(1, 3);
-  const moreCount = imgs.length - 1 - extra.length;
 
   // لون العناصر الخاملة في شريط التفاعل حسب السمة.
   const dim = dark ? 'rgba(255,255,255,0.55)' : '#5C5C64';
@@ -508,15 +507,15 @@ const PostCard = memo(function PostCard({
       )}
 
       {imgs.length > 0 && (
-        <Pressable onPress={() => onPressComments(post.id)} style={styles.imageWrap}>
-          <Image source={{ uri: imgs[0] }} style={styles.postImage} contentFit="cover" recyclingKey={imgs[0]} {...IMG} />
-          {(extra.length > 0 || moreCount > 0) && (
-            <View style={styles.imageStack}>
-              {extra.map((url, i) => <Image key={i} source={{ uri: url }} style={styles.stackAvatar} contentFit="cover" recyclingKey={url} {...IMG} />)}
-              {moreCount > 0 && <View style={[styles.stackAvatar, styles.stackMore]}><Text style={styles.stackMoreText}>+{moreCount}</Text></View>}
-            </View>
-          )}
-        </Pressable>
+        // تقليب أفقي بين كل صور المنشور (كانت تظهر الأولى فقط ومصغّرات ركنية بلا تقليب)
+        <View style={styles.imageWrap}>
+          <PostImagePager
+            images={imgs}
+            aspectRatio={1.5}
+            onPressImage={() => onPressComments(post.id)}
+            imageProps={IMG}
+          />
+        </View>
       )}
 
       {/* شريط التفاعل */}

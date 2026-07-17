@@ -28,6 +28,7 @@ import { LuGiftIcon } from '@/components/icons/LuDesignIcons';
 import { formatTimeAgo } from '@/utils/timeAgo';
 
 import { Text, BackButton } from '@/components/ui';
+import { PostImagePager } from '@/components/post/PostImagePager';
 import { FramedAvatar } from '@/components/ui/FramedAvatar';
 import { useEquippedFrameUrl } from '@/hooks/useEquippedFrameUrl';
 import { subscribeToRoomFrames, type RoomFrame } from '@/services/firebase/roomDecor';
@@ -86,6 +87,8 @@ export default function PostDetailScreen() {
 
   const [post, setPost] = useState<Post | null>(null);
   const [zoomOpen, setZoomOpen] = useState(false);
+  // فهرس الصورة التي فُتح التكبير عليها — التقليب داخل التكبير يبدأ منها
+  const [zoomIndex, setZoomIndex] = useState(0);
   const [comments, setComments] = useState<PostComment[]>([]);
   const [liked, setLiked] = useState(false);
   const [likes, setLikes] = useState(0);
@@ -387,13 +390,17 @@ export default function PostDetailScreen() {
               )}
 
               {post.images && post.images.length > 0 && (
-                <Pressable onPress={() => setZoomOpen(true)}>
-                  <Image
-                    source={{ uri: post.images[0] }}
-                    style={styles.heroImage}
-                    contentFit="cover"
+                // تقليب أفقي بين كل صور المنشور — الضغط يفتح التكبير على نفس الصورة
+                <View style={styles.heroPagerWrap}>
+                  <PostImagePager
+                    images={post.images}
+                    aspectRatio={1.55}
+                    onPressImage={(i) => {
+                      setZoomIndex(i);
+                      setZoomOpen(true);
+                    }}
                   />
-                </Pressable>
+                </View>
               )}
 
               <View style={styles.actions}>
@@ -570,19 +577,32 @@ export default function PostDetailScreen() {
       >
         <View style={styles.modalBg}>
           <Pressable style={styles.closeArea} onPress={() => setZoomOpen(false)} />
-          <ScrollView
-            maximumZoomScale={4}
-            minimumZoomScale={1}
+          {/* تقليب أفقي بين الصور داخل التكبير — يبدأ من الصورة المضغوطة */}
+          <FlatList
+            data={post.images ?? []}
+            horizontal
+            pagingEnabled
             showsHorizontalScrollIndicator={false}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.zoomScroll}
-          >
-            <Image
-              source={{ uri: post.images?.[0] || '' }}
-              style={{ width: winW, height: winH * 0.8 }}
-              contentFit="contain"
-            />
-          </ScrollView>
+            initialScrollIndex={Math.min(zoomIndex, Math.max(0, (post.images?.length ?? 1) - 1))}
+            getItemLayout={(_, i) => ({ length: winW, offset: winW * i, index: i })}
+            keyExtractor={(url, i) => `${i}_${url}`}
+            renderItem={({ item }) => (
+              <ScrollView
+                maximumZoomScale={4}
+                minimumZoomScale={1}
+                showsHorizontalScrollIndicator={false}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.zoomScroll}
+                style={{ width: winW }}
+              >
+                <Image
+                  source={{ uri: item }}
+                  style={{ width: winW, height: winH * 0.8 }}
+                  contentFit="contain"
+                />
+              </ScrollView>
+            )}
+          />
           <Pressable style={styles.closeBtn} onPress={() => setZoomOpen(false)}>
             <Text style={styles.closeText}>✕</Text>
           </Pressable>
@@ -649,6 +669,13 @@ const styles = StyleSheet.create({
     height: 220,
     borderRadius: 14,
     marginTop: 12,
+    backgroundColor: lu.colors.line,
+  },
+  // غلاف عارض الصور المتعدد — نفس هوية الصورة الواحدة السابقة
+  heroPagerWrap: {
+    marginTop: 12,
+    borderRadius: 14,
+    overflow: 'hidden',
     backgroundColor: lu.colors.line,
   },
   actions: {
