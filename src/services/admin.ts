@@ -1,39 +1,19 @@
 /**
  * Admin Service — كل عمليات قراءة/كتابة البيانات.
  *
- * ⚠️ مصدر البيانات: سيرفر LinkUp v2 (NestJS + Postgres) عبر `@/lib/v2Api`.
- * This file used to talk to Firestore straight from the browser. It is being
- * moved area by area onto `/admin/*` on our own server; the exported function
- * names and their shapes are kept EXACTLY as the 49 pages expect, so the swap
- * is invisible above this line. Any `firebase/firestore` call still present is
- * an area not yet moved — no Firebase FUNCTION is called from here at all.
+ * مصدر البيانات: **سيرفر LinkUp v2 وحده** (NestJS + Postgres) عبر `@/lib/v2Api`.
+ * This file used to talk to Firestore straight from the browser. Every area has
+ * now moved onto `/admin/*` on our own server, and the file imports no firebase
+ * at all — no Firestore, no Realtime Database, no Cloud Function. The exported
+ * function names and their shapes are kept EXACTLY as the 49 pages expect, so
+ * the swap is invisible above this line.
+ *
+ * وما لا يقدّمه v2 بعد لا يُلفَّق: تعود القائمة فارغة أو العدد صفراً، مع تعليق عند
+ * الدالة يشرح السبب (طلبات المقاعد، السهرات، الاستردادات، سحب اليانصيب، استخدام
+ * LiveKit). كل رقم يظهر في اللوحة له مصدر حقيقي في قاعدة v2.
  */
 
-import {
-  collection,
-  query,
-  orderBy,
-  limit,
-  getDocs,
-  getCountFromServer,
-  onSnapshot,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  where,
-  Timestamp,
-  addDoc,
-  increment,
-  deleteField,
-  runTransaction,
-  writeBatch,
-  arrayUnion,
-} from 'firebase/firestore';
-import { ref, get as rtdbGet, query as rtdbQuery, orderByChild, limitToLast } from 'firebase/database';
-import { httpsCallable } from 'firebase/functions';
-import { firestore, realtimeDb, auth, functions } from '@/lib/firebase';
+
 import { v2, v2Qs, v2ErrorMessage } from '@/lib/v2Api';
 import {
   readConfig,
@@ -1083,6 +1063,8 @@ interface ServerAgencyRow {
   lifetimeSupportCoins: number;
   minHostsRequired: number;
   liveRoomId: string | null;
+  /** سقف مقاعد غرف الوكالة (0 = لم يُحدَّد، فيُطبَّق الافتراضي 9). */
+  maxSeatsCount: number;
   createdAt: string;
 }
 
@@ -1133,14 +1115,6 @@ export const toggleAgencyVerified = async (
   await logAdminAction(verified ? 'توثيق وكالة' : 'سحب توثيق وكالة', agencyId);
 };
 
-const USER_AGENCY_UNLINK_PATCH = {
-  agencyRole: deleteField(),
-  agencyId: deleteField(),
-  agencyName: deleteField(),
-  isFemaleHost: deleteField(),
-  isAgent: false,
-  accountKind: 'user',
-};
 
 /**
  * الوكالة الفعلية لمستخدم — قراءة فقط.
@@ -3496,8 +3470,10 @@ export const getAppReleaseConfig = async (): Promise<ConfigAppRelease | null> =>
 export const saveAppReleaseConfig = async (config: ConfigAppRelease): Promise<void> => {
   const data: Record<string, unknown> = { ...config, updatedAt: Date.now(), _permKey: 'app-release' };
 
-  if (config.storagePath === undefined) data.storagePath = deleteField();
-  if (config.fileSizeBytes === undefined) data.fileSizeBytes = deleteField();
+  // null هو «امسح الحقل» في مخزن إعدادات v2 (انظر deepMerge)، بديلُ deleteField
+  // في Firestore. الإبقاء على سنتينل Firebase هنا كان سيكتب كائناً فارغاً بدل الحذف.
+  if (config.storagePath === undefined) data.storagePath = null;
+  if (config.fileSizeBytes === undefined) data.fileSizeBytes = null;
 
   for (const key of Object.keys(data)) {
     if (data[key] === undefined) delete data[key];
@@ -4112,34 +4088,6 @@ export const DEFAULT_AGENCY_PRINCE_CONFIG: ConfigAgencyPrince = {
   currentHolder: null,
 };
 
-function currentMonthKey(d = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function monthDayKeys(monthKey: string): string[] {
-  const [y, m] = monthKey.split('-').map(Number);
-  if (!y || !m) return [];
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const keys: string[] = [];
-  for (let d = 1; d <= daysInMonth; d++) {
-    keys.push(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
-  }
-  return keys;
-}
-
-async function sumAgencyMonthEarnings(agencyId: string, monthKey: string): Promise<number> {
-  const dayKeys = monthDayKeys(monthKey);
-  let total = 0;
-  for (const dayKey of dayKeys) {
-    try {
-      const snap = await getDoc(doc(firestore, 'agencyEarnings', `${agencyId}_${dayKey}`));
-      if (snap.exists()) total += Number(snap.data().total ?? 0);
-    } catch {
-      // skip missing day docs
-    }
-  }
-  return total;
-}
 
 export const getAgencyPrinceConfig = async (): Promise<ConfigAgencyPrince | null> => {
   try {
@@ -4829,24 +4777,24 @@ export const getGamesGlobalEconomy = async (): Promise<GamesGlobalEconomy> => {
  * المباشرة من العميل (weeklyLotteryDraws/lotteryTickets محظورة الكتابة مباشرة بقواعد Firestore
  * أصلاً — الخصم والسحب يتمّان بصلاحيات السيرفر فقط).
  */
-export const runWeeklyLotteryDraw = async (weekId?: string): Promise<{
+/**
+ * سحب اليانصيب الأسبوعي — **موقوف من اللوحة**.
+ *
+ * كان يستدعي دالة Firebase (`adminRunWeeklyLotteryDraw`)، والدوال القديمة لا
+ * تُلمَس ولا تُستدعى من اللوحة بعد قطعها عن Firebase. وv2 لم يبنِ السحب بعد: قراءة
+ * حالة اليانصيب لم تُهاجر، ولا يوجد مسار سيرفري يخصم ويوزّع الجائزة بضمان
+ * exactly-once — وسحبٌ يوزّع مالاً بلا ذلك الضمان هو آخر ما نريد إضافته.
+ *
+ * الرفض صريح بدل خطأ شبكة غامض؛ وعند بناء السحب في v2 تُوصَل هذه الدالة بنقطته.
+ */
+export const runWeeklyLotteryDraw = async (_weekId?: string): Promise<{
   weekId: string;
   winnerUid: string;
   winnerName: string;
   prize: number;
   ticketCount: number;
 }> => {
-  const fn = httpsCallable<
-    { weekId?: string },
-    { weekId: string; winnerUid: string; winnerName: string; prize: number; ticketCount: number }
-  >(functions, 'adminRunWeeklyLotteryDraw');
-  const res = await fn({ weekId });
-  const draw = res.data;
-  await logAdminAction(
-    'سحب اليانصيب الأسبوعي',
-    `${draw.winnerName} (${draw.winnerUid}) — ${draw.prize.toLocaleString()} كوين`,
-  );
-  return draw;
+  throw new Error('سحب اليانصيب غير متاح من اللوحة حالياً — لم يُبنَ في سيرفر v2 بعد');
 };
 
 export const saveConfigGames = async (
@@ -5477,59 +5425,6 @@ function txInRange(createdAt: number | undefined, range?: AnalyticsDateRange): b
   return ts >= range.fromMs && ts <= range.toMs;
 }
 
-async function fetchTransactionsForAnalytics(range?: AnalyticsDateRange): Promise<AdminTransaction[]> {
-  const limitCount = range ? 5000 : 2000;
-  try {
-    const q = range
-      ? query(
-          collection(firestore, 'transactions'),
-          where('createdAt', '>=', range.fromMs),
-          where('createdAt', '<=', range.toMs),
-          orderBy('createdAt', 'desc'),
-          limit(scopedFetchLimit(limitCount)),
-        )
-      : query(
-          collection(firestore, 'transactions'),
-          orderBy('createdAt', 'desc'),
-          limit(scopedFetchLimit(limitCount)),
-        );
-    const snap = await getDocs(q);
-    const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-    if (isSuperCountryScope()) return rows;
-    await preloadUserCountries(rows.map((t) => String(t.uid ?? '')));
-    return rows.filter((t) => isInAdminCountryScope(getCachedUserCountry(String(t.uid ?? ''))));
-  } catch (e) {
-    console.error('fetchTransactionsForAnalytics:', e);
-    return [];
-  }
-}
-
-async function fetchGameTransactionsForAnalytics(range?: AnalyticsDateRange): Promise<AdminTransaction[]> {
-  const limitCount = range ? 5000 : 2000;
-  try {
-    const q = range
-      ? query(
-          collection(firestore, 'gameTransactions'),
-          where('createdAt', '>=', range.fromMs),
-          where('createdAt', '<=', range.toMs),
-          orderBy('createdAt', 'desc'),
-          limit(scopedFetchLimit(limitCount)),
-        )
-      : query(
-          collection(firestore, 'gameTransactions'),
-          orderBy('createdAt', 'desc'),
-          limit(scopedFetchLimit(limitCount)),
-        );
-    const snap = await getDocs(q);
-    const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-    if (isSuperCountryScope()) return rows;
-    await preloadUserCountries(rows.map((t) => String(t.uid ?? '')));
-    return rows.filter((t) => isInAdminCountryScope(getCachedUserCountry(String(t.uid ?? ''))));
-  } catch (e) {
-    console.error('fetchGameTransactionsForAnalytics:', e);
-    return [];
-  }
-}
 
 export interface AdvancedAnalytics {
   dau: number;
@@ -5549,6 +5444,18 @@ export interface AdvancedAnalytics {
   gameTotalWins: number;
 }
 
+/**
+ * التحليلات المتقدّمة — من `/admin/analytics` (نفس دفتر v2 الذي تُحسب منه كل
+ * أرقام المال) بدل مسح مجموعة users كاملة من Firestore.
+ *
+ * ما لا يقدّمه v2 بصدق يبقى صفراً بدل رقمٍ مُلفّق:
+ *  • DAU/WAU/الاحتفاظ: لا يوجد `lastSeen` مخزّن لكل مستخدم في v2 (الحضور لحظي في
+ *    Redis ولا يُحفظ تاريخه)، فلا نستطيع قول «كم كان نشطاً أمس».
+ *  • «الإيرادات»: الشحن ليس في الدفتر بعد (لا بوابة دفع موصولة)، فالإيراد = 0
+ *    والمصروف هو ما نعرضه فعلاً — وهو ما يقيس النشاط الاقتصادي الآن.
+ *  • أرباح الألعاب: الرهان بالعملات والربح بعملات الكازينو — عملتان مختلفتان،
+ *    فلا نطرح إحداهما من الأخرى ونسمّي الناتج ربحاً.
+ */
 export const getAdvancedAnalytics = async (
   range?: AnalyticsDateRange,
 ): Promise<AdvancedAnalytics> => {
@@ -5559,106 +5466,35 @@ export const getAdvancedAnalytics = async (
     topSpenders: [], gameHouseProfit: 0, gameTotalBets: 0, gameTotalWins: 0,
   };
   try {
-    const [usersSnap, txRows, gameRows] = await Promise.all([
-      getDocs(collection(firestore, 'users')),
-      fetchTransactionsForAnalytics(range),
-      fetchGameTransactionsForAnalytics(range),
+    const days = range
+      ? Math.max(1, Math.ceil((range.toMs - range.fromMs) / 86400000))
+      : 30;
+    const [a, users] = await Promise.all([
+      v2.get<ServerAnalytics>(`/admin/analytics${v2Qs({ days })}`),
+      v2.get<{ total: number }>(`/admin/users${v2Qs({ limit: 1 })}`),
     ]);
-
-    const now = Date.now();
-    const dayAgo = now - 86400000;
-    const weekAgo = now - 7 * 86400000;
-    const monthAgo = now - 30 * 86400000;
-
-    let dau = 0;
-    let wau = 0;
-    let mau = 0;
-    let registeredWeekAgo = 0;
-    let stillActiveFromWeekAgo = 0;
-    let scopedUserCount = 0;
-    let newUsersInPeriod = 0;
-    const nameMap: Record<string, string> = {};
-
-    usersSnap.forEach((d) => {
-      const u = d.data();
-      const country = countryFromUserDoc(u as Record<string, unknown>);
-      if (!isInAdminCountryScope(country)) return;
-      scopedUserCount++;
-      nameMap[d.id] = u.displayName ?? 'مستخدم';
-      const seen = u.lastSeen ?? u.createdAt ?? 0;
-      const created = u.createdAt ?? 0;
-
-      if (range) {
-        if (seen >= range.fromMs && seen <= range.toMs) dau++;
-        if (created >= range.fromMs && created <= range.toMs) newUsersInPeriod++;
-        wau = newUsersInPeriod;
-        mau = scopedUserCount;
-      } else {
-      if (seen >= dayAgo) dau++;
-      if (seen >= weekAgo) wau++;
-      if (seen >= monthAgo) mau++;
-        if (created <= weekAgo) {
-        registeredWeekAgo++;
-        if (seen >= weekAgo) stillActiveFromWeekAgo++;
-        }
-      }
-    });
-
-    const retentionRate = range
-      ? 0
-      : registeredWeekAgo > 0
-        ? Math.round((stillActiveFromWeekAgo / registeredWeekAgo) * 100)
-        : 0;
-
-    const spentByUser: Record<string, number> = {};
-    let totalRevenue = 0;
-    for (const t of txRows) {
-      if (!txInRange(t.createdAt, range)) continue;
-      if (t.type === 'recharge' && t.status === 'completed') {
-        const amt = Math.abs(t.amount ?? 0);
-        totalRevenue += amt;
-        const uid = String(t.uid ?? '');
-        if (uid) spentByUser[uid] = (spentByUser[uid] ?? 0) + amt;
-      }
-    }
-
-    const payingUsers = Object.keys(spentByUser).length;
-    const arpu = scopedUserCount > 0 ? Math.round(totalRevenue / scopedUserCount) : 0;
-    const arppu = payingUsers > 0 ? Math.round(totalRevenue / payingUsers) : 0;
-    const conversionRate = scopedUserCount > 0
-      ? Math.round((payingUsers / scopedUserCount) * 1000) / 10
-      : 0;
-
-    const topSpenders = Object.entries(spentByUser)
-      .map(([uid, spent]) => ({ uid, name: nameMap[uid] ?? 'مستخدم', spent }))
-      .sort((a, b) => b.spent - a.spent)
-      .slice(0, 10);
-
-    let gameTotalBets = 0;
-    let gameTotalWins = 0;
-    for (const t of gameRows) {
-      if (!txInRange(t.createdAt, range)) continue;
-      gameTotalBets += (t as any).stake ?? 0;
-      gameTotalWins += (t as any).winAmount ?? 0;
-    }
-    const gameHouseProfit = gameTotalBets - gameTotalWins;
-
+    if (!a) return empty;
+    const totalUsers = users?.total ?? 0;
+    const spenders = a.topSpenders ?? [];
+    const payingUsers = spenders.length;
     return {
-      dau,
-      wau,
-      mau,
-      retentionRate,
-      arpu,
-      arppu,
+      ...empty,
+      mau: totalUsers,
+      newUsersInPeriod: a.users?.newInRange ?? 0,
+      wau: a.users?.newInRange ?? 0,
       payingUsers,
-      conversionRate,
-      totalRevenue,
-      newUsersInPeriod,
+      arpu: totalUsers > 0 ? Math.round((a.coins?.spent ?? 0) / totalUsers) : 0,
+      arppu: payingUsers > 0 ? Math.round((a.coins?.spent ?? 0) / payingUsers) : 0,
+      conversionRate:
+        totalUsers > 0 ? Math.round((payingUsers / totalUsers) * 1000) / 10 : 0,
       rangeFiltered: !!range,
-      topSpenders,
-      gameHouseProfit,
-      gameTotalBets,
-      gameTotalWins,
+      topSpenders: spenders.map((s) => ({
+        uid: s.uid,
+        name: s.displayName || s.publicAccountId || 'مستخدم',
+        spent: s.spent,
+      })),
+      gameTotalBets: a.games?.casinoBets ?? 0,
+      gameTotalWins: a.games?.casinoWins ?? 0,
     };
   } catch (e) {
     console.error('getAdvancedAnalytics:', e);
@@ -5666,37 +5502,42 @@ export const getAdvancedAnalytics = async (
   }
 };
 
+/** إحصائيات v2 كما يعيدها `/admin/analytics`. */
+interface ServerAnalytics {
+  rangeDays: number;
+  users: { newInRange: number };
+  coins: { spent: number; adminGranted: number; giftSpend: number };
+  games: { casinoBets: number; casinoWins: number; rounds: number };
+  series: { day: string; spent: number; newUsers: number }[];
+  topSpenders: { uid: string; displayName: string; publicAccountId: string; spent: number }[];
+}
+
+/**
+ * «المعاملات» — الدفتر كله من `/admin/transactions`، أحدثاً أولاً.
+ *
+ * النطاق الزمني يُمرَّر للسيرفر (from/to) بدل جلب كل شيء والتصفية في المتصفح.
+ */
 export const getTransactions = async (
   limitCount = 100,
   range?: AnalyticsDateRange,
 ): Promise<AdminTransaction[]> => {
   try {
-    const fetchLimit = range ? Math.max(limitCount * 4, 500) : scopedFetchLimit(limitCount);
-    const q = range
-      ? query(
-          collection(firestore, 'transactions'),
-          where('createdAt', '>=', range.fromMs),
-          where('createdAt', '<=', range.toMs),
-          orderBy('createdAt', 'desc'),
-          limit(fetchLimit),
-        )
-      : query(
-          collection(firestore, 'transactions'),
-          orderBy('createdAt', 'desc'),
-          limit(scopedFetchLimit(limitCount)),
-        );
-    const snap = await getDocs(q);
-    const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-    if (isSuperCountryScope()) return rows.slice(0, limitCount);
-    await preloadUserCountries(rows.map((t) => String(t.uid ?? '')));
-    const filtered: AdminTransaction[] = [];
-    for (const t of rows) {
-      if (isInAdminCountryScope(await getUserCountry(String(t.uid ?? '')))) {
-        filtered.push(t);
-      }
-      if (filtered.length >= limitCount) break;
-    }
-    return filtered;
+    const res = await v2.get<{ items: (ServerUserTxRow & { uid: string })[] }>(
+      `/admin/transactions${v2Qs({
+        limit: limitCount,
+        from: range ? new Date(range.fromMs).toISOString() : undefined,
+        to: range ? new Date(range.toMs).toISOString() : undefined,
+      })}`,
+    );
+    return (res?.items ?? []).map((t) => ({
+      id: t.id,
+      uid: t.uid,
+      type: t.type,
+      amount: t.amount,
+      currency: t.currency,
+      status: t.status,
+      createdAt: new Date(t.createdAt).getTime() || 0,
+    }));
   } catch (e) {
     console.error('getTransactions:', e);
     return [];
@@ -6218,52 +6059,42 @@ export interface AgencyMemberDetailed extends AgencyMember {
   level: number;
 }
 
+/**
+ * تفاصيل الوكالة الكاملة — من `/admin/agencies/:id`.
+ *
+ * «المستوى المطبَّق» كان يُقرأ من عقدة الغرفة الحيّة في RTDB؛ في v2 المستوى محسوب
+ * على السيرفر من الدعم التراكمي ويعود مع الوكالة، فلا حاجة لقراءة ثانية تناقض
+ * الأولى: المخزَّن يدوياً (`periodLevelManual`) يُعرض كما هو، وغير ذلك محسوب.
+ */
 export const getAgencyFullDetail = async (
   agencyId: string,
 ): Promise<AgencyFullDetail | null> => {
+  await assertAgencyIdInScope(agencyId);
   try {
-    const snap = await getDoc(doc(firestore, 'agencies', agencyId));
-    if (!snap.exists()) return null;
-    const d = snap.data() as Record<string, unknown>;
-    const country = String(d.country ?? d.countryCode ?? '—');
-    if (!isInAdminCountryScope(country)) return null;
-    const liveRoomId = d.liveRoomId ? String(d.liveRoomId) : undefined;
-    const storedLevel = Number(d.periodLevel) || 0;
-    let appliedPeriodLevel: number | undefined;
-    if (liveRoomId) {
-      try {
-        const roomSnap = await rtdbGet(ref(realtimeDb, `rooms/${liveRoomId}`));
-        if (roomSnap.exists()) {
-          const rv = Number((roomSnap.val() as Record<string, unknown>)?.agencyPeriodLevel);
-          if (rv >= 1) appliedPeriodLevel = rv;
-        }
-      } catch {
-        /* ignore RTDB read errors */
-      }
-    }
+    const a = await v2.get<ServerAgencyRow>(`/admin/agencies/${agencyId}`);
+    if (!a) return null;
+    if (!isInAdminCountryScope(a.country)) return null;
     return {
-      id: snap.id,
-      name: String(d.name ?? d.agencyName ?? '—'),
-      ownerUid: String(d.ownerUid ?? ''),
-      ownerName: String(d.ownerName ?? '—'),
-      country,
-      status: String(d.status ?? 'active'),
-      isVerified: Boolean(d.isVerified),
-      inviteCode: String(d.inviteCode ?? ''),
-      memberCount: Number(d.memberCount ?? d.members ?? 0) || 0,
-      femaleHostCount: Number(d.femaleHostCount ?? 0) || 0,
-      minHostsRequired: Number(d.minHostsRequired ?? 0) || 0,
-      earnings: Number(d.earnings ?? d.totalEarnings ?? 0) || 0,
-      rating: Number(d.rating ?? 0) || 0,
-      createdAt: Number(d.createdAt ?? 0) || 0,
-      hostsDeadline: d.hostsDeadline ? Number(d.hostsDeadline) : undefined,
-      liveRoomId,
-      maxSeatsCount: [9, 11, 16, 19, 21].includes(Number(d.maxSeatsCount))
-        ? Number(d.maxSeatsCount)
-        : 9,
-      periodLevel: storedLevel >= 1 ? storedLevel : appliedPeriodLevel,
-      periodLevelManual: d.periodLevelManual === true,
-      appliedPeriodLevel,
+      id: a.id,
+      name: a.name,
+      ownerUid: a.ownerUid,
+      ownerName: a.ownerName,
+      country: a.country || '—',
+      status: a.status ?? 'active',
+      isVerified: a.isVerified === true,
+      inviteCode: a.inviteCode ?? '',
+      memberCount: a.memberCount ?? 0,
+      femaleHostCount: a.femaleHostCount ?? 0,
+      minHostsRequired: a.minHostsRequired ?? 0,
+      earnings: a.workCoins ?? 0,
+      rating: 0,
+      createdAt: new Date(a.createdAt).getTime() || 0,
+      liveRoomId: a.liveRoomId ?? undefined,
+      // 0 من السيرفر = لم يُحدَّد سقف، فالافتراضي 9 كما في v1.
+      maxSeatsCount: [9, 11, 16, 19, 21].includes(a.maxSeatsCount) ? a.maxSeatsCount : 9,
+      periodLevel: a.periodLevel > 0 ? a.periodLevel : undefined,
+      periodLevelManual: a.periodLevelManual === true,
+      appliedPeriodLevel: a.periodLevel > 0 ? a.periodLevel : undefined,
     };
   } catch (e) {
     console.error('getAgencyFullDetail:', e);
@@ -6271,7 +6102,14 @@ export const getAgencyFullDetail = async (
   }
 };
 
-/** الأعضاء + محافظهم (عملات/ماسة) عبر دمج وثيقة المستخدم */
+/**
+ * الأعضاء + محافظهم — الأعضاء من `/admin/agencies/:id/members`، والرصيد لكل عضو
+ * من `/admin/users/:id`. طلبٌ واحد لكل عضو، وهو مقبول لأن الوكالة عشرات لا آلاف،
+ * والصفحة تُفتح بطلب المشرف لا في كل تحديث.
+ *
+ * «الماس المكتسب» و«المحوَّل للوكيل» لا يوجد لهما مقابل في v2 (الأرباح تصل عملات
+ * 100% بقرار المالك) فيبقيان صفراً بصدق بدل رقمٍ من مصدر لم يُهاجَر.
+ */
 export const getAgencyMembersDetailed = async (
   agencyId: string,
 ): Promise<AgencyMemberDetailed[]> => {
@@ -6283,43 +6121,40 @@ export const getAgencyMembersDetailed = async (
       let isBanned = false;
       let avatar = m.uidAvatar ?? '';
       let displayName = m.uidName ?? '—';
-      let lastSeen = 0;
       let country = '—';
       let level = 0;
       try {
-        const uSnap = await getDoc(doc(firestore, 'users', m.uid));
-        if (uSnap.exists()) {
-          const u = uSnap.data() as any;
-          coins = u.stats?.coins ?? u.coins ?? 0;
-          pearls = u.stats?.pearls ?? u.pearls ?? 0;
+        const u = await v2.get<ServerUserRow>(`/admin/users/${m.uid}`);
+        if (u) {
+          coins = u.coins ?? 0;
+          pearls = u.pearls ?? 0;
           isBanned = u.isBanned === true;
-          avatar = u.avatar ?? u.profile?.avatar ?? avatar;
-          displayName = u.displayName ?? u.profile?.displayName ?? displayName;
-          lastSeen = Number(u.lastSeen ?? u.lastActive ?? 0) || 0;
-          country = String(u.country ?? u.profile?.country ?? '—');
-          level = Number(u.level ?? u.stats?.level ?? 0) || 0;
+          avatar = u.avatar || avatar;
+          displayName = u.displayName || displayName;
+          country = u.country || '—';
+          level = u.level ?? 0;
         }
-      } catch {}
-      const pearlsEarned = Number((m as any).pearlsEarned) || 0;
-      const pearlsTransferredToAgent = Number((m as any).pearlsTransferredToAgent) || 0;
+      } catch {
+        /* a member whose account read fails still lists, with what we know */
+      }
       return {
         ...m,
         coins,
         pearls,
-        pearlsEarned,
-        pearlsTransferredToAgent,
-        availablePearls: Math.max(0, pearlsEarned - pearlsTransferredToAgent),
+        pearlsEarned: 0,
+        pearlsTransferredToAgent: 0,
+        availablePearls: 0,
         isBanned,
         avatar,
         displayName,
-        lastSeen,
+        // «آخر ظهور» is live presence in v2, not a stored timestamp per user.
+        lastSeen: 0,
         country,
         level,
       };
     }),
   );
-  // ترتيب: المالك ثم الوكلاء ثم الأعلى أرباحاً
-  return enriched.sort((a, b) => b.pearlsEarned - a.pearlsEarned);
+  return enriched.sort((a, b) => b.coins - a.coins);
 };
 
 /** تعديل أرباح عضو (pearlsEarned) في الوكالة يدوياً */
@@ -6554,22 +6389,7 @@ export interface AdminAgencySeatRequest {
   reviewedAt?: number;
 }
 
-export const getAgencySeatRequests = async (
-  agencyId: string,
-  status: AgencySeatRequestStatus = 'pending',
-): Promise<AdminAgencySeatRequest[]> => {
-  await assertAgencyIdInScope(agencyId);
-  const q = query(
-    collection(firestore, 'agencySeatRequests'),
-    where('agencyId', '==', agencyId),
-    where('status', '==', status),
-    limit(50),
-  );
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() } as AdminAgencySeatRequest))
-    .sort((a, b) => b.createdAt - a.createdAt);
-};
+
 
 /**
  * ⚠️ طلبات زيادة المايكات: الطابور نفسه لم ينتقل إلى v2 — لا جدول ولا مسار في
@@ -6678,94 +6498,50 @@ export interface AdminPartyLiveStats {
   supportCoins: number;
   giftCount: number;
 }
-
+/**
+ * أرقام السهرة الحيّة — أصفار بصدق حالياً.
+ *
+ * كانت تُقرأ من عقد الغرفة الحيّة في Realtime Database. حالة الغرفة في v2 تعيش في
+ * Redis على السيرفر، ولا نقطة إدارية تقرأها بعد؛ ولا ميزة سهرات في v2 أصلاً (قوائم
+ * الطلبات فارغة كما هو موضّح أعلاه)، فالبطاقة تظهر بأصفار بدل قراءة قاعدةٍ لم تعد
+ * اللوحة موصولةً بها.
+ */
 export async function getPartyLiveStats(
-  roomId: string,
-  window: { from: number; to: number },
+  _roomId: string,
+  _window: { from: number; to: number },
 ): Promise<AdminPartyLiveStats> {
-  const empty: AdminPartyLiveStats = {
-    audienceCount: 0,
-    roomMemberCount: 0,
-    supportCoins: 0,
-    giftCount: 0,
-  };
-  if (!roomId) return empty;
-  try {
-    const [audSnap, roomSnap, msgSnap] = await Promise.all([
-      rtdbGet(ref(realtimeDb, `roomAudience/${roomId}`)),
-      rtdbGet(ref(realtimeDb, `rooms/${roomId}`)),
-      rtdbGet(
-        rtdbQuery(
-          ref(realtimeDb, `roomMessages/${roomId}`),
-          orderByChild('createdAt'),
-          limitToLast(250),
-        ),
-      ),
-    ]);
-    let audienceCount = 0;
-    if (audSnap.exists()) {
-      audienceCount = Object.keys(audSnap.val() ?? {}).length;
-    }
-    let roomMemberCount = audienceCount;
-    if (roomSnap.exists()) {
-      roomMemberCount = Number(roomSnap.val()?.memberCount ?? 0) || audienceCount;
-    }
-    let supportCoins = 0;
-    let giftCount = 0;
-    if (msgSnap.exists()) {
-      for (const msg of Object.values(msgSnap.val() ?? {}) as Array<Record<string, unknown>>) {
-        if (msg.type !== 'gift') continue;
-        const ts = typeof msg.createdAt === 'number' ? msg.createdAt : 0;
-        if (ts < window.from || ts > window.to) continue;
-        const qty = Number(msg.giftQuantity) || 1;
-        const val = Number(msg.giftValue) || 0;
-        supportCoins += val * qty;
-        giftCount += qty;
-      }
-    }
-    return { audienceCount, roomMemberCount, supportCoins, giftCount };
-  } catch (e) {
-    console.error('getPartyLiveStats:', e);
-    return empty;
-  }
+  return { audienceCount: 0, roomMemberCount: 0, supportCoins: 0, giftCount: 0 };
 }
+
+/**
+ * طلبات المقاعد وطلبات السهرات — فارغة بصدق.
+ *
+ * الميزتان لم تُبنَ في v2 بعد: لا جدول لطلب مقعد ولا لطلب سهرة، فلا مصدر لأي صف
+ * هنا. كانت هذه الدوال تقرأ Firestore مباشرة، وبعد قطع اللوحة عن Firebase صار
+ * ذلك خطأ صلاحيات في الكونسول لا قائمةً فارغة — والفراغ الصريح أصدق وأهدأ.
+ *
+ * عند بناء الميزتين في v2 تُوصَل هذه الدوال بنقطتيهما ويُحذف هذا التعليق.
+ */
+export const getAgencySeatRequests = async (
+  agencyId: string,
+  _status: AgencySeatRequestStatus = 'pending',
+): Promise<AdminAgencySeatRequest[]> => {
+  await assertAgencyIdInScope(agencyId);
+  return [];
+};
 
 export const getAgencyPartyRequests = async (
   agencyId: string,
-  status: AgencyPartyRequestStatus = 'pending',
+  _status: AgencyPartyRequestStatus = 'pending',
 ): Promise<AdminAgencyPartyRequest[]> => {
   await assertAgencyIdInScope(agencyId);
-  const q = query(
-    collection(firestore, 'agencyPartyRequests'),
-    where('agencyId', '==', agencyId),
-    where('status', '==', status),
-    limit(50),
-  );
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() } as AdminAgencyPartyRequest))
-    .sort((a, b) => b.createdAt - a.createdAt);
+  return [];
 };
 
 /** كل طلبات الحفلات المعلّقة ضمن نطاق دول الأدمن */
+/** كل طلبات السهرات المعلّقة — فارغة بصدق: لا ميزة سهرات في v2 (انظر أعلاه). */
 export const getAllPendingPartyRequests = async (): Promise<AdminAgencyPartyRequest[]> => {
-  try {
-    const agencies = await getAgencies();
-    const scopedIds = new Set(agencies.map((a) => a.id));
-    const q = query(
-      collection(firestore, 'agencyPartyRequests'),
-      where('status', '==', 'pending'),
-      limit(100),
-    );
-    const snap = await getDocs(q);
-    return snap.docs
-      .map((d) => ({ id: d.id, ...d.data() } as AdminAgencyPartyRequest))
-      .filter((r) => scopedIds.has(r.agencyId))
-      .sort((a, b) => b.createdAt - a.createdAt);
-  } catch (e) {
-    console.error('getAllPendingPartyRequests:', e);
-    return [];
-  }
+  return [];
 };
 
 export const getPendingPartyRequestsCount = async (): Promise<number> => {
@@ -6844,10 +6620,17 @@ export interface AgencyActivity {
  * يجمع معاملات الدخل لأعضاء الوكالة (لكل عضو أحدث معاملاته) ويبني سجلاً + رسماً أسبوعياً.
  * يستخدم فهرس transactions(uid + createdAt) الموجود.
  */
+/**
+ * يجمع معاملات دخل أعضاء الوكالة من دفتر v2 (طلب لكل عضو، أعلى 20 عضواً) ويبني
+ * السجل + الرسم الأسبوعي كما في v1.
+ *
+ * فلترة الأنواع صارت على أنواع v2 الحقيقية (الهدايا المستلمة، رسوم المايك،
+ * أرباح المكالمات والرسائل) لأن أسماء الأنواع في القاعدة الجديدة ليست نفسها.
+ */
 export const getAgencyEarningsActivity = async (
   members: { uid: string; displayName: string }[],
 ): Promise<AgencyActivity> => {
-  // نحد لأعلى 20 عضواً لتفادي عدد كبير من الاستعلامات
+  // نحد لأعلى 20 عضواً لتفادي عدد كبير من الطلبات
   const top = members.slice(0, 20);
   const nameByUid: Record<string, string> = {};
   top.forEach((m) => { nameByUid[m.uid] = m.displayName; });
@@ -6855,32 +6638,37 @@ export const getAgencyEarningsActivity = async (
   const perMember = await Promise.all(
     top.map(async (m) => {
       try {
-        const snap = await getDocs(query(
-          collection(firestore, 'transactions'),
-          where('uid', '==', m.uid),
-          orderBy('createdAt', 'desc'),
-          limit(15),
-        ));
-        return snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+        const res = await v2.get<{ items: ServerUserTxRow[] }>(
+          `/admin/users/${m.uid}/transactions${v2Qs({ limit: 15 })}`,
+        );
+        return (res?.items ?? []).map((t) => ({ ...t, uid: m.uid }));
       } catch {
         return [];
       }
     }),
   );
 
+  /** أنواع v2 التي تُعدّ دخلاً للعضو. */
+  const INCOME_TYPES = new Set([
+    'gift_received',
+    'seat_fee_received',
+    'call_earning',
+    'chat_message_earning',
+    'unlock_message_earning',
+    'host_task_reward',
+  ]);
+
   const all: AgencyActivityTx[] = [];
-  perMember.flat().forEach((tx: any) => {
-    if (!PEARL_INCOME_TX_TYPES.has(String(tx.type ?? ''))) return;
+  perMember.flat().forEach((t) => {
+    if (!INCOME_TYPES.has(t.type)) return;
     all.push({
-      id: tx.id,
-      uid: String(tx.uid ?? ''),
-      memberName: nameByUid[String(tx.uid ?? '')] ?? 'عضو',
-      type: String(tx.type ?? ''),
-      amount: Number(tx.amount) || 0,
-      currency: String(tx.currency ?? 'pearls'),
-      callType: tx.callType,
-      fromUid: tx.fromUid,
-      createdAt: Number(tx.createdAt) || 0,
+      id: t.id,
+      uid: t.uid,
+      memberName: nameByUid[t.uid] ?? 'عضو',
+      type: t.type,
+      amount: t.amount,
+      currency: t.currency,
+      createdAt: new Date(t.createdAt).getTime() || 0,
     });
   });
   all.sort((a, b) => b.createdAt - a.createdAt);
@@ -6924,18 +6712,92 @@ export interface AgencyAdminAnalytics {
   }>;
 }
 
+/**
+ * تحليلات دخل الوكالة — تُبنى الآن من دفتر v2 لأعضاء الوكالة بدل دالة Firebase.
+ *
+ * المجاميع حقيقية (مجموع دخل الأعضاء في المدة، ومجموع اليوم)، والمضيفات مرتّبات
+ * بدخلهنّ الفعلي. المنحنى الزمني بحسب المدة: أسبوع = 7 نقاط يومية، وشهر = 30.
+ *
+ * مرشّح نوع الدخل يقتصر على ما يسجّله v2 فعلاً: الهدايا، ورسوم المايك، وأرباح
+ * المكالمات والرسائل. «الاستردادات» ليست ميزةً في v2 فتعيد فراغاً — لا رقماً
+ * مُلفّقاً.
+ */
 export const getAgencyAdminAnalytics = async (
   agencyId: string,
   period: AgencyAdminAnalyticsPeriod = 'week',
   incomeType: AgencyAdminIncomeFilter = 'all',
 ): Promise<AgencyAdminAnalytics> => {
   await assertAgencyIdInScope(agencyId);
-  const fn = httpsCallable<
-    { agencyId: string; period: string; dataType: string; incomeType: string },
-    AgencyAdminAnalytics & { series: { label: string; value: number }[] }
-  >(functions, 'getAgencyAdminAnalytics');
-  const res = await fn({ agencyId, period, dataType: 'income', incomeType });
-  return res.data;
+  const empty: AgencyAdminAnalytics = {
+    agencyId,
+    series: [],
+    total: 0,
+    todayTotal: 0,
+    hosts: [],
+  };
+  if (incomeType === 'refund') return empty; // لا استردادات في v2
+  try {
+    const members = await getAgencyMembers(agencyId);
+    if (members.length === 0) return empty;
+    const activity = await getAgencyEarningsActivity(
+      members.map((m) => ({ uid: m.uid, displayName: m.uidName ?? '—' })),
+    );
+
+    const TYPES_BY_FILTER: Record<string, Set<string> | null> = {
+      all: null,
+      gifts: new Set(['gift_received']),
+      chat: new Set(['chat_message_earning', 'unlock_message_earning']),
+      calls: new Set(['call_earning']),
+      other: new Set(['seat_fee_received', 'host_task_reward']),
+      refund: new Set<string>(),
+    };
+    const wanted = TYPES_BY_FILTER[incomeType] ?? null;
+    const rows = wanted ? activity.recent.filter((t) => wanted.has(t.type)) : activity.recent;
+
+    const dayMs = 86_400_000;
+    // «4 أسابيع» تُرسَم 28 نقطة يومية، والأسبوع (الحالي أو الماضي) 7.
+    const points = period.startsWith('4weeks') ? 28 : 7;
+    // «الأسبوع الماضي» ينتهي قبل أسبوع من اليوم لا عند اليوم.
+    const shiftDays = period === 'last_week' ? 7 : 0;
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const series: { label: string; value: number }[] = [];
+    for (let i = points - 1; i >= 0; i--) {
+      const from = startOfToday.getTime() - (i + shiftDays) * dayMs;
+      const to = from + dayMs;
+      series.push({
+        label: new Date(from).toLocaleDateString('ar', { day: 'numeric', month: 'short' }),
+        value: rows
+          .filter((t) => t.createdAt >= from && t.createdAt < to)
+          .reduce((s, t) => s + t.amount, 0),
+      });
+    }
+
+    const earningsByUid = new Map<string, number>();
+    rows.forEach((t) => earningsByUid.set(t.uid, (earningsByUid.get(t.uid) ?? 0) + t.amount));
+
+    return {
+      agencyId,
+      series,
+      total: rows.reduce((s, t) => s + t.amount, 0),
+      todayTotal: rows
+        .filter((t) => t.createdAt >= startOfToday.getTime())
+        .reduce((s, t) => s + t.amount, 0),
+      hosts: members
+        .map((m) => ({
+          uid: m.uid,
+          name: m.uidName ?? '—',
+          avatar: m.uidAvatar ?? '',
+          earnings: earningsByUid.get(m.uid) ?? 0,
+          totalPearlsEarned: 0,
+        }))
+        .sort((a, b) => b.earnings - a.earnings),
+    };
+  } catch (e) {
+    console.error('getAgencyAdminAnalytics:', e);
+    return empty;
+  }
 };
 
 export interface AgencyRefundAdminRow {
@@ -6947,21 +6809,13 @@ export interface AgencyRefundAdminRow {
   createdAt: number;
 }
 
+/**
+ * استردادات الوكالة — فارغة بصدق: لا ميزة استرداد في v2، ولا نستدعي دالة Firebase
+ * القديمة من اللوحة. الفراغ الصريح أصدق من خطأ في الكونسول.
+ */
 export const getAgencyRefundsAdmin = async (agencyId: string): Promise<AgencyRefundAdminRow[]> => {
   await assertAgencyIdInScope(agencyId);
-  const fn = httpsCallable<
-    { agencyId: string },
-    { refunds: Array<{
-      id: string;
-      hostName: string;
-      supporterName: string;
-      amount: number;
-      reason: string;
-      createdAt: number;
-    }> }
-  >(functions, 'listAgencyRefunds');
-  const res = await fn({ agencyId });
-  return res.data.refunds ?? [];
+  return [];
 };
 
 /** سحوبات الوكالة (بدون orderBy لتفادي فهرس مركّب — نرتّب في العميل) */
@@ -6976,28 +6830,32 @@ export interface AgencyWithdrawal {
   createdAt: number;
 }
 
+/**
+ * سحوبات أعضاء الوكالة — من `/admin/withdrawals`، مُرشَّحة بمعرّف الوكالة الذي
+ * يعيده السيرفر على كل طلب.
+ *
+ * الترشيح هنا لا على السيرفر لأن نقطة السحوبات تُرشِّح بالحالة والنوع والمستخدم؛
+ * والسقف 200 صفاً يغطي وكالةً واحدة بمريح. لو تجاوزت وكالة ذلك يوماً، يصبح
+ * المرشِّح على السيرفر هو الحل الصحيح لا زيادة السقف.
+ */
 export const getAgencyWithdrawals = async (agencyId: string): Promise<AgencyWithdrawal[]> => {
   await assertAgencyIdInScope(agencyId);
   try {
-    const snap = await getDocs(query(
-      collection(firestore, 'withdrawals'),
-      where('agencyId', '==', agencyId),
-      limit(100),
-    ));
-    return snap.docs
-      .map((d) => {
-        const w = d.data() as any;
-        return {
-          id: d.id,
-          uid: String(w.uid ?? ''),
-          uidName: String(w.uidName ?? '—'),
-          type: String(w.type ?? 'self'),
-          amount: Number(w.amount) || 0,
-          netAmount: Number(w.netAmount) || 0,
-          status: String(w.status ?? 'pending'),
-          createdAt: Number(w.createdAt) || 0,
-        };
-      })
+    const res = await v2.get<{ items: ServerWithdrawalRow[] }>(
+      `/admin/withdrawals${v2Qs({ limit: 200 })}`,
+    );
+    return (res?.items ?? [])
+      .filter((w) => w.agencyId === agencyId)
+      .map((w) => ({
+        id: w.id,
+        uid: w.uid,
+        uidName: w.requesterName || '—',
+        type: w.kind === 'agent' ? 'agent' : 'self',
+        amount: w.diamonds,
+        netAmount: w.netUsd,
+        status: w.status,
+        createdAt: new Date(w.createdAt).getTime() || 0,
+      }))
       .sort((a, b) => b.createdAt - a.createdAt);
   } catch (e) {
     console.error('getAgencyWithdrawals:', e);
@@ -7117,44 +6975,62 @@ export const TX_TYPE_LABELS: Record<string, string> = {
 
 export const txTypeLabel = (type: string): string => TX_TYPE_LABELS[type] ?? type;
 
+/**
+ * ملف المستخدم الكامل — من `/admin/users/:id` (يعيد `profile` و`stats`) مع
+ * أجهزته من `/admin/users/:id/devices`.
+ *
+ * «آخر دخول» لم يكن حقلاً مستقلاً في v2 كما في v1: أحدث جهاز في القائمة هو آخر
+ * دخول فعلي — وقته وعنوانه ومعرّفه — فنقرأه من هناك بدل تخزين نسخة ثانية تتناقض
+ * مع الأولى. و«كلمة المرور المحفوظة» لا وجود لها بصدق: v2 لا يخزّن كلمة مرور
+ * قابلة للقراءة إطلاقاً (تُهشَّر فوراً)، فتبقى undefined ولا تُلفّق.
+ */
 export const getUserFullProfile = async (uid: string): Promise<AdminUserFull | null> => {
   const base = await getUserById(uid);
   if (!base) return null;
   try {
-    const [snap, credSnap] = await Promise.all([
-      getDoc(doc(firestore, 'users', uid)),
-      getDoc(doc(firestore, 'adminUserCredentials', uid)),
+    const [detail, devices] = await Promise.all([
+      v2.get<ServerUserRow & { profile?: Record<string, unknown>; stats?: Record<string, unknown> }>(
+        `/admin/users/${uid}`,
+      ),
+      getUserLoginSessions(uid, 20).catch(() => [] as AdminLoginSession[]),
     ]);
-    if (!snap.exists()) return null;
-    const data = snap.data() as Record<string, unknown>;
-    const stats = (data.stats as Record<string, unknown>) ?? {};
-    const cred = credSnap.exists() ? (credSnap.data() as Record<string, unknown>) : null;
+    const profile = (detail?.profile ?? {}) as Record<string, unknown>;
+    const stats = (detail?.stats ?? {}) as Record<string, unknown>;
+    const num = (v: unknown) => Number(v ?? 0) || 0;
+    const newest = devices[0];
     return {
       ...base,
-      xp: Number(data.xp ?? stats.xp ?? 0) || 0,
-      vipPoints: Number(data.vipPoints ?? 0) || 0,
-      vipPointsMonth: Number(data.vipPointsMonth ?? 0) || 0,
-      visitors: Number(stats.visitors ?? data.visitors ?? 0) || 0,
-      agencyName: data.agencyName != null ? String(data.agencyName) : undefined,
-      agencyRole: data.agencyRole != null ? String(data.agencyRole) : undefined,
-      adminManagedPassword: cred?.password != null ? String(cred.password) : undefined,
-      adminPasswordUpdatedAt: cred?.updatedAt != null ? Number(cred.updatedAt) || 0 : undefined,
-      userTitles: data.userTitles as AdminUserFull['userTitles'],
-      tags: Array.isArray(data.tags) ? (data.tags as string[]) : [],
-      registeredDevices: Array.isArray(data.registeredDevices)
-        ? (data.registeredDevices as AdminRegisteredDevice[])
-        : [],
-      lastLoginAt: data.lastLoginAt != null ? Number(data.lastLoginAt) || 0 : undefined,
-      lastLoginIp: data.lastLoginIp != null ? String(data.lastLoginIp) : undefined,
-      lastLoginMethod: data.lastLoginMethod != null ? String(data.lastLoginMethod) : undefined,
-      lastLoginLocation: data.lastLoginLocation as AdminLoginLocation | undefined,
-      lastLoginDeviceId: data.lastLoginDeviceId != null ? String(data.lastLoginDeviceId) : undefined,
-      location: data.location as AdminUserFull['location'],
-      accountStatus: data.accountStatus === 'pending_deletion' ? 'pending_deletion' : undefined,
-      deletionRequestedAt: data.deletionRequestedAt != null ? Number(data.deletionRequestedAt) || 0 : undefined,
-      isSuspended: data.isSuspended === true,
-      suspendedUntil: data.suspendedUntil != null ? Number(data.suspendedUntil) || 0 : undefined,
-      suspendReason: data.suspendReason != null ? String(data.suspendReason) : undefined,
+      xp: num(stats.xp ?? profile.xp),
+      vipPoints: num(stats.vipPoints ?? profile.vipPoints),
+      vipPointsMonth: num(stats.vipPointsMonth ?? profile.vipPointsMonth),
+      visitors: num(stats.visitors ?? profile.visitors),
+      agencyName: profile.agencyName != null ? String(profile.agencyName) : undefined,
+      agencyRole: profile.agencyRole != null ? String(profile.agencyRole) : undefined,
+      userTitles: profile.userTitles as AdminUserFull['userTitles'],
+      tags: Array.isArray(profile.tags) ? (profile.tags as string[]) : [],
+      registeredDevices: devices.map((d) => ({
+        id: d.deviceId ?? d.id,
+        name: d.deviceName ?? '',
+        platform: d.platform ?? '',
+        lastActiveAt: d.createdAt,
+      })) as AdminRegisteredDevice[],
+      lastLoginAt: newest?.createdAt,
+      lastLoginIp: newest?.ip || undefined,
+      lastLoginMethod: newest?.method || undefined,
+      lastLoginDeviceId: newest?.deviceId,
+      accountStatus:
+        ((profile.security as Record<string, unknown> | undefined)?.accountStatus ??
+          profile.accountStatus) === 'pending_deletion'
+          ? 'pending_deletion'
+          : undefined,
+      deletionRequestedAt: num(
+        (profile.security as Record<string, unknown> | undefined)?.deletionRequestedAt ??
+          profile.deletionRequestedAt,
+      ) || undefined,
+      // «تعليق مؤقت» in v2 IS a ban with an end date on the profile.
+      isSuspended: base.isBanned && num(profile.suspendedUntil) > 0,
+      suspendedUntil: num(profile.suspendedUntil) || undefined,
+      suspendReason: profile.suspendReason != null ? String(profile.suspendReason) : undefined,
     };
   } catch (e) {
     console.error('getUserFullProfile:', e);
@@ -7223,69 +7099,79 @@ export const getUserLoginSessions = async (
 };
 
 
+/** سطر واحد من دفتر v2 كما يعيده السيرفر. */
+interface ServerUserTxRow {
+  id: string;
+  type: string;
+  amount: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+}
+
+/** سحوبات المستخدم — من `/admin/withdrawals?uid=` (نفس جدول صفحة السحوبات). */
 export const getUserWithdrawals = async (uid: string, limitCount = 40): Promise<AdminUserWithdrawal[]> => {
   await assertUidInAdminCountryScope(uid);
   try {
-    const snap = await getDocs(query(
-      collection(firestore, 'withdrawals'),
-      where('uid', '==', uid),
-      limit(limitCount),
-    ));
-    return snap.docs
-      .map((d) => {
-        const w = d.data() as Record<string, unknown>;
-        return {
-          id: d.id,
-          type: String(w.type ?? 'self'),
-          amount: Number(w.amount) || 0,
-          netAmount: Number(w.netAmount) || 0,
-          status: String(w.status ?? 'pending'),
-          createdAt: Number(w.createdAt) || 0,
-        };
-      })
-      .sort((a, b) => b.createdAt - a.createdAt);
+    const res = await v2.get<{ items: ServerWithdrawalRow[] }>(
+      `/admin/withdrawals${v2Qs({ uid, limit: limitCount })}`,
+    );
+    return (res?.items ?? []).map((w) => ({
+      id: w.id,
+      type: w.kind === 'agent' ? 'agent' : 'self',
+      amount: w.diamonds,
+      netAmount: w.netUsd,
+      status: w.status,
+      createdAt: new Date(w.createdAt).getTime() || 0,
+    }));
   } catch (e) {
     console.error('getUserWithdrawals:', e);
     return [];
   }
 };
 
+/**
+ * سجل الألعاب — من دفتر المستخدم بمرشّح `kind=games`، وهو المصدر الحقيقي في v2:
+ * لا جدول «gameTransactions» منفصل، فكل رهان وكل ربح سطرٌ في نفس الدفتر.
+ *
+ * الرهان سطر سالب والربح سطر موجب، فنعرضهما كما هما (stake أو winAmount) بدل
+ * دمج سطرين قد لا يكونا لنفس الجولة — تلفيقُ اقتران لا نملك دليله.
+ */
 export const getUserGameTransactions = async (uid: string, limitCount = 40): Promise<AdminGameTx[]> => {
   await assertUidInAdminCountryScope(uid);
   try {
-    const snap = await getDocs(query(
-      collection(firestore, 'gameTransactions'),
-      where('uid', '==', uid),
-      orderBy('createdAt', 'desc'),
-      limit(limitCount),
-    ));
-    return snap.docs.map((d) => {
-      const g = d.data() as Record<string, unknown>;
-      return {
-        id: d.id,
-        gameId: g.gameId != null ? String(g.gameId) : undefined,
-        stake: Number(g.stake) || 0,
-        winAmount: Number(g.winAmount) || 0,
-        createdAt: Number(g.createdAt) || 0,
-      };
-    });
+    const res = await v2.get<{ items: ServerUserTxRow[] }>(
+      `/admin/users/${uid}/transactions${v2Qs({ kind: 'games', limit: limitCount })}`,
+    );
+    return (res?.items ?? []).map((t) => ({
+      id: t.id,
+      gameId: t.type,
+      stake: t.amount < 0 ? Math.abs(t.amount) : 0,
+      winAmount: t.amount > 0 ? t.amount : 0,
+      createdAt: new Date(t.createdAt).getTime() || 0,
+    }));
   } catch (e) {
     console.error('getUserGameTransactions:', e);
     return [];
   }
 };
 
-/** آخر معاملات عضو محدّد (لنافذة التفاصيل) */
+/** آخر معاملات عضو محدّد (لنافذة التفاصيل) — من دفتر v2. */
 export const getMemberTransactions = async (uid: string, limitCount = 25): Promise<AdminTransaction[]> => {
   await assertUidInAdminCountryScope(uid);
   try {
-    const snap = await getDocs(query(
-      collection(firestore, 'transactions'),
-      where('uid', '==', uid),
-      orderBy('createdAt', 'desc'),
-      limit(limitCount),
-    ));
-    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+    const res = await v2.get<{ items: ServerUserTxRow[] }>(
+      `/admin/users/${uid}/transactions${v2Qs({ limit: limitCount })}`,
+    );
+    return (res?.items ?? []).map((t) => ({
+      id: t.id,
+      uid,
+      type: t.type,
+      amount: t.amount,
+      currency: t.currency,
+      status: t.status,
+      createdAt: new Date(t.createdAt).getTime() || 0,
+    }));
   } catch (e) {
     console.error('getMemberTransactions:', e);
     return [];
@@ -7343,72 +7229,66 @@ export interface CallUsageStats {
 
 const emptyUsageCell = (): CallUsageCell => ({ minutes: 0, realMinutes: 0, sessions: 0, coins: 0, pearls: 0 });
 
+/**
+ * «استخدام المكالمات» — من `/admin/call-usage`، وهو تجميعٌ لصفوف الفوترة نفسها في
+ * دفتر v2: كل دقيقة محسوبة = سطر `call_spent`، فالدقائق والمال لا يمكن أن يختلفا.
+ *
+ * ما لا يُسجّله v2 يبقى صفراً بصدق: **مصدر** المكالمة (من محادثة أم من المطابقة
+ * العشوائية) ليس محفوظاً على السطر، فشبكة «دردشة/مطابقة × صوت/فيديو» تُعرض
+ * بالصوت والفيديو فقط ويبقى تقسيم المصدر خالياً بدل توزيعٍ مُخترع. و«الماس» لا
+ * يظهر لأن المكالمات تُحصَّل عملاتٍ بقرار المالك.
+ */
 export const getCallUsageStats = async (range: CallUsageRange = '30'): Promise<CallUsageStats> => {
-  const FETCH_LIMIT = 10000;
-  const constraints: any[] = [];
-  if (range !== 'all') {
-    const cutoff = Date.now() - Number(range) * 24 * 60 * 60 * 1000;
-    constraints.push(where('createdAt', '>=', cutoff));
-  }
-  constraints.push(orderBy('createdAt', 'desc'));
-  constraints.push(limit(FETCH_LIMIT));
-
-  const snap = await getDocs(query(collection(firestore, 'callSessions'), ...constraints));
-
-  const grid = {
-    chatVoice: emptyUsageCell(),
-    chatVideo: emptyUsageCell(),
-    matchVoice: emptyUsageCell(),
-    matchVideo: emptyUsageCell(),
-  };
-  let billedSessions = 0;
-  let unbilledSessions = 0;
-
-  snap.forEach((d) => {
-    const s = d.data() as any;
-    const minutes = Number(s.minutesCharged) || 0;
-    const realMinutes = (Number(s.durationSeconds) || 0) / 60;
-    const coins = Number(s.totalCoinsSpent) || 0;
-    const pearls = Number(s.totalPearlsEarned) || 0;
-    const isVideo = s.type === 'video';
-    const isMatch = s.source === 'match';
-    const cell = isMatch
-      ? isVideo ? grid.matchVideo : grid.matchVoice
-      : isVideo ? grid.chatVideo : grid.chatVoice;
-    cell.minutes += minutes;
-    cell.realMinutes += realMinutes;
-    cell.sessions += 1;
-    cell.coins += coins;
-    cell.pearls += pearls;
-    if (s.billed === true) billedSessions += 1;
-    else unbilledSessions += 1;
-  });
-
-  const cells = [grid.chatVoice, grid.chatVideo, grid.matchVoice, grid.matchVideo];
-  const sum = (sel: (c: CallUsageCell) => number) => cells.reduce((a, c) => a + sel(c), 0);
-
-  return {
+  const empty: CallUsageStats = {
     range,
-    totalMinutes: sum((c) => c.minutes),
-    totalRealMinutes: sum((c) => c.realMinutes),
-    totalSessions: sum((c) => c.sessions),
-    totalCoins: sum((c) => c.coins),
-    totalPearls: sum((c) => c.pearls),
-    byType: {
-      voice: grid.chatVoice.realMinutes + grid.matchVoice.realMinutes,
-      video: grid.chatVideo.realMinutes + grid.matchVideo.realMinutes,
+    totalMinutes: 0,
+    totalRealMinutes: 0,
+    totalSessions: 0,
+    totalCoins: 0,
+    totalPearls: 0,
+    byType: { voice: 0, video: 0 },
+    bySource: { chat: 0, match: 0 },
+    grid: {
+      chatVoice: emptyUsageCell(),
+      chatVideo: emptyUsageCell(),
+      matchVoice: emptyUsageCell(),
+      matchVideo: emptyUsageCell(),
     },
-    bySource: {
-      chat: grid.chatVoice.realMinutes + grid.chatVideo.realMinutes,
-      match: grid.matchVoice.realMinutes + grid.matchVideo.realMinutes,
-    },
-    grid,
-    billedSessions,
-    unbilledSessions,
-    fetchedCount: snap.size,
-    reachedLimit: snap.size >= FETCH_LIMIT,
+    billedSessions: 0,
+    unbilledSessions: 0,
+    fetchedCount: 0,
+    reachedLimit: false,
   };
+  try {
+    // «الكل» على السيرفر مسقوف بـ90 يوماً، وهو أقصى نطاق تسمح به الصفحة أصلاً.
+    const days = range === 'all' ? 90 : Number(range);
+    const u = await v2.get<ServerCallUsage>(`/admin/call-usage${v2Qs({ days })}`);
+    if (!u) return empty;
+    return {
+      ...empty,
+      totalMinutes: u.minutes,
+      totalRealMinutes: u.minutes,
+      totalSessions: u.sessions,
+      totalCoins: u.coinsSpent,
+      byType: { voice: u.byType?.voice ?? 0, video: u.byType?.video ?? 0 },
+      billedSessions: u.sessions,
+      fetchedCount: u.minutes,
+    };
+  } catch (e) {
+    console.error('getCallUsageStats:', e);
+    return empty;
+  }
 };
+
+/** تجميع المكالمات كما يعيده `/admin/call-usage`. */
+interface ServerCallUsage {
+  rangeDays: number;
+  minutes: number;
+  sessions: number;
+  coinsSpent: number;
+  coinsEarned: number;
+  byType: { voice: number; video: number };
+}
 
 // ==================== PROVIDER COSTS & LIVEKIT USAGE ====================
 import { DEFAULT_PROVIDER_COSTS, type ProviderCosts } from '@/constants/providerCosts';
@@ -7449,42 +7329,13 @@ export interface LiveKitUsageStats {
   reachedLimit: boolean;
 }
 
-export const getLiveKitUsage = async (range: CallUsageRange = '30'): Promise<LiveKitUsageStats> => {
-  try {
-    const FETCH_LIMIT = 10000;
-    const constraints: any[] = [where('provider', '==', 'livekit')];
-    if (range !== 'all') {
-      const cutoff = Date.now() - Number(range) * 24 * 60 * 60 * 1000;
-      constraints.push(where('createdAt', '>=', cutoff));
-    }
-    constraints.push(orderBy('createdAt', 'desc'));
-    constraints.push(limit(FETCH_LIMIT));
-
-    const snap = await getDocs(query(collection(firestore, 'providerSessions'), ...constraints));
-    
-    let minutes = 0;
-    let sessions = 0;
-    snap.forEach((d) => {
-      const data = d.data();
-      minutes += Number(data.minutes) || 0;
-      sessions += 1;
-    });
-
-    return {
-      hasData: snap.size > 0,
-      minutes,
-      sessions,
-      reachedLimit: snap.size >= FETCH_LIMIT,
-    };
-  } catch (e) {
-    console.error('getLiveKitUsage:', e);
-    return {
-      hasData: false,
-      minutes: 0,
-      sessions: 0,
-      reachedLimit: false,
-    };
-  }
+/**
+ * استخدام LiveKit — صفر دائماً بصدق: LiveKit حُذف من المنتج نهائياً وAgora هي
+ * المسار الوحيد، فلا مصدر لأي رقم هنا. الصفحة تعرض «لا بيانات» عبر hasData=false
+ * بدل استعلامٍ يفشل أو رقمٍ من مزوّد لم يعد مستخدماً.
+ */
+export const getLiveKitUsage = async (_range: CallUsageRange = '30'): Promise<LiveKitUsageStats> => {
+  return { hasData: false, minutes: 0, sessions: 0, reachedLimit: false };
 };
 
 // ==================== HELPERS ====================

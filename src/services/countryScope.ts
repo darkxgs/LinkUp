@@ -1,8 +1,7 @@
 /**
  * نطاق دول مشرف الدولة — فلترة كل محتوى اللوحة
  */
-import { doc, getDoc } from 'firebase/firestore';
-import { firestore } from '@/lib/firebase';
+import { v2 } from '@/lib/v2Api';
 
 export type CountryScopeProfile = {
   role: 'super' | 'country';
@@ -55,25 +54,40 @@ export function getCachedUserCountry(uid: string): string {
   return userCountryCache.get(uid) ?? '';
 }
 
+/**
+ * دولة حساب واحد — من `POST /admin/users/countries` (نفس النقطة الجماعية بطلب
+ * لعنصر واحد)، فلا تبقى صلاحية «مشرف الدولة» معلّقة على قراءة Firestore.
+ *
+ * الفشل يُخزَّن كسلسلة فارغة، و«بلا دولة» تعني **خارج النطاق** لمشرف دولة
+ * (`isInAdminCountryScope` أعلاه) — أي أن انقطاع الشبكة يُضيّق الصلاحية ولا
+ * يوسّعها. الاتجاه الآمن هو المقصود.
+ */
 export async function getUserCountry(uid: string): Promise<string> {
   if (!uid) return '';
   if (userCountryCache.has(uid)) return userCountryCache.get(uid)!;
-  try {
-    const snap = await getDoc(doc(firestore, 'users', uid));
-    const code = snap.exists() ? countryFromUserDoc(snap.data() as Record<string, unknown>) : '';
-    userCountryCache.set(uid, code);
-    return code;
-  } catch {
-    userCountryCache.set(uid, '');
-    return '';
-  }
+  await preloadUserCountries([uid]);
+  return userCountryCache.get(uid) ?? '';
 }
 
 export async function preloadUserCountries(uids: string[]): Promise<void> {
   const missing = [...new Set(uids.filter((id) => id && !userCountryCache.has(id)))];
-  const chunk = 20;
+  if (missing.length === 0) return;
+  // The server resolves a batch in one query; 200 ids a request keeps the URL and
+  // the SQL bounded on a big list.
+  const chunk = 200;
   for (let i = 0; i < missing.length; i += chunk) {
-    await Promise.all(missing.slice(i, i + chunk).map((uid) => getUserCountry(uid)));
+    const slice = missing.slice(i, i + chunk);
+    try {
+      const map = await v2.post<Record<string, string>>('/admin/users/countries', {
+        uids: slice,
+      });
+      slice.forEach((uid) => {
+        userCountryCache.set(uid, normalizeCountryCode(map?.[uid]));
+      });
+    } catch {
+      // A failed lookup caches «unknown», which reads as out-of-scope.
+      slice.forEach((uid) => userCountryCache.set(uid, ''));
+    }
   }
 }
 
