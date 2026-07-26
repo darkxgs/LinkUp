@@ -7162,39 +7162,59 @@ export const getUserFullProfile = async (uid: string): Promise<AdminUserFull | n
   }
 };
 
-export const getUserLoginSessions = async (uid: string, limitCount = 50): Promise<AdminLoginSession[]> => {
+/** One device as the server reports it (from `users.profile.devices`). */
+interface ServerDeviceRow {
+  deviceId: string;
+  model: string;
+  platform: string;
+  osVersion: string;
+  appVersion: string;
+  ip: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  logins: number;
+}
+
+/**
+ * «الأجهزة والدخول» — أجهزة المستخدم من `/admin/users/:id/devices`.
+ *
+ * الفرق الجوهري عن v1: هذه **قائمة أجهزة** لا سجل دخول. v1 كان يكتب صفاً لكل
+ * تسجيل دخول، فجهاز واحد يظهر عشرين مرة ولا تعرف كم جهازاً يستخدم الحساب فعلاً.
+ * هنا الجهاز يُعرَّف بمعرّفه، وإعادة الدخول من نفس الهاتف تُحدّث صفه وترفع عدّاد
+ * الدخول — فـ«كم جهازاً؟» و«كم مرة دخل؟» سؤالان لهما جوابان.
+ *
+ * `createdAt` تُعرض كآخر ظهور (وهو ما تريده الصفحة: الأحدث أولاً)، و`method`
+ * تحمل عدد مرات الدخول لأن v2 لا يميّز طريقة الدخول لكل جهاز.
+ */
+export const getUserLoginSessions = async (
+  uid: string,
+  limitCount = 50,
+): Promise<AdminLoginSession[]> => {
   await assertUidInAdminCountryScope(uid);
   try {
-    const snap = await getDocs(query(
-      collection(firestore, 'users', uid, 'loginSessions'),
-      orderBy('createdAt', 'desc'),
-      limit(limitCount),
-    ));
-    return snap.docs.map((d) => {
-      const s = d.data() as Record<string, unknown>;
-      return {
-        id: d.id,
-        deviceId: String(s.deviceId ?? ''),
-        method: String(s.method ?? ''),
-        ip: String(s.ip ?? ''),
-        deviceName: String(s.deviceName ?? ''),
-        platform: String(s.platform ?? ''),
-        brand: s.brand != null ? String(s.brand) : undefined,
-        model: s.model != null ? String(s.model) : undefined,
-        osVersion: s.osVersion != null ? String(s.osVersion) : undefined,
-        deviceIdentifier: s.deviceIdentifier != null ? String(s.deviceIdentifier) : undefined,
-        appVersion: s.appVersion != null ? String(s.appVersion) : undefined,
-        location: (s.location as AdminLoginLocation | null) ?? null,
-        createdAt: Number(s.createdAt) || 0,
-        connectionType: s.connectionType != null ? String(s.connectionType) : undefined,
-        flaggedSuspicious: s.flaggedSuspicious === true,
-      };
-    });
+    const rows = await v2.get<ServerDeviceRow[]>(`/admin/users/${uid}/devices`);
+    return (rows ?? []).slice(0, limitCount).map((d) => ({
+      id: d.deviceId,
+      deviceId: d.deviceId,
+      method: d.logins > 0 ? `${d.logins} دخول` : '',
+      ip: d.ip,
+      // v1 kept a separate «deviceName»; v2 stores «الشركة + الموديل» in one
+      // readable string, which is what the panel actually renders.
+      deviceName: d.model,
+      platform: d.platform,
+      model: d.model || undefined,
+      osVersion: d.osVersion || undefined,
+      deviceIdentifier: d.deviceId,
+      appVersion: d.appVersion || undefined,
+      location: null,
+      createdAt: d.lastSeenAt || d.firstSeenAt || 0,
+    }));
   } catch (e) {
     console.error('getUserLoginSessions:', e);
     return [];
   }
 };
+
 
 export const getUserWithdrawals = async (uid: string, limitCount = 40): Promise<AdminUserWithdrawal[]> => {
   await assertUidInAdminCountryScope(uid);
