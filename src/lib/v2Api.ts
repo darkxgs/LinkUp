@@ -103,9 +103,26 @@ async function request<T>(
     // 401 = the token is gone or expired, so drop the session. 403 only means
     // this account lacks a permission — staying logged in is correct there.
     if (res.status === 401) onUnauthorized?.();
-    throw new V2ApiError(res.status, code, MESSAGES[code] ?? `فشل الطلب (${res.status})`);
+    throw new V2ApiError(res.status, code, humanMessage(code, res.status));
   }
   return parsed as T;
+}
+
+/**
+ * The message the user actually sees.
+ *
+ * Order matters: a known short code gets our Arabic copy; anything else that is
+ * ALREADY a sentence (Arabic text the server wrote, or a validation line like
+ * «password must be longer than or equal to 8 characters») is shown verbatim.
+ * Falling straight to «فشل الطلب (400)» used to throw that reason away, so a
+ * rejected create looked like a mystery instead of saying which field was wrong.
+ */
+function humanMessage(code: string, status: number): string {
+  const known = MESSAGES[code];
+  if (known) return known;
+  const looksLikeSentence = code !== 'unknown' && (code.includes(' ') || /[؀-ۿ]/.test(code));
+  if (looksLikeSentence) return code;
+  return `فشل الطلب (${status})`;
 }
 
 function safeJson(text: string): unknown {

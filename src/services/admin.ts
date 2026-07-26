@@ -5117,10 +5117,17 @@ export const createAdminUser = async (input: {
   email: string; password: string; name: string;
   role: 'super' | 'country'; countries: string[]; permissions: Record<string, boolean>;
 }): Promise<{ ok: boolean; uid: string }> => {
+  // نفحص القواعد نفسها قبل الإرسال، فيصل السبب بالعربية فوراً بدل رسالة تحقّق
+  // إنجليزية من الـDTO أو رحلة ذهاب وعودة لا لزوم لها.
+  const email = input.email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('البريد الإلكتروني غير صالح');
+  if (input.password.length < 8) throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
+  if (!input.name.trim()) throw new Error('الاسم مطلوب');
+
   const created = await v2.post<{ id: string }>('/admin/users', {
-    email: input.email,
+    email,
     password: input.password,
-    displayName: input.name,
+    displayName: input.name.trim(),
   });
   const uid = created?.id;
   if (!uid) throw new Error('لم يُنشأ الحساب');
