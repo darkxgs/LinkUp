@@ -7173,6 +7173,10 @@ interface ServerDeviceRow {
   firstSeenAt: number;
   lastSeenAt: number;
   logins: number;
+  /** الاسم الذي يعرضه المستخدم لجهازه في صفحة «الأجهزة» داخل التطبيق. */
+  name?: string;
+  /** ألغى المستخدم هذا الجهاز من تطبيقه — نبقيه معروضاً هنا موسوماً بذلك. */
+  revoked?: boolean;
 }
 
 /**
@@ -7196,11 +7200,14 @@ export const getUserLoginSessions = async (
     return (rows ?? []).slice(0, limitCount).map((d) => ({
       id: d.deviceId,
       deviceId: d.deviceId,
-      method: d.logins > 0 ? `${d.logins} دخول` : '',
+      method: [d.logins > 0 ? `${d.logins} دخول` : '', d.revoked ? 'أُلغي من التطبيق' : '']
+        .filter(Boolean)
+        .join(' · '),
       ip: d.ip,
       // v1 kept a separate «deviceName»; v2 stores «الشركة + الموديل» in one
-      // readable string, which is what the panel actually renders.
-      deviceName: d.model,
+      // readable string, which is what the panel actually renders. اسم الجهاز
+      // الذي سجّله المستخدم بديلٌ مقبول عندما لا يرسل التطبيق الموديل.
+      deviceName: d.model || d.name || '',
       platform: d.platform,
       model: d.model || undefined,
       osVersion: d.osVersion || undefined,
