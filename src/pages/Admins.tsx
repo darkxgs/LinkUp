@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ShieldCheck, Plus, Trash2, Pencil, X, Globe, Crown, Lock, UserCheck, Search, KeyRound } from 'lucide-react';
+import { ShieldCheck, Plus, Trash2, Pencil, X, Globe, Crown, Lock, UserCheck, Eye, EyeOff, RefreshCw, Search, KeyRound } from 'lucide-react';
 import { Loading, Empty, Badge } from '@/components/Common';
 import { CountrySelect, formatCountryLabel } from '@/components/CountrySelect';
 import { useAdminProfile } from '@/contexts/AdminProfileContext';
@@ -262,6 +262,7 @@ function AdminFormModal({ admin, onClose, onSaved }: {
   const isEdit = !!admin;
   const [email, setEmail] = useState(admin?.email ?? '');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState(admin?.name ?? '');
   const [role, setRole] = useState<'super' | 'country'>(admin?.role ?? 'country');
   const [countries, setCountries] = useState<string[]>(admin?.countries ?? []);
@@ -277,14 +278,36 @@ function AdminFormModal({ admin, onClose, onSaved }: {
   };
   const removeCountry = (code: string) => setCountries((prev) => prev.filter((c) => c !== code));
 
+  const generatePassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    let value = '';
+    for (let i = 0; i < 10; i += 1) {
+      value += chars[Math.floor(Math.random() * chars.length)];
+    }
+    setPassword(value);
+    setShowPassword(true);
+  };
+
   const handleSave = async () => {
     if (!isEdit && (!email.trim() || password.length < 6)) return alert('بريد صالح وكلمة مرور (6+) مطلوبان');
+    if (isEdit && password && password.length < 6) return alert('كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل');
     if (role === 'country' && countries.length === 0) return alert('اختر دولة واحدة على الأقل لمشرف الدول');
     setSaving(true);
     try {
       if (isEdit) {
-        await updateAdminUser({ targetUid: admin!.uid, name, role, countries, permissions: perms });
-        await logAdminAction('تعديل صلاحيات مشرف', name, admin!.email);
+        await updateAdminUser({
+          targetUid: admin!.uid,
+          name,
+          role,
+          countries,
+          permissions: perms,
+          ...(password.trim() ? { password: password.trim() } : {}),
+        });
+        await logAdminAction(
+          password.trim() ? 'تعديل مشرف وتغيير كلمة المرور' : 'تعديل صلاحيات مشرف',
+          name,
+          admin!.email,
+        );
       } else {
         await createAdminUser({ email: email.trim(), password, name: name || email.trim(), role, countries, permissions: perms });
         await logAdminAction('إنشاء مشرف', name || email, role === 'super' ? 'مدير نظام' : countries.join('،'));
@@ -306,15 +329,44 @@ function AdminFormModal({ admin, onClose, onSaved }: {
             <input className="admin-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم المشرف" />
           </Field>
           {!isEdit && (
-            <>
-              <Field label="البريد الإلكتروني">
-                <input className="admin-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@example.com" />
-              </Field>
-              <Field label="كلمة المرور">
-                <input className="admin-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="6 أحرف على الأقل" />
-              </Field>
-            </>
+            <Field label="البريد الإلكتروني">
+              <input className="admin-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@example.com" />
+            </Field>
           )}
+
+          <Field label={isEdit ? 'كلمة المرور الجديدة (اختياري)' : 'كلمة المرور'}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                className="admin-input"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={isEdit ? 'اتركها فارغة للإبقاء على الحالية' : '6 أحرف على الأقل'}
+                style={{ flex: 1, minWidth: 180 }}
+              />
+              <button
+                type="button"
+                className="action-icon"
+                onClick={() => setShowPassword((v) => !v)}
+                title={showPassword ? 'إخفاء' : 'إظهار'}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={generatePassword}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13 }}
+              >
+                <RefreshCw size={14} /> توليد
+              </button>
+            </div>
+            {isEdit && (
+              <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+                املأ الحقل فقط إذا أردت تغيير كلمة مرور هذا المشرف.
+              </p>
+            )}
+          </Field>
 
           <Field label="الدور">
             <div style={{ display: 'flex', gap: 8 }}>

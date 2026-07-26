@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, type ReactNode } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { getV2Token } from '@/lib/v2Api';
 import {
   loadCurrentAdminProfile, setAdminScope, type AdminProfile, type PermissionKey,
 } from '@/services/admin';
@@ -29,28 +28,21 @@ export function AdminProfileProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let done = false;
-    const finish = async () => {
-      await reload();
+    // ⚡ التوكن حاضر لحظةَ التحميل (localStorage متزامن) — لا انتظار لأي SDK،
+    //    فلم يبقَ الفرق الذي كان يعلّق الشاشة بين «دخول طازج» و«إعادة تحميل».
+    if (!getV2Token()) {
+      setLoading(false);
+      return;
+    }
+    void reload().finally(() => {
       if (!done) setLoading(false);
-    };
-    // ⚡ نعتمد دائماً على onAuthStateChanged كمصدر وحيد للحقيقة — لا نتحقق من
-    //    auth.currentUser بشكل متزامن أولاً. الفحص المتزامن كان يتصرّف بشكل
-    //    مختلف بين تسجيل الدخول الطازج (currentUser فارغ للحظة قبل أن يستقر
-    //    SDK) وإعادة تحميل الصفحة (currentUser جاهز مسبقاً)، ما كان يسبب
-    //    شاشة فارغة/عالقة على التحميل بعد كل تسجيل دخول جديد.
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (u) { finish(); } else if (!done) { setLoading(false); }
     });
-    // مهلة احتياطية لو لم تُستعد الجلسة إطلاقاً
-    const t = setTimeout(() => { if (!done) { setLoading(false); } }, 5000);
     return () => {
       done = true;
-      unsub();
-      clearTimeout(t);
       setAdminScope(null);
       setCountryScopeProfile(null);
     };
-  }, []);
+  }, [reload]);
 
   const isSuper = !profile || profile.role === 'super';
   const can = useCallback(

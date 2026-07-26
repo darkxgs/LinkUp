@@ -1,6 +1,12 @@
 /**
- * Admin Service — كل عمليات قراءة/كتابة البيانات
- * مربوط بنفس Firestore الخاص بالتطبيق
+ * Admin Service — كل عمليات قراءة/كتابة البيانات.
+ *
+ * ⚠️ مصدر البيانات: سيرفر LinkUp v2 (NestJS + Postgres) عبر `@/lib/v2Api`.
+ * This file used to talk to Firestore straight from the browser. It is being
+ * moved area by area onto `/admin/*` on our own server; the exported function
+ * names and their shapes are kept EXACTLY as the 49 pages expect, so the swap
+ * is invisible above this line. Any `firebase/firestore` call still present is
+ * an area not yet moved — no Firebase FUNCTION is called from here at all.
  */
 
 import {
@@ -28,11 +34,20 @@ import {
 import { ref, get as rtdbGet, query as rtdbQuery, orderByChild, limitToLast } from 'firebase/database';
 import { httpsCallable } from 'firebase/functions';
 import { firestore, realtimeDb, auth, functions } from '@/lib/firebase';
+import { v2, v2Qs, v2ErrorMessage } from '@/lib/v2Api';
+import {
+  readConfig,
+  readConfigSnapshot,
+  mergeConfig,
+  replaceConfig,
+  watchConfig,
+} from '@/lib/v2ConfigDb';
 import { formatPublicAccountId } from '@/utils/publicAccountId';
 import {
   setCountryScopeProfile,
   isInAdminCountryScope,
   isSuperCountryScope,
+  getScopedCountryCodes,
   getUserCountry,
   preloadUserCountries,
   countryFromUserDoc,
@@ -176,48 +191,96 @@ export interface AdminAgency {
 }
 
 // ==================== USERS ====================
+
+/** One row of `GET /admin/users` — the server's projection of a user. */
+interface ServerUserRow {
+  id: string;
+  publicAccountId: string;
+  displayName: string;
+  avatar: string;
+  email: string;
+  gender: string;
+  country: string;
+  role: string;
+  coins: number;
+  pearls: number;
+  casinoCoins: number;
+  level: number;
+  vipLevel: number;
+  followers: number;
+  isBanned: boolean;
+  isAgent: boolean;
+  isVerified: boolean;
+  firebaseUid?: string | null;
+  createdAt: string;
+}
+
+type ServerUserDetail = ServerUserRow & {
+  profile: Record<string, unknown>;
+  stats: Record<string, unknown>;
+};
+
+/**
+ * Server row → the panel's AdminUser. `profile` / `stats` only come back on a
+ * DETAIL read, so everything they carry is optional here; the list view simply
+ * shows less, exactly as v1's list did.
+ */
+function toAdminUser(
+  row: ServerUserRow,
+  extra?: { profile?: Record<string, unknown>; stats?: Record<string, unknown> },
+): AdminUser {
+  const profile = extra?.profile ?? {};
+  const stats = extra?.stats ?? {};
+  return {
+    uid: row.id,
+    publicAccountId: formatPublicAccountId(row.publicAccountId, row.id),
+    displayName: row.displayName || 'مستخدم',
+    avatar: row.avatar ?? '',
+    email: row.email,
+    phoneNumber: typeof profile.phoneNumber === 'string' ? profile.phoneNumber : undefined,
+    gender: row.gender || 'male',
+    country: row.country || '',
+    coins: row.coins ?? 0,
+    pearls: row.pearls ?? 0,
+    casinoCoins: row.casinoCoins ?? 0,
+    level: row.level ?? 1,
+    followers: row.followers ?? 0,
+    following: Number(stats.following) || 0,
+    // v1 carried a separate isVIP flag next to vipLevel and they could disagree.
+    // v2 has ONE source of truth: a level above zero IS a VIP.
+    isVIP: (row.vipLevel ?? 0) > 0,
+    isVerified: row.isVerified,
+    isBanned: row.isBanned,
+    withdrawalBlocked: profile.withdrawalBlocked === true,
+    banReason: typeof profile.banReason === 'string' ? profile.banReason : undefined,
+    vipLevel: row.vipLevel ?? 0,
+    bio: typeof profile.bio === 'string' ? profile.bio : undefined,
+    birthYear: Number(profile.birthYear) || undefined,
+    agencyId: typeof profile.agencyId === 'string' ? profile.agencyId : undefined,
+    createdAt: Date.parse(row.createdAt) || Date.now(),
+    lastSeen: Number(stats.lastSeen) || undefined,
+  };
+}
+
 export const getUsers = async (limitCount = 100): Promise<AdminUser[]> => {
   try {
-    const fetchLimit = scopedFetchLimit(limitCount);
-    const q = query(
-      collection(firestore, 'users'),
-      orderBy('createdAt', 'desc'),
-      limit(fetchLimit),
+    // For a country-scoped admin the filter is pushed to the SERVER (one code per
+    // request, which is what the query supports) instead of over-fetching a wide
+    // page and discarding most of it in the browser.
+    const codes = getScopedCountryCodes();
+    if (!isSuperCountryScope() && codes.length === 0) return [];
+
+    const pages = await Promise.all(
+      (isSuperCountryScope() ? [undefined] : codes).map((country) =>
+        v2.get<{ items: ServerUserRow[] }>(
+          `/admin/users${v2Qs({ limit: Math.min(limitCount, 100), country })}`,
+        ),
+      ),
     );
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => {
-      const data = d.data();
-      // العملات/الإحصائيات في stats.* المتداخل — مع fallback للحقول المباشرة (legacy)
-      const stats = data.stats ?? {};
-      return {
-        uid: d.id,
-        publicAccountId: formatPublicAccountId(data.publicAccountId, d.id),
-        displayName: data.profile?.displayName ?? data.displayName ?? 'مستخدم',
-        avatar: data.profile?.avatar ?? data.avatar ?? '',
-        email: data.email,
-        phoneNumber: data.phoneNumber,
-        gender: data.profile?.gender ?? data.gender ?? 'male',
-        country: data.profile?.country ?? data.country ?? 'PS',
-        coins: stats.coins ?? data.coins ?? 0,
-        pearls: stats.pearls ?? data.pearls ?? 0,
-        casinoCoins: stats.casinoCoins ?? data.casinoCoins ?? 0,
-        level: stats.level ?? data.level ?? 1,
-        followers: stats.followers ?? data.followers ?? 0,
-        following: stats.following ?? data.following ?? 0,
-        isVIP: data.isVIP,
-        isVerified: data.isVerified,
-        isBanned: data.isBanned,
-        withdrawalBlocked: data.withdrawalBlocked,
-        banReason: data.banReason,
-        vipLevel: data.vipLevel,
-        bio: data.profile?.bio ?? data.bio,
-        birthYear: data.profile?.birthYear ?? data.birthYear,
-        agencyId: data.agencyId,
-        createdAt: data.createdAt ?? Date.now(),
-        lastSeen: data.lastSeen,
-      };
-    })
-      .filter((u) => isInAdminCountryScope(u.country))
+    return pages
+      .flatMap((p) => p?.items ?? [])
+      .map((row) => toAdminUser(row))
+      .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limitCount);
   } catch (e) {
     console.error('getUsers:', e);
@@ -225,319 +288,292 @@ export const getUsers = async (limitCount = 100): Promise<AdminUser[]> => {
   }
 };
 
-/** حل معرّف الحساب (8 أرقام) أو Firebase UID */
+/** حل معرّف الحساب (8 أرقام) أو UID — one call: the server's search already
+ *  understands a uuid, an 8-digit public id, an email and a name. */
 export async function resolveUserAccountId(raw: string): Promise<string | null> {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  if (/^[a-zA-Z0-9]{20,}$/.test(trimmed)) {
-    const snap = await getDoc(doc(firestore, 'users', trimmed));
-    if (snap.exists()) return snap.id;
-  }
-  const digits = trimmed.replace(/\D/g, '');
-  if (digits) {
-    const publicId = digits.length >= 8 ? digits.slice(-8) : digits.padStart(8, '0');
-    const q = query(
-      collection(firestore, 'users'),
-      where('publicAccountId', '==', publicId),
-      limit(1),
+  try {
+    const res = await v2.get<{ items: ServerUserRow[] }>(
+      `/admin/users${v2Qs({ search: trimmed, limit: 1 })}`,
     );
-    const snap = await getDocs(q);
-    if (!snap.empty) return snap.docs[0].id;
+    return res?.items?.[0]?.id ?? null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export const getUserById = async (identifier: string): Promise<AdminUser | null> => {
+  const raw = identifier.trim();
+  if (!raw) return null;
   try {
-    let uid = identifier.trim();
-    const direct = await getDoc(doc(firestore, 'users', uid));
-    if (!direct.exists()) {
-      const resolved = await resolveUserAccountId(uid);
+    let detail: ServerUserDetail | null = null;
+    try {
+      detail = await v2.get<ServerUserDetail>(`/admin/users/${encodeURIComponent(raw)}`);
+    } catch {
+      // Not a uuid (or gone) — fall back to a search, which accepts the 8-digit
+      // account id, an email or a name.
+      const resolved = await resolveUserAccountId(raw);
       if (!resolved) return null;
-      uid = resolved;
+      detail = await v2.get<ServerUserDetail>(`/admin/users/${resolved}`);
     }
-    const snap = await getDoc(doc(firestore, 'users', uid));
-    if (!snap.exists()) return null;
-    const data = snap.data();
-    const country = countryFromUserDoc(data as Record<string, unknown>);
-    if (!isInAdminCountryScope(country)) return null;
-    const stats = (data as any).stats ?? {};
-    return {
-      uid: snap.id,
-      publicAccountId: formatPublicAccountId((data as any).publicAccountId, snap.id),
-      displayName: (data as any).profile?.displayName ?? (data as any).displayName ?? 'مستخدم',
-      avatar: (data as any).profile?.avatar ?? (data as any).avatar ?? '',
-      email: (data as any).email,
-      phoneNumber: (data as any).phoneNumber,
-      gender: (data as any).profile?.gender ?? (data as any).gender ?? 'male',
-      country,
-      coins: stats.coins ?? (data as any).coins ?? 0,
-      pearls: stats.pearls ?? (data as any).pearls ?? 0,
-      casinoCoins: stats.casinoCoins ?? (data as any).casinoCoins ?? 0,
-      level: stats.level ?? (data as any).level ?? 1,
-      followers: stats.followers ?? (data as any).followers ?? 0,
-      following: stats.following ?? (data as any).following ?? 0,
-      isVIP: (data as any).isVIP,
-      isVerified: (data as any).isVerified,
-      isBanned: (data as any).isBanned,
-      withdrawalBlocked: (data as any).withdrawalBlocked,
-      banReason: (data as any).banReason,
-      vipLevel: (data as any).vipLevel,
-      bio: (data as any).profile?.bio ?? (data as any).bio,
-      birthYear: (data as any).profile?.birthYear ?? (data as any).birthYear,
-      agencyId: (data as any).agencyId,
-      createdAt: (data as any).createdAt ?? Date.now(),
-      lastSeen: (data as any).lastSeen,
-    };
+    if (!detail?.id) return null;
+    const user = toAdminUser(detail, { profile: detail.profile, stats: detail.stats });
+    // A country-scoped admin must not open an account outside their countries.
+    if (!isInAdminCountryScope(user.country)) return null;
+    return user;
   } catch {
     return null;
   }
 };
 
+/**
+ * «مستخدم جديد» — creation goes through the SAME registration path the app uses
+ * (validation, bcrypt, public-id allocation). Balances are NOT part of creation:
+ * they move through the ledgered balance endpoint right after, so an opening
+ * balance is a real, audited transaction like every other.
+ */
 export const adminCreateAppUser = async (
   input: AdminCreateAppUserInput,
 ): Promise<{ uid: string; publicAccountId: string; displayName: string }> => {
-  const fn = httpsCallable<
-    AdminCreateAppUserInput,
-    { ok: boolean; uid: string; publicAccountId: string; displayName: string }
-  >(functions, 'adminCreateAppUser');
-  const res = await fn(input);
+  const created = await v2.post<ServerUserRow>('/admin/users', {
+    email: input.email,
+    password: input.password,
+    displayName: input.displayName,
+    gender: input.gender ?? 'male',
+    ...(input.country ? { country: input.country } : {}),
+  });
+  const uid = created?.id;
+  if (!uid) throw new Error('لم يُنشأ الحساب');
+
+  // The optional extras the create form offers, applied as separate steps.
+  const patch: AdminUpdateAppUserPatch = {};
+  if (input.bio) patch.bio = input.bio;
+  if (input.phoneNumber) patch.phoneNumber = input.phoneNumber;
+  if (input.isVIP) patch.vipLevel = 1;
+  if (Object.keys(patch).length) await adminUpdateAppUser(uid, patch);
+  if (input.isVerified) await v2.post(`/admin/users/${uid}/verify`, { verified: true });
+  if (input.isBanned) await v2.post(`/admin/users/${uid}/ban`, { banned: true, reason: 'إنشاء محظور' });
+
+  for (const [field, amount] of [
+    ['coins', input.coins],
+    ['pearls', input.pearls],
+    ['casinoCoins', input.casinoCoins],
+  ] as const) {
+    if (amount && amount > 0) {
+      await addUserBalance(uid, field, amount, { note: 'رصيد افتتاحي عند الإنشاء' });
+    }
+  }
+
   return {
-    uid: res.data.uid,
-    publicAccountId: res.data.publicAccountId,
-    displayName: res.data.displayName,
+    uid,
+    publicAccountId: formatPublicAccountId(created.publicAccountId, uid),
+    displayName: created.displayName || input.displayName,
   };
 };
 
+/**
+ * The user-detail edit form's save. Fields are routed to the endpoint that owns
+ * them — and MONEY IS NOT ONE OF THEM: a balance in the patch is applied through
+ * the ledgered absolute-set endpoint, never written as a field, so no edit can
+ * mint or burn coins without a transaction and an audit row behind it.
+ */
 export const adminUpdateAppUser = async (
   uid: string,
   patch: AdminUpdateAppUserPatch,
 ): Promise<void> => {
-  const fn = httpsCallable<{ uid: string; patch: AdminUpdateAppUserPatch }, { ok: boolean }>(
-    functions,
-    'adminUpdateAppUser',
-  );
-  await fn({ uid, patch });
+  const profileFields: Record<string, unknown> = {};
+  if (patch.displayName !== undefined) profileFields.displayName = patch.displayName;
+  if (patch.bio !== undefined) profileFields.bio = patch.bio;
+  if (patch.gender !== undefined) profileFields.gender = patch.gender;
+  if (patch.country !== undefined) profileFields.country = patch.country;
+  if (patch.birthYear !== undefined) profileFields.birthYear = patch.birthYear;
+  if (patch.level !== undefined) profileFields.level = patch.level;
+  if (patch.vipLevel !== undefined) profileFields.vipLevel = patch.vipLevel;
+  else if (patch.isVIP !== undefined) profileFields.vipLevel = patch.isVIP ? 1 : 0;
+  if (Object.keys(profileFields).length) {
+    await v2.post(`/admin/users/${uid}/profile`, profileFields);
+  }
+
+  if (patch.isVerified !== undefined) {
+    await v2.post(`/admin/users/${uid}/verify`, { verified: patch.isVerified });
+  }
+  if (patch.isBanned !== undefined) {
+    await v2.post(`/admin/users/${uid}/ban`, {
+      banned: patch.isBanned,
+      ...(patch.banReason ? { reason: patch.banReason } : {}),
+    });
+  }
+  if (patch.withdrawalBlocked !== undefined) {
+    await v2.post(`/admin/users/${uid}/withdrawal-block`, { blocked: patch.withdrawalBlocked });
+  }
+
+  for (const [currency, value] of [
+    ['coins', patch.coins],
+    ['pearls', patch.pearls],
+    ['casinoCoins', patch.casinoCoins],
+  ] as const) {
+    if (value !== undefined) {
+      await v2.post(`/admin/users/${uid}/balance/set`, {
+        currency,
+        amount: Math.max(0, Math.floor(value)),
+        reason: 'تعديل من صفحة المستخدم',
+        requestId: `edit_${currency}_${uid}_${Date.now()}`,
+      });
+    }
+  }
+
+  await logAdminAction('تعديل مستخدم', uid, Object.keys(patch).join('، '));
 };
 
 export const adminSetAppUserPassword = async (uid: string, password: string): Promise<void> => {
-  const fn = httpsCallable<{ uid: string; password: string }, { ok: boolean }>(
-    functions,
-    'adminSetAppUserPassword',
-  );
-  await fn({ uid, password });
+  await v2.post(`/admin/users/${uid}/password`, { password });
+  await logAdminAction('تغيير كلمة مرور مستخدم', uid);
 };
 
+/**
+ * ⚠️ حذف الحسابات غير مُنفَّذ على v2 — بعد.
+ *
+ * v1 deleted the Firestore documents and the Auth user. On Postgres an account is
+ * referenced by its ledger, withdrawals, agency membership, posts and reports;
+ * deleting the row means deciding what happens to each of those, and getting it
+ * wrong loses financial history that must be kept. That decision belongs to the
+ * owner, not to a migration shim — so this refuses loudly instead of pretending,
+ * or worse, half-deleting.
+ *
+ * Use «حظر» (which stops all access immediately) until the policy is set.
+ */
 export const adminDeleteAppUsers = async (opts: {
   mode: AdminBulkDeleteMode;
   uids?: string[];
   confirmPhrase?: string;
 }): Promise<AdminBulkDeleteResult> => {
-  const fn = httpsCallable<
-    { mode: AdminBulkDeleteMode; uids?: string[]; confirmPhrase?: string },
-    AdminBulkDeleteResult
-  >(functions, 'adminDeleteAppUsers');
-  const res = await fn(opts);
-  return res.data;
+  void opts;
+  throw new Error(
+    'حذف الحسابات غير متاح على قاعدة البيانات الجديدة — استخدم الحظر. ' +
+      'الحذف النهائي يحتاج قراراً من المالك (سجل المعاملات والسحوبات مرتبط بالحساب).',
+  );
 };
 
-interface BackfillPage {
-  done: boolean;
-  processed: number;
-  stored: number;
-  indexed: number;
-  nextCursor: string | null;
-}
-
 /**
- * مزامنة معرّفات الحساب لكل المستخدمين (يشمل القدامى) — يمر على كل الصفحات
- * يجعل كل الحسابات قابلة للبحث في دعوة الوكالة.
+ * لم تعد هناك حاجة لهذه المزامنة: v2 يمنح كل حساب معرّفاً عاماً من 8 أرقام لحظة
+ * إنشائه (uniquePublicAccountId في identity.service)، والحسابات المنقولة من v1
+ * جاءت بمعرّفاتها. تُبلّغ الصفحة بلا عمل بدل أن تدور على لا شيء.
  */
 export const backfillPublicAccountIds = async (
   onProgress?: (p: { processed: number; stored: number; indexed: number }) => void,
 ): Promise<{ processed: number; stored: number; indexed: number }> => {
-  const fn = httpsCallable<
-    { startAfter?: string; pageSize?: number },
-    BackfillPage
-  >(functions, 'backfillPublicAccountIds');
-
-  let cursor: string | null | undefined;
-  let processed = 0;
-  let stored = 0;
-  let indexed = 0;
-
-  for (let i = 0; i < 200; i++) {
-    const res = await fn({ startAfter: cursor ?? undefined, pageSize: 500 });
-    const d = res.data;
-    processed += d.processed;
-    stored += d.stored;
-    indexed += d.indexed;
-    onProgress?.({ processed, stored, indexed });
-    if (d.done || !d.nextCursor) break;
-    cursor = d.nextCursor;
-  }
-
-  return { processed, stored, indexed };
+  const done = { processed: 0, stored: 0, indexed: 0 };
+  onProgress?.(done);
+  return done;
 };
 
 export const banUser = async (uid: string, banned: boolean): Promise<void> => {
-  assertCountryAccess(await getUserCountry(uid));
-  await updateDoc(doc(firestore, 'users', uid), { isBanned: banned });
+  await assertUidInAdminCountryScope(uid);
+  await v2.post(`/admin/users/${uid}/ban`, { banned });
+  await logAdminAction(banned ? 'حظر مستخدم' : 'رفع الحظر', uid);
 };
 
 /**
- * تعليق مؤقت للحساب — يمنع الدخول حتى انتهاء المدة أو رفع التعليق يدوياً.
- * يفعّل isBanned/banReason أيضاً لأن تطبيق الموبايل يراقب هذين الحقلين مباشرة (onSnapshot حي)
- * ويحجب المستخدم فوراً بدون أي تعديل على التطبيق — isSuspended/suspendedUntil للتتبّع الداخلي فقط
- * (لتمييز التعليق المؤقت عن الحظر الدائم في لوحة التحكم وتفعيل الرفع التلقائي بعد انتهاء المدة).
+ * تعليق مؤقت للحساب — the server bans it now and stores the end date. The lift is
+ * automatic: the next sign-in attempt after the date passes releases the account,
+ * so no cron has to run and nothing can un-ban a permanent ban by mistake (a
+ * permanent ban carries no date at all).
  */
 export const suspendUser = async (
   uid: string,
   durationDays: number,
   reason?: string,
 ): Promise<void> => {
-  assertCountryAccess(await getUserCountry(uid));
-  const suspendedUntil = Date.now() + Math.max(1, durationDays) * 24 * 60 * 60 * 1000;
-  const trimmedReason = reason?.trim();
-  await updateDoc(doc(firestore, 'users', uid), {
-    isSuspended: true,
-    suspendedUntil,
-    suspendReason: trimmedReason || null,
-    isBanned: true,
-    banReason: `الحساب معلّق حتى ${formatDate(suspendedUntil)}${trimmedReason ? ` — ${trimmedReason}` : ''}`,
+  await assertUidInAdminCountryScope(uid);
+  const days = Math.max(1, Math.floor(durationDays));
+  await v2.post(`/admin/users/${uid}/ban`, {
+    banned: true,
+    days,
+    reason: reason?.trim() || `تعليق ${days} يوماً`,
   });
+  await logAdminAction('تعليق حساب', uid, `${days} يوماً${reason ? ` — ${reason}` : ''}`);
 };
 
 export const unsuspendUser = async (uid: string): Promise<void> => {
-  assertCountryAccess(await getUserCountry(uid));
-  await updateDoc(doc(firestore, 'users', uid), {
-    isSuspended: false,
-    suspendedUntil: deleteField(),
-    suspendReason: deleteField(),
-    isBanned: false,
-    banReason: deleteField(),
-  });
+  await assertUidInAdminCountryScope(uid);
+  await v2.post(`/admin/users/${uid}/ban`, { banned: false });
+  await logAdminAction('رفع التعليق', uid);
 };
 
+/**
+ * v1 kept an `isVIP` flag beside `vipLevel`, and the two could disagree. v2 has
+ * one source of truth, so the toggle sets the level: on → 1 if the account has no
+ * level yet (an existing higher level is left alone), off → 0.
+ */
 export const toggleVIP = async (uid: string, isVIP: boolean): Promise<void> => {
   await assertUidInAdminCountryScope(uid);
-  await updateDoc(doc(firestore, 'users', uid), { isVIP });
+  let level = isVIP ? 1 : 0;
+  if (isVIP) {
+    const current = await getUserById(uid);
+    if ((current?.vipLevel ?? 0) > 0) return; // already VIP — nothing to change
+    level = 1;
+  }
+  await v2.post(`/admin/users/${uid}/profile`, { vipLevel: level });
+  await logAdminAction(isVIP ? 'تفعيل VIP' : 'إيقاف VIP', uid);
 };
 
 export const toggleVerified = async (uid: string, isVerified: boolean): Promise<void> => {
   await assertUidInAdminCountryScope(uid);
   if (isVerified) {
-    await updateDoc(doc(firestore, 'users', uid), {
-      isVerified: true,
-      verificationStatus: 'approved',
-      verifiedAt: Date.now(),
-      updatedAt: Date.now(),
-    });
+    await v2.post(`/admin/users/${uid}/verify`, { verified: true });
+    await logAdminAction('توثيق مستخدم', uid);
     return;
   }
   await revokeUserVerification(uid);
 };
 
-/** إلغاء توثيق المستخدم — يزامن users + kycRequests + وكالة المضيفة إن وُجدت */
+/**
+ * إلغاء توثيق المستخدم — one call, because the CASCADE now lives on the server:
+ * the KYC row goes back to rejected, a verified female host loses the host flag
+ * and drops to an ordinary agency member, and the user is notified with the
+ * reason. v1 did those four writes from the browser and any one of them could
+ * fail halfway, leaving an unverified account holding host privileges.
+ */
 export const revokeUserVerification = async (
   uid: string,
   reason = 'تم إلغاء التوثيق من الإدارة',
 ): Promise<void> => {
   await assertUidInAdminCountryScope(uid);
-  const now = Date.now();
-  const adminUid = auth.currentUser?.uid ?? 'admin';
-
-  await updateDoc(doc(firestore, 'users', uid), {
-    isVerified: false,
-    verificationStatus: 'rejected',
-    verifiedAt: deleteField(),
-    updatedAt: now,
-  });
-
-  const kycRef = doc(firestore, 'kycRequests', uid);
-  const kycSnap = await getDoc(kycRef);
-  if (kycSnap.exists()) {
-    await updateDoc(kycRef, {
-      status: 'rejected',
-      rejectionReason: reason,
-      revokedAt: now,
-      revokedBy: adminUid,
-      updatedAt: now,
-    });
-  }
-
-  // إن كانت مضيفة موثّقة في وكالة — إرجاعها لعضو عادي
-  const memberQ = await getDocs(
-    query(
-      collection(firestore, 'agencyMembers'),
-      where('uid', '==', uid),
-      limit(1),
-    ),
-  );
-  if (!memberQ.empty) {
-    const memberDoc = memberQ.docs[0];
-    const memberData = memberDoc.data() as Record<string, unknown>;
-    if (memberData.hostVerified === true && memberData.isFemaleHost === true) {
-      const agencyId = String(memberData.agencyId ?? '').trim();
-      await updateDoc(memberDoc.ref, {
-        hostVerified: false,
-        role: 'member',
-        verifiedAt: deleteField(),
-        verifiedBy: deleteField(),
-        updatedAt: now,
-      });
-      await updateDoc(doc(firestore, 'users', uid), {
-        agencyRole: 'member',
-        accountKind: 'member',
-        updatedAt: now,
-      });
-      if (agencyId) {
-        const agencyRef = doc(firestore, 'agencies', agencyId);
-        const agencySnap = await getDoc(agencyRef);
-        if (agencySnap.exists()) {
-          const current = Number((agencySnap.data() as Record<string, unknown>).femaleHostCount) || 0;
-          await updateDoc(agencyRef, {
-            femaleHostCount: Math.max(0, current - 1),
-            updatedAt: now,
-          });
-        }
-      }
-    }
-  }
-
-  await addDoc(collection(firestore, 'notifications'), {
-    uid,
-    type: 'system',
-    message: `تم إلغاء توثيق حسابك: ${reason}`,
-    data: {
-      title: 'إلغاء التوثيق',
-      body: `تم إلغاء توثيق حسابك من الإدارة. السبب: ${reason}`,
-      type: 'kyc_revoked',
-      route: '/wallet/kyc',
-    },
-    isRead: false,
-    createdAt: now,
-  });
+  await v2.post(`/admin/users/${uid}/verify`, { verified: false, reason });
+  await logAdminAction('إلغاء توثيق', uid, reason);
 };
 
 /** إلغاء التوثيق من صفحة طلبات KYC */
 export const revokeKycVerification = revokeUserVerification;
 
+/**
+ * تعديل الرصيد (قيمة مطلقة) — «make it exactly this».
+ *
+ * v1 wrote the field. Here it goes through `/balance/set`, which locks the row,
+ * computes the difference and moves it through the ledger — so the result is
+ * exact even if a gift lands at the same moment, and the change leaves a
+ * transaction + an audit row behind it like every other money move.
+ */
 export const adjustBalance = async (
   uid: string,
   field: BalanceField,
   newAmount: number,
 ): Promise<void> => {
-  assertCountryAccess(await getUserCountry(uid));
+  await assertUidInAdminCountryScope(uid);
   const safe = Math.max(0, Math.floor(Number(newAmount) || 0));
-  await updateDoc(doc(firestore, 'users', uid), {
-    [`stats.${field}`]: safe,
-    [field]: safe,
+  await v2.post(`/admin/users/${uid}/balance/set`, {
+    currency: field,
+    amount: safe,
+    reason: 'تعديل الرصيد من لوحة التحكم',
+    requestId: `adjust_${field}_${uid}_${Date.now()}`,
   });
 };
 
 /**
- * إضافة رصيد (شحن حقيقي) — يُحدَّث Firestore فوراً ويظهر في التطبيق
+ * إضافة رصيد (شحن) — a delta, exactly-once on `requestId` so a double-clicked
+ * button cannot pay twice. The ledger row, the audit row and the user's
+ * notification are all written by the server inside the same transaction.
  */
 export const addUserBalance = async (
   uid: string,
@@ -545,58 +581,20 @@ export const addUserBalance = async (
   delta: number,
   meta?: { note?: string },
 ): Promise<{ newBalance: number }> => {
-  assertCountryAccess(await getUserCountry(uid));
+  await assertUidInAdminCountryScope(uid);
   const amount = Math.floor(Number(delta) || 0);
   if (amount <= 0) throw new Error('أدخل مبلغاً أكبر من صفر');
 
-  const userRef = doc(firestore, 'users', uid);
-  const before = await getDoc(userRef);
-  if (!before.exists()) throw new Error('المستخدم غير موجود');
-
-  await updateDoc(userRef, {
-    [`stats.${field}`]: increment(amount),
-    [field]: increment(amount),
-  });
-
-  if (field === 'coins') {
-    await addDoc(collection(firestore, 'transactions'), {
-      uid,
-      type: 'admin_grant',
+  const res = await v2.post<{ balances: Record<BalanceField, number> }>(
+    `/admin/users/${uid}/balance`,
+    {
+      currency: field,
       amount,
-      currency: 'coins',
-      itemName: meta?.note ?? 'شحن من لوحة التحكم',
-      status: 'completed',
-      createdAt: Date.now(),
-    });
-
-    await addDoc(collection(firestore, 'notifications'), {
-      uid,
-      type: 'system',
-      message: `تم شحن ${amount.toLocaleString()} عملة إلى حسابك`,
-      data: {
-        title: 'LinkUp',
-        body: `+${amount.toLocaleString()} عملة — ${meta?.note ?? 'شحن من الإدارة'}`,
-        type: 'admin_recharge',
-      },
-      isRead: false,
-      createdAt: Date.now(),
-    });
-
-    try {
-      await addVipPointsAdmin(uid, amount);
-    } catch { /* ignore */ }
-
-    try {
-      const bonusFn = httpsCallable<{ targetUid: string }, { bonus?: number }>(
-        functions,
-        'tryFirstRechargeBonus',
-      );
-      await bonusFn({ targetUid: uid });
-    } catch { /* ignore */ }
-  }
-
-  const after = await getDoc(userRef);
-  return { newBalance: pickBalance(after.data() as Record<string, unknown>, field) };
+      reason: meta?.note ?? 'شحن من لوحة التحكم',
+      requestId: `grant_${field}_${uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    },
+  );
+  return { newBalance: res?.balances?.[field] ?? 0 };
 };
 
 export interface GrantCoinsResult {
@@ -609,70 +607,94 @@ export interface GrantCoinsResult {
   newBalance: number;
 }
 
-/** شحن عملات عبر معرّف الحساب (8 أرقام) أو UID — Cloud Function */
+/** شحن عملات عبر معرّف الحساب (8 أرقام) أو UID — resolve, then charge through the
+ *  ledgered endpoint. The «before» balance is read first so the receipt the page
+ *  shows is real and not recomputed by subtraction. */
 export const grantCoinsByAccountId = async (
   accountIdRaw: string,
   coins: number,
   note?: string,
 ): Promise<GrantCoinsResult> => {
-  const fn = httpsCallable<
-    { accountId: string; coins: number; note?: string },
-    GrantCoinsResult
-  >(functions, 'adminGrantCoins');
-  const { data } = await fn({
-    accountId: accountIdRaw.trim(),
-    coins: Math.floor(Number(coins) || 0),
-    note: note?.trim() || undefined,
+  const amount = Math.floor(Number(coins) || 0);
+  if (amount <= 0) throw new Error('أدخل عدد عملات أكبر من صفر');
+
+  const uid = await resolveUserAccountId(accountIdRaw);
+  if (!uid) throw new Error('لم نجد حساباً بهذا المعرّف');
+  const before = await getUserById(uid);
+  if (!before) throw new Error('لم نجد حساباً بهذا المعرّف');
+
+  const { newBalance } = await addUserBalance(uid, 'coins', amount, {
+    note: note?.trim() || 'شحن من لوحة التحكم',
   });
-  return data;
+  await logAdminAction('شحن عملات', before.publicAccountId, `${amount}`);
+
+  return {
+    uid,
+    displayName: before.displayName,
+    publicAccountId: before.publicAccountId,
+    previousBalance: before.coins,
+    added: amount,
+    newBalance,
+  };
 };
 
 // ==================== TRANSACTIONS ====================
+
+/** One ledger row as the server returns it. v2 has ONE ledger: casino, gifts,
+ *  recharges, admin moves and withdrawals are rows in it, told apart by `type`. */
+interface ServerTxRow {
+  id: string;
+  type: string;
+  amount: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+}
+
+const CASINO_TX_TYPES = ['casino_bet', 'casino_win', 'casino_refund', 'game_bet', 'game_win'];
+
+function toAdminTransaction(uid: string, row: ServerTxRow): AdminTransaction {
+  return {
+    id: row.id,
+    uid,
+    type: row.type,
+    amount: row.amount,
+    currency: row.currency,
+    status: row.status,
+    createdAt: Date.parse(row.createdAt) || 0,
+  };
+}
+
+/**
+ * ⚠️ معاملات الألعاب على مستوى النظام غير متاحة كقائمة واحدة — بعد.
+ *
+ * v1 kept a separate `gameTransactions` collection. v2 writes game bets and wins
+ * into the ONE ledger (`transactions`), which is read per user
+ * (`/admin/users/:id/transactions`) — there is no all-users ledger endpoint yet,
+ * and inventing one that scans the whole table is not something to slip in
+ * sideways. The per-user view below is real and complete.
+ */
 export const getGameTransactions = async (limitCount = 100): Promise<AdminTransaction[]> => {
-  try {
-    const q = query(
-      collection(firestore, 'gameTransactions'),
-      orderBy('createdAt', 'desc'),
-      limit(scopedFetchLimit(limitCount)),
-    );
-    const snap = await getDocs(q);
-    const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-    if (isSuperCountryScope()) return rows.slice(0, limitCount);
-    await preloadUserCountries(rows.map((t) => String(t.uid ?? '')));
-    return rows
-      .filter((t) => isInAdminCountryScope(getCachedUserCountry(String(t.uid ?? ''))))
-      .slice(0, limitCount);
-  } catch (e) {
-    console.error('getGameTransactions:', e);
-    return [];
-  }
+  void limitCount;
+  return [];
 };
 
+
+/**
+ * ⚠️ اعتماد/تعديل حالة معاملة يدوياً غير متاح على v2.
+ *
+ * A ledger row is a record of something that already happened; flipping its
+ * status by hand cannot move the coins with it, so v1's "approve this pending
+ * recharge" would show a completed row with no money behind it. Approve the
+ * recharge where it lives (the wallet/bot page), or grant the coins through the
+ * ledgered balance endpoint — both leave a matching, real row.
+ */
 export const updateTransactionStatus = async (id: string, status: string): Promise<void> => {
-  const txRef = doc(firestore, 'transactions', id);
-  const snap = await getDoc(txRef);
-  if (!snap.exists()) throw new Error('المعاملة غير موجودة');
-
-  const tx = snap.data() as Record<string, unknown>;
-  const prevStatus = String(tx.status ?? '');
-  const uid = String(tx.uid ?? '');
-  if (!uid) throw new Error('معاملة بدون مستخدم');
-  await assertUidInAdminCountryScope(uid);
-
-  if (status === 'completed' && prevStatus === 'pending') {
-    const type = String(tx.type ?? '');
-    const coinAmount = Math.abs(Math.floor(Number(tx.amount) || 0));
-    if (type === 'recharge' && coinAmount > 0) {
-      await addUserBalance(uid, 'coins', coinAmount, {
-        note: `اعتماد شحن — معاملة ${id.slice(0, 8)}`,
-      });
-    }
-  }
-
-  await updateDoc(txRef, {
-    status,
-    updatedAt: Date.now(),
-  });
+  void id;
+  void status;
+  throw new Error(
+    'تعديل حالة معاملة يدوياً غير متاح — استخدم «شحن رصيد» ليُسجَّل المبلغ بمعاملة حقيقية.',
+  );
 };
 
 // ==================== WITHDRAWALS ====================
@@ -697,62 +719,99 @@ export interface AdminWithdrawal {
   updatedAt: number;
 }
 
+/** One withdrawal as the server lists it. USD is in whole dollars here (the
+ *  server already divided the stored cents). */
+interface ServerWithdrawalRow {
+  id: string;
+  uid: string;
+  requesterName: string;
+  publicAccountId: string;
+  kind: string;
+  diamonds: number;
+  grossUsd: number;
+  feeUsd: number;
+  netUsd: number;
+  status: string;
+  agencyId: string | null;
+  createdAt: string;
+  processedAt: string | null;
+}
+
+function toAdminWithdrawal(row: ServerWithdrawalRow): AdminWithdrawal {
+  return {
+    id: row.id,
+    uid: row.uid,
+    uidName: row.requesterName || 'مستخدم',
+    uidAvatar: '',
+    // v2 calls them host_self / on_behalf; the panel's words are self / via_agent.
+    type: row.kind === 'on_behalf' ? 'via_agent' : 'self',
+    amount: row.diamonds,
+    commission: Math.round(row.feeUsd * 100) / 100,
+    netAmount: row.diamonds,
+    fiatValue: row.netUsd,
+    method: '—',
+    accountInfo: null,
+    status: row.status,
+    agencyId: row.agencyId ?? undefined,
+    createdAt: Date.parse(row.createdAt) || 0,
+    updatedAt: Date.parse(row.processedAt ?? row.createdAt) || 0,
+  };
+}
+
 export const getWithdrawals = async (limitCount = 200): Promise<AdminWithdrawal[]> => {
   try {
-    const q = query(
-      collection(firestore, 'withdrawals'),
-      orderBy('createdAt', 'desc'),
-      limit(scopedFetchLimit(limitCount, 3)),
+    const res = await v2.get<{ items: ServerWithdrawalRow[] }>(
+      `/admin/withdrawals${v2Qs({ limit: Math.min(limitCount, 100) })}`,
     );
-    const snap = await getDocs(q);
-    const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) })) as AdminWithdrawal[];
-    if (isSuperCountryScope()) return rows.slice(0, limitCount);
+    const rows = (res?.items ?? []).map(toAdminWithdrawal);
+    if (isSuperCountryScope()) return rows;
     await preloadUserCountries(rows.map((w) => w.uid));
-    return rows
-      .filter((w) => isInAdminCountryScope(getCachedUserCountry(w.uid)))
-      .slice(0, limitCount);
+    return rows.filter((w) => isInAdminCountryScope(getCachedUserCountry(w.uid)));
   } catch (e) {
     console.error('getWithdrawals:', e);
     return [];
   }
 };
 
-/** اعتماد طلب سحب — فقط ضمن نطاق دولة المشرف */
-export const approveWithdrawal = async (withdrawalId: string): Promise<void> => {
-  const wRef = doc(firestore, 'withdrawals', withdrawalId);
-  const snap = await getDoc(wRef);
-  if (!snap.exists()) throw new Error('طلب السحب غير موجود');
-  const w = snap.data() as AdminWithdrawal;
-  await assertUidInAdminCountryScope(String(w.uid ?? ''));
-  await updateDoc(wRef, {
-    status: 'completed',
-    processedAt: Date.now(),
-    updatedAt: Date.now(),
-  });
+/** تفاصيل طلب سحب — the payout destination comes ONLY from this single-record
+ *  read, never from the list, so browsing the queue shows no bank details. */
+export const getWithdrawalDetail = async (
+  withdrawalId: string,
+): Promise<(AdminWithdrawal & { destination: Record<string, unknown>; consumedCoins: number }) | null> => {
+  try {
+    const row = await v2.get<
+      ServerWithdrawalRow & { destination: Record<string, unknown>; consumedCoins: number }
+    >(`/admin/withdrawals/${withdrawalId}`);
+    if (!row?.id) return null;
+    return {
+      ...toAdminWithdrawal(row),
+      accountInfo: row.destination,
+      destination: row.destination ?? {},
+      consumedCoins: row.consumedCoins ?? 0,
+    };
+  } catch {
+    return null;
+  }
 };
 
-/** رفض طلب سحب وإرجاع الماسة — فقط ضمن نطاق دولة المشرف */
-export const rejectWithdrawal = async (
-  withdrawalId: string,
-  reason: string,
-): Promise<void> => {
-  const wRef = doc(firestore, 'withdrawals', withdrawalId);
-  const snap = await getDoc(wRef);
-  if (!snap.exists()) throw new Error('طلب السحب غير موجود');
-  const w = snap.data() as AdminWithdrawal;
-  const uid = String(w.uid ?? '');
-  const amount = Math.floor(Number(w.amount) || 0);
-  await assertUidInAdminCountryScope(uid);
-  await runTransaction(firestore, async (tx) => {
-    const memberRef = doc(firestore, 'users', uid);
-    tx.update(memberRef, { 'stats.pearls': increment(amount) });
-    tx.update(wRef, {
-      status: 'rejected',
-      rejectionReason: reason,
-      processedAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-  });
+/** اعتماد طلب سحب — the server marks it paid and notifies the host. */
+export const approveWithdrawal = async (withdrawalId: string): Promise<void> => {
+  await v2.post(`/admin/withdrawals/${withdrawalId}/decide`, { approve: true });
+  await logAdminAction('اعتماد سحب', withdrawalId);
+};
+
+/**
+ * رفض طلب سحب — the REFUND is the server's job, in the same transaction as the
+ * status change: the held work-coins go back to the host's wallet and the gift
+ * coins that were credited on request are taken back. v1 did the refund from the
+ * browser and added the amount to `stats.pearls`, which is not even where the
+ * request had held it from.
+ */
+export const rejectWithdrawal = async (withdrawalId: string, reason: string): Promise<void> => {
+  const note = reason.trim();
+  if (!note) throw new Error('اكتب سبب الرفض — يظهر للمستخدم');
+  await v2.post(`/admin/withdrawals/${withdrawalId}/decide`, { approve: false, note });
+  await logAdminAction('رفض سحب', withdrawalId, note);
 };
 
 // ==================== KYC REQUESTS ====================
@@ -786,150 +845,111 @@ export interface AdminKycRequest {
   updatedAt: number;
 }
 
+/**
+ * قائمة/تفاصيل طلبات التحقق.
+ *
+ * ⚠️ حدّ خصوصية مقصود: القائمة لا تُرجع الاسم القانوني ولا الصور — تُرجعها قراءة
+ * الطلب الواحد فقط. تصفّح الطابور لا يجب أن يفرش وجوه الناس وأسماءهم الرسمية على
+ * الشاشة؛ فتح طلب بعينه قرار واعٍ. (v1 كان يجلب كل شيء في القائمة.)
+ */
+interface ServerKycRow {
+  id: string;
+  uid: string;
+  displayName: string;
+  publicAccountId: string;
+  method: string;
+  status: string;
+  registeredGender: string;
+  detectedGender: string;
+  genderMatch: boolean;
+  createdAt: string;
+}
+
+type ServerKycDetail = ServerKycRow & {
+  fullName: string;
+  selfieUrl: string | null;
+  frameUrls: string[];
+  aiReview: Record<string, unknown>;
+  approvedAt: string | null;
+};
+
+function toAdminKyc(row: ServerKycRow, detail?: Partial<ServerKycDetail>): AdminKycRequest {
+  const ai = detail?.aiReview ?? {};
+  const frames = detail?.frameUrls ?? [];
+  return {
+    id: row.id,
+    uid: row.uid,
+    displayName: row.displayName || 'مستخدم',
+    avatar: '',
+    gender: row.registeredGender || '',
+    fullName: detail?.fullName ?? '',
+    birthDate: '',
+    nationality: '',
+    phoneNumber: '',
+    // v2 keeps one selfie + the liveness frames; there is no ID front/back in the
+    // flow the app actually ships.
+    idFront: '',
+    idBack: '',
+    selfie: detail?.selfieUrl ?? '',
+    verificationFrameUrl: frames[0],
+    verificationFrameUrls: frames,
+    aiGender: row.detectedGender || undefined,
+    aiConfidence: typeof ai.confidence === 'number' ? ai.confidence : undefined,
+    aiProvider: typeof ai.provider === 'string' ? ai.provider : undefined,
+    status: (['pending', 'approved', 'rejected', 'processing'] as const).includes(
+      row.status as never,
+    )
+      ? (row.status as AdminKycRequest['status'])
+      : 'pending',
+    rejectionReason: typeof ai.decisionReason === 'string' ? ai.decisionReason : undefined,
+    approvedAt: detail?.approvedAt ? Date.parse(detail.approvedAt) || undefined : undefined,
+    method: row.method === 'ai' || row.method === 'face' ? row.method : 'manual',
+    createdAt: Date.parse(row.createdAt) || 0,
+    updatedAt: Date.parse(row.createdAt) || 0,
+  };
+}
+
 export const getKycRequests = async (limitCount = 200): Promise<AdminKycRequest[]> => {
   try {
-    const q = query(
-      collection(firestore, 'kycRequests'),
-      orderBy('createdAt', 'desc'),
-      limit(scopedFetchLimit(limitCount, 5)),
+    const res = await v2.get<{ items: ServerKycRow[] }>(
+      `/admin/kyc${v2Qs({ limit: Math.min(limitCount, 100) })}`,
     );
-    const snap = await getDocs(q);
-    const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) })) as AdminKycRequest[];
-    if (isSuperCountryScope()) return rows.slice(0, limitCount);
+    const rows = (res?.items ?? []).map((row) => toAdminKyc(row));
+    if (isSuperCountryScope()) return rows;
     await preloadUserCountries(rows.map((r) => r.uid));
-    return rows
-      .filter((r) => isInAdminCountryScope(getCachedUserCountry(r.uid)))
-      .slice(0, limitCount);
+    return rows.filter((r) => isInAdminCountryScope(getCachedUserCountry(r.uid)));
   } catch (e) {
     console.error('getKycRequests:', e);
     return [];
   }
 };
 
-export const approveKycRequest = async (uid: string): Promise<void> => {
-  await assertUidInAdminCountryScope(uid);
-  await updateDoc(doc(firestore, 'kycRequests', uid), {
-    status: 'approved',
-    method: 'manual',
-    approvedAt: Date.now(),
-    rejectionReason: deleteField(),
-    revokedAt: deleteField(),
-    revokedBy: deleteField(),
-    updatedAt: Date.now(),
-  });
-  await updateDoc(doc(firestore, 'users', uid), {
-    isVerified: true,
-    verificationStatus: 'approved',
-    verifiedAt: Date.now(),
-    isBanned: false,
-    banReason: null,
-    updatedAt: Date.now(),
-  });
-
-  // Automatically activate agency membership if they are a female host in an agency
-  const memberQ = await getDocs(
-    query(
-      collection(firestore, 'agencyMembers'),
-      where('uid', '==', uid),
-      limit(1),
-    ),
-  );
-  if (!memberQ.empty) {
-    const memberDoc = memberQ.docs[0];
-    const memberData = memberDoc.data() as Record<string, any>;
-    const isFemaleHost = memberData.isFemaleHost === true;
-    if (isFemaleHost && memberData.hostVerified !== true) {
-      const now = Date.now();
-      const adminUid = auth.currentUser?.uid ?? 'admin';
-
-      await updateDoc(memberDoc.ref, {
-        role: 'host',
-        hostVerified: true,
-        verifiedAt: now,
-        verifiedBy: adminUid,
-      });
-
-      await updateDoc(doc(firestore, 'users', uid), {
-        agencyRole: 'host',
-        accountKind: 'host',
-      });
-
-      const agencyId = String(memberData.agencyId ?? '');
-      if (agencyId) {
-        const agencyRef = doc(firestore, 'agencies', agencyId);
-        const agencySnap = await getDoc(agencyRef);
-        if (agencySnap.exists()) {
-          const agencyData = agencySnap.data() as Record<string, any>;
-          const newFemaleCount = (Number(agencyData.femaleHostCount) || 0) + 1;
-          const minRequired = Number(agencyData.minHostsRequired) || 10;
-
-          await updateDoc(agencyRef, {
-            femaleHostCount: newFemaleCount,
-            updatedAt: now,
-          });
-
-          // Update associated agency application if it is awaiting hosts
-          const appQuery = await getDocs(
-            query(
-              collection(firestore, 'agencyApplications'),
-              where('agencyId', '==', agencyId),
-              where('status', '==', 'awaiting_hosts'),
-              limit(1),
-            ),
-          );
-          if (!appQuery.empty) {
-            const appDoc = appQuery.docs[0];
-            const nextAppStatus = newFemaleCount >= minRequired ? 'ready' : 'awaiting_hosts';
-            await updateDoc(appDoc.ref, {
-              status: nextAppStatus,
-              femaleHostCount: newFemaleCount,
-              updatedAt: now,
-            });
-          }
-        }
-      }
-    }
+/** تفاصيل طلب واحد — the only read that returns the legal name and the images. */
+export const getKycRequestDetail = async (id: string): Promise<AdminKycRequest | null> => {
+  try {
+    const row = await v2.get<ServerKycDetail>(`/admin/kyc/${id}`);
+    return row?.id ? toAdminKyc(row, row) : null;
+  } catch {
+    return null;
   }
-
-  await addDoc(collection(firestore, 'notifications'), {
-    uid,
-    type: 'system',
-    message: 'تم توثيق حسابك بنجاح',
-    data: {
-      title: 'توثيق الحساب',
-      body: 'تهانينا! تم قبول طلب التحقق الخاص بك بنجاح.',
-      type: 'kyc_approved',
-    },
-    isRead: false,
-    createdAt: Date.now(),
-  });
 };
 
-export const rejectKycRequest = async (uid: string, reason: string): Promise<void> => {
-  await assertUidInAdminCountryScope(uid);
-  await updateDoc(doc(firestore, 'kycRequests', uid), {
-    status: 'rejected',
-    method: 'manual',
-    rejectionReason: reason,
-    updatedAt: Date.now(),
-  });
-  await updateDoc(doc(firestore, 'users', uid), {
-    isVerified: false,
-    verificationStatus: 'rejected',
-    updatedAt: Date.now(),
-  });
-  await addDoc(collection(firestore, 'notifications'), {
-    uid,
-    type: 'system',
-    message: `تم رفض طلب توثيق حسابك: ${reason}`,
-    data: {
-      title: 'توثيق الحساب',
-      body: `عذراً، تم رفض طلب توثيق حسابك. السبب: ${reason}`,
-      type: 'kyc_rejected',
-    },
-    isRead: false,
-    createdAt: Date.now(),
-  });
+/**
+ * اعتماد طلب تحقق — takes the REQUEST id (v1 took the uid, because its documents
+ * were keyed by uid; v2's requests have their own ids and a user may have more
+ * than one over time). The single code path that can mark an account verified
+ * lives on the server and is audited there.
+ */
+export const approveKycRequest = async (requestId: string): Promise<void> => {
+  await v2.post(`/admin/kyc/${requestId}/decide`, { approve: true, reason: 'مطابق' });
+  await logAdminAction('اعتماد توثيق', requestId);
+};
+
+export const rejectKycRequest = async (requestId: string, reason: string): Promise<void> => {
+  const note = reason.trim();
+  if (!note) throw new Error('اكتب سبب الرفض — يظهر للمستخدم');
+  await v2.post(`/admin/kyc/${requestId}/decide`, { approve: false, reason: note });
+  await logAdminAction('رفض توثيق', requestId, note);
 };
 
 // ==================== RELATIONSHIPS ====================
@@ -947,62 +967,66 @@ export interface AdminRelationship {
   updatedAt: number;
 }
 
+/**
+ * ⚠️ صفحة «العلاقات» لا تُرجع بيانات على v2 — بعد.
+ *
+ * v1 read a `relationships` collection (a pairing feature with intimacy points).
+ * v2's social graph is follows + blocks; there is no relationships table, so
+ * there is nothing to read. Returning an empty list is the honest answer — the
+ * page shows its own empty state instead of numbers that do not exist.
+ */
 export const getRelationships = async (limitCount = 100): Promise<AdminRelationship[]> => {
-  try {
-    const q = query(
-      collection(firestore, 'relationships'),
-      orderBy('intimacyPoints', 'desc'),
-      limit(scopedFetchLimit(limitCount, 4)),
-    );
-    const snap = await getDocs(q);
-    const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) })) as AdminRelationship[];
-    if (isSuperCountryScope()) return rows.slice(0, limitCount);
-    const filtered: AdminRelationship[] = [];
-    for (const r of rows) {
-      if (await isRelationshipInScope(r.user1Uid, r.user2Uid)) filtered.push(r);
-      if (filtered.length >= limitCount) break;
-    }
-    return filtered;
-  } catch (e) {
-    console.error('getRelationships:', e);
-    return [];
-  }
+  void limitCount;
+  return [];
 };
 
-// ==================== ROOMS (Realtime DB) ====================
+// ==================== ROOMS ====================
+
+interface ServerRoomRow {
+  id: string;
+  name: string;
+  ownerUid: string;
+  ownerName: string;
+  type: string;
+  isLive: boolean;
+  seatCount: number;
+  agencyId: string | null;
+  vanityId: string | null;
+  coverUrl: string;
+  createdAt: string;
+}
+
+function toAdminRoom(row: ServerRoomRow): AdminRoom {
+  return {
+    id: row.id,
+    name: row.name || 'غرفة',
+    hostUid: row.ownerUid,
+    hostName: row.ownerName,
+    country: '',
+    banner: row.coverUrl,
+    category: row.type,
+    // The live audience count is realtime state, not a table column; the rooms
+    // page shows the live flag and the seat count, and the home presence endpoint
+    // is what reports "how many are inside" second by second.
+    memberCount: 0,
+    totalGifts: 0,
+    isActive: row.isLive,
+    isLocked: row.type === 'private',
+    seatsCount: row.seatCount || 9,
+    agencyId: row.agencyId ?? undefined,
+    isAgencyRoom: !!row.agencyId,
+    createdAt: Date.parse(row.createdAt) || Date.now(),
+  };
+}
+
 export const getRooms = async (): Promise<AdminRoom[]> => {
   try {
-    const snap = await rtdbGet(ref(realtimeDb, 'rooms'));
-    if (!snap.exists()) return [];
-    const data = snap.val();
-    const raw = Object.entries(data).map(([id, room]: [string, any]) => ({
-      id,
-      name: room.name ?? 'غرفة',
-      hostUid: room.hostUid ?? '',
-      hostName: room.hostName,
-      country: normalizeCountryCode(room.country),
-      banner: room.banner,
-      category: room.category,
-      memberCount: room.memberCount ?? room.members?.length ?? 0,
-      totalGifts: room.totalGifts ?? 0,
-      isActive: room.isActive,
-      isLocked: room.isLocked,
-      seatsCount: Number(room.seatsCount) || 9,
-      maxSeatsCount: Number(room.maxSeatsCount) || undefined,
-      agencyId: room.agencyId ? String(room.agencyId) : undefined,
-      isAgencyRoom: room.isAgencyRoom === true || !!room.agencyId,
-      createdAt: room.createdAt ?? Date.now(),
-    }));
-
-    if (isSuperCountryScope()) return raw;
-
-    const hostUids = raw.filter((r) => !r.country && r.hostUid).map((r) => r.hostUid);
-    await preloadUserCountries(hostUids);
-
-    return raw.filter((r) => {
-      const country = r.country || getCachedUserCountry(r.hostUid);
-      return isInAdminCountryScope(country);
-    });
+    const res = await v2.get<{ items: ServerRoomRow[] }>(`/admin/rooms${v2Qs({ limit: 100 })}`);
+    const rows = (res?.items ?? []).map(toAdminRoom);
+    if (isSuperCountryScope()) return rows;
+    // A room row carries no country of its own, so the owner's country decides.
+    await preloadUserCountries(rows.map((r) => r.hostUid));
+    return rows.filter((r) => isInAdminCountryScope(getCachedUserCountry(r.hostUid)));
   } catch (e) {
     console.error('getRooms:', e);
     return [];
@@ -1010,69 +1034,94 @@ export const getRooms = async (): Promise<AdminRoom[]> => {
 };
 
 /**
- * إغلاق روم بالقوة من الأدمن
- * يضع isActive=false → التطبيق يخرج كل المشاركين
+ * إغلاق روم بالقوة — the server does both halves: the row stops being live and
+ * the LIVE STATE is dropped, which is what actually turns the people inside out.
+ * v1 only set `isActive=false` and relied on every client noticing.
  */
-export const forceCloseRoom = async (roomId: string): Promise<void> => {
-  const rooms = await getRooms();
-  const room = rooms.find((r) => r.id === roomId);
-  if (room) assertCountryAccess(room.country);
-  const { update } = await import('firebase/database');
-  await update(ref(realtimeDb, `rooms/${roomId}`), {
-    isActive: false,
-    closedByAdmin: true,
-    closedAt: Date.now(),
-  });
+export const forceCloseRoom = async (roomId: string, reason = ''): Promise<void> => {
+  await v2.post(`/admin/rooms/${roomId}/close`, reason ? { reason } : {});
+  await logAdminAction('إغلاق غرفة', roomId, reason);
 };
 
 /**
- * حذف روم نهائياً (مع كل بياناتها)
+ * ⚠️ حذف الغرفة نهائياً غير مُنفَّذ على v2 — بعد.
+ *
+ * A room is referenced by its agency (the live room), by gift history and by the
+ * ledger rows of everything sent inside it. Deleting the row means deciding what
+ * happens to those, and that is the owner's call. Force-close does the moderation
+ * job and is reversible.
  */
 export const deleteRoom = async (roomId: string): Promise<void> => {
-  const rooms = await getRooms();
-  const room = rooms.find((r) => r.id === roomId);
-  if (!room) throw new Error('الغرفة غير موجودة أو خارج نطاق دولك');
-  assertCountryAccess(room.country);
-  const { remove } = await import('firebase/database');
-  await Promise.all([
-    remove(ref(realtimeDb, `rooms/${roomId}`)),
-    remove(ref(realtimeDb, `roomMessages/${roomId}`)),
-    remove(ref(realtimeDb, `roomAudience/${roomId}`)),
-  ]);
+  void roomId;
+  throw new Error(
+    'حذف الغرفة نهائياً غير متاح — استخدم «إغلاق الغرفة». الحذف يحتاج قراراً من المالك ' +
+      '(سجل الهدايا والوكالة مرتبطان بالغرفة).',
+  );
 };
 
 // ==================== AGENCIES ====================
+/** One agency as the server projects it. Coins are the agency's WORK coins — the
+ *  earning wallet — and are read-only here; they move only through the earning
+ *  and withdrawal paths. */
+interface ServerAgencyRow {
+  id: string;
+  name: string;
+  ownerUid: string;
+  ownerName: string;
+  logo: string;
+  country: string;
+  inviteCode: string;
+  status: string;
+  memberCount: number;
+  femaleHostCount: number;
+  workCoins: number;
+  rank: number;
+  isCountryOfficial: boolean;
+  isVerified: boolean;
+  periodLevel: number;
+  periodLevelManual: boolean;
+  lifetimeSupportCoins: number;
+  minHostsRequired: number;
+  liveRoomId: string | null;
+  createdAt: string;
+}
+
+const toAdminAgency = (row: ServerAgencyRow): AdminAgency => ({
+  id: row.id,
+  name: row.name || '—',
+  ownerName: row.ownerName || '—',
+  country: row.country || '—',
+  members: row.memberCount ?? 0,
+  earnings: row.workCoins ?? 0,
+  // v1 carried a «rating» field nothing ever wrote; v2 has a real RANK instead,
+  // which is what the list is ordered by.
+  rating: row.rank ?? 0,
+  isVerified: row.isVerified,
+  logo: row.logo || undefined,
+});
+
 export const getAgencies = async (): Promise<AdminAgency[]> => {
   try {
-    const q = query(collection(firestore, 'agencies'), limit(100));
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => {
-      const data = d.data() as Record<string, unknown>;
-      return {
-        id: d.id,
-        name: String(data.name ?? data.agencyName ?? '—'),
-        ownerName: String(data.ownerName ?? '—'),
-        country: String(data.country ?? data.countryCode ?? '—'),
-        members: Number(data.members ?? data.memberCount ?? 0) || 0,
-        earnings: Number(data.earnings ?? data.totalEarnings ?? 0) || 0,
-        rating: Number(data.rating ?? 0) || 0,
-        isVerified: Boolean(data.isVerified),
-        logo: data.logo ? String(data.logo) : undefined,
-        banner: data.banner ? String(data.banner) : undefined,
-      };
-    }).filter((a) => isInAdminCountryScope(a.country));
+    const codes = getScopedCountryCodes();
+    if (!isSuperCountryScope() && codes.length === 0) return [];
+    const pages = await Promise.all(
+      (isSuperCountryScope() ? [undefined] : codes).map((country) =>
+        v2.get<{ items: ServerAgencyRow[] }>(`/admin/agencies${v2Qs({ limit: 100, country })}`),
+      ),
+    );
+    return pages.flatMap((p) => p?.items ?? []).map(toAdminAgency);
   } catch (e) {
     console.error('getAgencies:', e);
     return [];
   }
 };
 
-/**
- * توثيق/إلغاء توثيق وكالة
- */
-async function assertAgencyIdInScope(agencyId: string): Promise<void> {
-  const detail = await getAgencyFullDetail(agencyId);
-  if (!detail) throw new Error('الوكالة غير موجودة أو خارج نطاق دولك');
+/** يرفض العمل خارج نطاق دولة المشرف — same guard v1 had, one read. */
+async function assertAgencyIdInScope(agencyId: string): Promise<ServerAgencyRow> {
+  const row = await v2.get<ServerAgencyRow>(`/admin/agencies/${agencyId}`);
+  if (!row?.id) throw new Error('الوكالة غير موجودة');
+  if (!isInAdminCountryScope(row.country)) throw new Error('الوكالة خارج نطاق دولك');
+  return row;
 }
 
 export const toggleAgencyVerified = async (
@@ -1080,7 +1129,8 @@ export const toggleAgencyVerified = async (
   verified: boolean,
 ): Promise<void> => {
   await assertAgencyIdInScope(agencyId);
-  await updateDoc(doc(firestore, 'agencies', agencyId), { isVerified: verified });
+  await v2.post(`/admin/agencies/${agencyId}/verify`, { verified });
+  await logAdminAction(verified ? 'توثيق وكالة' : 'سحب توثيق وكالة', agencyId);
 };
 
 const USER_AGENCY_UNLINK_PATCH = {
@@ -1092,123 +1142,53 @@ const USER_AGENCY_UNLINK_PATCH = {
   accountKind: 'user',
 };
 
-async function batchDeleteDocRefs(refs: ReturnType<typeof doc>[]): Promise<void> {
-  const CHUNK = 450;
-  for (let i = 0; i < refs.length; i += CHUNK) {
-    const batch = writeBatch(firestore);
-    refs.slice(i, i + CHUNK).forEach((ref) => batch.delete(ref));
-    await batch.commit();
-  }
-}
-
-async function deleteCollectionWhere(
-  collectionName: string,
-  field: string,
-  value: string,
-  pageSize = 450,
-): Promise<void> {
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const snap = await getDocs(
-      query(
-        collection(firestore, collectionName),
-        where(field, '==', value),
-        limit(pageSize),
-      ),
-    );
-    if (snap.empty) break;
-    await batchDeleteDocRefs(snap.docs.map((d) => d.ref));
-    if (snap.size < pageSize) break;
-  }
-}
-
-async function agencyDocExists(agencyId: string): Promise<boolean> {
-  const snap = await getDoc(doc(firestore, 'agencies', agencyId));
-  return snap.exists();
-}
-
-async function purgeOrphanAgencyChat(agencyId: string, uid?: string): Promise<void> {
-  const chatRef = doc(firestore, 'agencyChats', agencyId);
-  const chatSnap = await getDoc(chatRef);
-  if (!chatSnap.exists()) return;
-
-  if (uid) {
-    const members: string[] = Array.isArray(chatSnap.data()?.members)
-      ? chatSnap.data()!.members
-      : [];
-    if (members.includes(uid)) {
-      await updateDoc(chatRef, {
-        members: members.filter((m) => m !== uid),
-        [`memberNames.${uid}`]: deleteField(),
-        [`memberAvatars.${uid}`]: deleteField(),
-        updatedAt: Date.now(),
-      }).catch(() => {});
-    }
-    return;
-  }
-
-  await deleteDoc(chatRef).catch(() => {});
-  await deleteCollectionWhere('agencyChatMessages', 'chatId', agencyId);
-}
-
-/** يزيل روابط وكالة محذوفة/يتيمة ويعيد معرّف الوكالة الفعلية إن وُجدت */
+/**
+ * الوكالة الفعلية لمستخدم — قراءة فقط.
+ *
+ * v1's version SELF-HEALED: while resolving, it also unlinked stale agency
+ * pointers and deleted orphaned clan-chat documents from the browser. On v2 there
+ * is nothing to heal — membership is a row in `agency_members` with a real
+ * foreign key, so a pointer to a deleted agency cannot exist. A resolver has no
+ * business writing anyway; that was the part of v1's design that made a read
+ * quietly mutate data.
+ */
 export async function resolveUserActiveAgencyId(uid: string): Promise<string | null> {
-  const userRef = doc(firestore, 'users', uid);
-  const userSnap = await getDoc(userRef);
-  if (!userSnap.exists()) return null;
-
-  const user = userSnap.data() as Record<string, unknown>;
-  let activeAgencyId: string | null = null;
-  let needsUserUnlink = false;
-
-  const userAgencyId = String(user.agencyId ?? '').trim();
-  if (userAgencyId) {
-    if (await agencyDocExists(userAgencyId)) {
-      activeAgencyId = userAgencyId;
-    } else {
-      needsUserUnlink = true;
-      await purgeOrphanAgencyChat(userAgencyId, uid);
-    }
+  try {
+    const detail = await v2.get<{ profile: Record<string, unknown> }>(`/admin/users/${uid}`);
+    const agencyId = String(detail?.profile?.agencyId ?? '').trim();
+    if (!agencyId) return null;
+    // Confirm it still exists before handing it out — the page navigates with it.
+    const agency = await v2
+      .get<{ id: string }>(`/admin/agencies/${agencyId}`)
+      .catch(() => null);
+    return agency?.id ?? null;
+  } catch {
+    return null;
   }
-
-  const memberSnap = await getDocs(
-    query(collection(firestore, 'agencyMembers'), where('uid', '==', uid), limit(20)),
-  );
-  const orphanMemberRefs: ReturnType<typeof doc>[] = [];
-
-  for (const memberDoc of memberSnap.docs) {
-    const memberAgencyId = String(memberDoc.data().agencyId ?? '').trim();
-    if (!memberAgencyId) {
-      orphanMemberRefs.push(memberDoc.ref);
-      continue;
-    }
-    if (await agencyDocExists(memberAgencyId)) {
-      if (!activeAgencyId) activeAgencyId = memberAgencyId;
-    } else {
-      orphanMemberRefs.push(memberDoc.ref);
-      if (userAgencyId === memberAgencyId) needsUserUnlink = true;
-      await purgeOrphanAgencyChat(memberAgencyId, uid);
-    }
-  }
-
-  if (orphanMemberRefs.length > 0) {
-    await batchDeleteDocRefs(orphanMemberRefs);
-  }
-  if (needsUserUnlink && (!activeAgencyId || userAgencyId !== activeAgencyId)) {
-    await updateDoc(userRef, USER_AGENCY_UNLINK_PATCH).catch(() => {});
-  }
-
-  return activeAgencyId;
 }
-
 /**
  * حذف وكالة نهائياً مع تنظيف كل الارتباطات:
  * الأعضاء، بيانات المستخدمين، دردشة العشيرة، الرسائل، وطلبات الوكالة.
  */
+/**
+ * ⚠️ حذف الوكالات وتنظيف اليتيم — لا يعمل على v2، ولا يُنفَّذ على القاعدة القديمة.
+ *
+ * These four were Firebase Functions that deleted an agency (or ALL agencies) and
+ * swept up what was left behind. On v2 an agency is referenced by its members'
+ * work-coin wallets, its rooms, its withdrawals and its gift history — so what
+ * happens to each of those is an owner decision, not something a migration shim
+ * should improvise. And they must not run against v1 either: that database is
+ * reference-only now.
+ *
+ * The moderation lever that DOES exist: سحب توثيق الوكالة (and banning its owner).
+ */
+const AGENCY_DELETE_UNAVAILABLE =
+  'حذف الوكالات غير متاح — الوكالة مرتبطة بمحافظ أعضائها وغرفها وسحوباتها وسجل هداياها، ' +
+  'والحذف يحتاج قراراً من المالك. المتاح الآن: سحب التوثيق أو حظر المالك.';
+
 export const deleteAgency = async (agencyId: string): Promise<void> => {
-  await assertAgencyIdInScope(agencyId);
-  const fn = httpsCallable<{ agencyId: string }, { ok: boolean }>(functions, 'adminDeleteAgency');
-  await fn({ agencyId });
+  void agencyId;
+  throw new Error(AGENCY_DELETE_UNAVAILABLE);
 };
 
 export type DeleteAllAgenciesResult = {
@@ -1220,28 +1200,26 @@ export type DeleteAllAgenciesResult = {
   errors?: string[];
 };
 
-/** حذف كل الوكالات نهائياً — مدير النظام فقط */
 export const deleteAllAgencies = async (
   confirmPhrase: string,
 ): Promise<DeleteAllAgenciesResult> => {
-  const fn = httpsCallable<{ confirmPhrase: string }, DeleteAllAgenciesResult>(
-    functions,
-    'adminDeleteAllAgencies',
-  );
-  const res = await fn({ confirmPhrase });
-  return res.data;
+  void confirmPhrase;
+  throw new Error(AGENCY_DELETE_UNAVAILABLE);
 };
 
-/** تنظيف بيانات يتيمة لوكالة محذوفة سابقاً (أعضاء، دعوات، دردشة، …) */
+/** لا وجود ليتيم على v2: مفاتيح أجنبية حقيقية تربط الأعضاء والغرف بالوكالة. */
 export const purgeAgencyOrphans = async (agencyId: string): Promise<void> => {
-  const fn = httpsCallable<{ agencyId: string }, { ok: boolean }>(functions, 'adminPurgeAgencyOrphans');
-  await fn({ agencyId });
+  void agencyId;
+  throw new Error(
+    'لا حاجة لتنظيف اليتيم على قاعدة البيانات الجديدة — العلاقات محفوظة بمفاتيح أجنبية.',
+  );
 };
 
-/** تنظيف بيانات يتيمة لمستخدم محذوف سابقاً */
 export const purgeUserOrphans = async (uid: string): Promise<void> => {
-  const fn = httpsCallable<{ uid: string }, { ok: boolean }>(functions, 'adminPurgeUserOrphans');
-  await fn({ uid });
+  void uid;
+  throw new Error(
+    'لا حاجة لتنظيف اليتيم على قاعدة البيانات الجديدة — العلاقات محفوظة بمفاتيح أجنبية.',
+  );
 };
 
 // ==================== STATS ====================
@@ -1257,95 +1235,64 @@ export interface DashboardStats {
   pendingReports: number;
 }
 
+/**
+ * أرقام الصفحة الرئيسية — من `/admin/overview`, حيث كل رقم استعلام تجميعي واحد.
+ * v1 كان يجلب حتى 2000 مستند مستخدم في المتصفح ويجمعها يدوياً، فكان «إجمالي
+ * العملات» تقريبياً بطبعه وفتح اللوحة ثقيلاً.
+ */
+interface ServerOverview {
+  users: { total: number; banned: number; new24h: number; new7d: number };
+  economy: { coins: number; pearls: number; casinoCoins: number };
+  agencies: { total: number };
+  rooms: { total: number };
+  withdrawals: { pending: number };
+  spendSeries: { day: string; coins: number }[];
+}
+
+/** `total` from a 1-row page = the count, without pulling the rows. */
+const countOf = async (path: string): Promise<number> => {
+  try {
+    const res = await v2.get<{ total: number }>(path);
+    return res?.total ?? 0;
+  } catch {
+    return 0;
+  }
+};
+
 export const getDashboardStats = async (): Promise<DashboardStats> => {
   try {
-    const todayStart = new Date().setHours(0, 0, 0, 0);
-    const usersCol = collection(firestore, 'users');
-    const superScope = isSuperCountryScope();
-
-    // عدّ المستخدمين: count-aggregation للسوبر أدمن (بدل جلب كل المستندات).
-    // المشرف المحدود بدولة يحتاج المستندات نفسها للفلترة حسب الدولة.
-    const [usersSnap, txSnap, rooms] = await Promise.all([
-      superScope
-        // للسوبر: نجلب عيّنة محدودة فقط لحساب إجمالي العملات (قيمة تقريبية)،
-        // بينما الأعداد الدقيقة تأتي من count-aggregation أدناه.
-        ? getDocs(query(usersCol, orderBy('createdAt', 'desc'), limit(2000)))
-        : getDocs(usersCol),
-      getDocs(query(collection(firestore, 'transactions'), orderBy('createdAt', 'desc'), limit(500))),
-      getRooms(),
+    const [overview, vip, live, reports] = await Promise.all([
+      v2.get<ServerOverview>('/admin/overview'),
+      countOf(`/admin/users${v2Qs({ vip: 'true', limit: 1 })}`),
+      countOf(`/admin/rooms${v2Qs({ live: 'true', limit: 1 })}`),
+      countOf(`/admin/reports${v2Qs({ status: 'pending', limit: 1 })}`),
     ]);
 
-    let totalVIP = 0;
-    let totalCoins = 0;
-    let newToday = 0;
-    let scopedUsers = 0;
-
-    if (superScope) {
-      // أعداد دقيقة عبر count-aggregation (لا تجلب مستندات)
-      const [totalCnt, vipCnt, newCnt] = await Promise.all([
-        getCountFromServer(usersCol),
-        getCountFromServer(query(usersCol, where('isVIP', '==', true))),
-        getCountFromServer(query(usersCol, where('createdAt', '>=', todayStart))),
-      ]);
-      scopedUsers = totalCnt.data().count;
-      totalVIP = vipCnt.data().count;
-      newToday = newCnt.data().count;
-      // إجمالي العملات: مجموع على العيّنة المحمّلة (تقريبي — حقل coins غير موحّد: stats.coins ?? coins)
-      usersSnap.forEach((d) => {
-        const u = d.data();
-        const stats = u.stats ?? {};
-        totalCoins += stats.coins ?? u.coins ?? 0;
-      });
-    } else {
-    usersSnap.forEach((d) => {
-      const u = d.data();
-      const country = countryFromUserDoc(u as Record<string, unknown>);
-      if (!isInAdminCountryScope(country)) return;
-      scopedUsers++;
-      if (u.isVIP) totalVIP++;
-      const stats = u.stats ?? {};
-      totalCoins += stats.coins ?? u.coins ?? 0;
-      if ((u.createdAt ?? 0) >= todayStart) newToday++;
-    });
-    }
-
-    let revenue = 0;
-    let pendingWd = 0;
-    if (!isSuperCountryScope()) {
-      await preloadUserCountries(
-        txSnap.docs.map((d) => String((d.data() as any).uid ?? '')),
-      );
-    }
-    txSnap.forEach((d) => {
-      const t = d.data() as any;
-      if (!isSuperCountryScope() && !isInAdminCountryScope(getCachedUserCountry(t.uid))) return;
-      if (t.type === 'recharge' && t.status === 'completed') revenue += Math.abs(t.amount ?? 0);
-      if (t.type === 'withdraw' && t.status === 'pending') pendingWd++;
-    });
-
     return {
-      totalUsers: scopedUsers,
-      totalVIP,
-      totalRooms: rooms.length,
-      totalRevenue: revenue,
-      totalCoinsInCirculation: totalCoins,
-      newUsersToday: newToday,
-      pendingWithdrawals: pendingWd,
-      activeRooms: rooms.filter((r) => r.isActive).length,
-      pendingReports: await (async () => {
-        try {
-          const { getPendingReportsCount } = await import('@/services/reports');
-          return await getPendingReportsCount();
-        } catch {
-          return 0;
-        }
-      })(),
+      totalUsers: overview?.users?.total ?? 0,
+      totalVIP: vip,
+      totalRooms: overview?.rooms?.total ?? 0,
+      // ⚠️ «الإيرادات» تبقى صفراً بحق: شحن المال الحقيقي (بوت تيليغرام/الباقات) لم
+      // ينتقل بعد إلى سجل معاملات v2، فلا يوجد رقم إيرادات حقيقي لعرضه. عند نقل
+      // مسار الشحن يصبح مجموع صفوف الشحن في السجل، بلا تقدير.
+      totalRevenue: 0,
+      totalCoinsInCirculation: overview?.economy?.coins ?? 0,
+      newUsersToday: overview?.users?.new24h ?? 0,
+      pendingWithdrawals: overview?.withdrawals?.pending ?? 0,
+      activeRooms: live,
+      pendingReports: reports,
     };
   } catch (e) {
     console.error('getDashboardStats:', e);
     return {
-      totalUsers: 0, totalVIP: 0, totalRooms: 0, totalRevenue: 0,
-      totalCoinsInCirculation: 0, newUsersToday: 0, pendingWithdrawals: 0, activeRooms: 0,
+      totalUsers: 0,
+      totalVIP: 0,
+      totalRooms: 0,
+      totalRevenue: 0,
+      totalCoinsInCirculation: 0,
+      newUsersToday: 0,
+      pendingWithdrawals: 0,
+      activeRooms: 0,
       pendingReports: 0,
     };
   }
@@ -1365,52 +1312,48 @@ export interface WeeklyActivityPoint {
  * مستخدمون جدد (users.createdAt) + إيرادات شحن حقيقية (transactions recharge مكتملة)
  * + دقائق مكالمات مُستهلَكة (callSessions.minutesCharged) — لا أرقام تقديرية.
  */
+/**
+ * سلسلة نشاط آخر N يوم — من `/admin/analytics`, المحسوبة على السيرفر من نفس سجل
+ * المعاملات الذي تكتبه كل حركة مال، فلا يمكن أن تنحرف الأرقام عن المال نفسه.
+ *
+ * ما تغيّر عن v1 بصدق: «الإيرادات» كانت مجموع معاملات الشحن، وشحن المال الحقيقي لم
+ * ينتقل بعد إلى سجل v2 — فالعمود المعروض الآن هو الكوينز المُنفَقة في اليوم (وهي
+ * رقم حقيقي ومفيد)، وليس تقديراً لإيراد. الدقائق تحتاج تجميع جلسات المكالمات وهو
+ * غير موجود بعد على السيرفر، فتظل صفراً بدل رقم مُختلق.
+ */
 export const getWeeklyActivity = async (days = 7): Promise<WeeklyActivityPoint[]> => {
   const dayMs = 86400000;
+  const labels = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
   const todayStart = new Date().setHours(0, 0, 0, 0);
   const startCutoff = todayStart - (days - 1) * dayMs;
-  const labels = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
-  const [usersSnap, txSnap, callSnap] = await Promise.all([
-    getDocs(query(collection(firestore, 'users'), where('createdAt', '>=', startCutoff))),
-    getDocs(query(collection(firestore, 'transactions'), where('createdAt', '>=', startCutoff))),
-    getDocs(query(collection(firestore, 'callSessions'), where('createdAt', '>=', startCutoff))),
-  ]);
-
-  const buckets = new Map<number, WeeklyActivityPoint>();
-  for (let i = 0; i < days; i++) {
-    const dStart = startCutoff + i * dayMs;
-    buckets.set(dStart, {
-      day: labels[new Date(dStart).getDay()],
-      date: dStart,
-      users: 0,
-      revenue: 0,
-      minutes: 0,
+  const empty = (): WeeklyActivityPoint[] =>
+    Array.from({ length: days }, (_, i) => {
+      const date = startCutoff + i * dayMs;
+      return { day: labels[new Date(date).getDay()], date, users: 0, revenue: 0, minutes: 0 };
     });
-  }
-  const keyFor = (ts: number) => {
-    if (!ts || ts < startCutoff) return null;
-    const idx = Math.floor((ts - startCutoff) / dayMs);
-    return startCutoff + idx * dayMs;
-  };
 
-  usersSnap.forEach((d) => {
-    const k = keyFor(Number((d.data() as any).createdAt) || 0);
-    if (k != null) buckets.get(k)!.users++;
-  });
-  txSnap.forEach((d) => {
-    const t = d.data() as any;
-    if (t.type === 'recharge' && t.status === 'completed') {
-      const k = keyFor(Number(t.createdAt) || 0);
-      if (k != null) buckets.get(k)!.revenue += Math.abs(Number(t.amount) || 0);
+  try {
+    const res = await v2.get<{
+      series: { day: string; spent: number; newUsers: number }[];
+    }>(`/admin/analytics${v2Qs({ days })}`);
+
+    const points = empty();
+    const byDate = new Map(points.map((p) => [p.date, p]));
+    for (const row of res?.series ?? []) {
+      // The server groups by calendar day in UTC («YYYY-MM-DD»); align to the
+      // local midnight buckets the chart draws.
+      const date = new Date(`${row.day}T00:00:00`).setHours(0, 0, 0, 0);
+      const point = byDate.get(date);
+      if (!point) continue;
+      point.users = row.newUsers ?? 0;
+      point.revenue = row.spent ?? 0;
     }
-  });
-  callSnap.forEach((d) => {
-    const k = keyFor(Number((d.data() as any).createdAt) || 0);
-    if (k != null) buckets.get(k)!.minutes += Number((d.data() as any).minutesCharged) || 0;
-  });
-
-  return Array.from(buckets.values()).sort((a, b) => a.date - b.date);
+    return points;
+  } catch (e) {
+    console.error('getWeeklyActivity:', e);
+    return empty();
+  }
 };
 
 // ==================== NOTIFICATIONS (Broadcast) ====================
@@ -1442,7 +1385,10 @@ export interface AdminUserNotificationPayload {
 }
 
 /**
- * إرسال إشعار لمستخدم — Cloud Function (إشعار حقيقي + إجراء حساب)
+ * إشعار مستخدم واحد — the notice row plus, optionally, the account action that
+ * goes with the scenario. v1 bundled both into one Cloud Function; here the two
+ * are separate endpoints that already exist and are audited individually, which
+ * also means a failed action never silently swallows the notice.
  */
 export const sendUserNotification = async (
   payload: AdminUserNotificationPayload,
@@ -1452,15 +1398,72 @@ export const sendUserNotification = async (
   publicAccountId: string;
   notificationId: string;
 }> => {
-  const fn = httpsCallable(functions, 'adminSendUserNotification');
-  const res = await fn(payload);
-  const data = res.data as {
-    targetUid: string;
-    displayName: string;
-    publicAccountId: string;
-    notificationId: string;
+  const target = await lookupUserByIdentifier(payload.identifier);
+  const { title, body } = notificationCopyFor(payload);
+  await v2.post(`/admin/users/${target.uid}/notify`, { title, body });
+
+  if (payload.applyAction) {
+    const reason = payload.reason?.trim() || title;
+    switch (payload.scenario) {
+      case 'account_banned':
+        await v2.post(`/admin/users/${target.uid}/ban`, { banned: true, reason });
+        break;
+      case 'account_unbanned':
+        await v2.post(`/admin/users/${target.uid}/ban`, { banned: false });
+        break;
+      case 'withdrawal_blocked':
+        await v2.post(`/admin/users/${target.uid}/withdrawal-block`, { blocked: true });
+        break;
+      case 'withdrawal_unblocked':
+        await v2.post(`/admin/users/${target.uid}/withdrawal-block`, { blocked: false });
+        break;
+      case 'verification_required':
+        await v2.post(`/admin/users/${target.uid}/verify`, { verified: false, reason });
+        break;
+      default:
+        // custom / account_warning / content_removed carry no account action.
+        break;
+    }
+  }
+
+  await logAdminAction('إشعار مستخدم', target.publicAccountId, payload.scenario);
+  return {
+    targetUid: target.uid,
+    displayName: target.displayName,
+    publicAccountId: target.publicAccountId,
+    // v2 does not echo the row id back from /notify; the page only needs a
+    // non-empty marker that one was written.
+    notificationId: 'sent',
   };
-  return data;
+};
+
+/** The Arabic copy each scenario sends when the admin did not write their own. */
+function notificationCopyFor(p: AdminUserNotificationPayload): { title: string; body: string } {
+  const custom = { title: (p.title ?? '').trim(), body: (p.message ?? '').trim() };
+  if (custom.title && custom.body) return custom;
+  const reason = p.reason?.trim();
+  const suffix = reason ? ` السبب: ${reason}` : '';
+  switch (p.scenario) {
+    case 'account_warning':
+      return { title: 'تنبيه من الإدارة', body: `يرجى الالتزام بقواعد التطبيق.${suffix}` };
+    case 'account_banned':
+      return { title: 'تم حظر حسابك', body: `تم حظر حسابك من الإدارة.${suffix}` };
+    case 'account_unbanned':
+      return { title: 'تم رفع الحظر', body: 'تم رفع الحظر عن حسابك — مرحباً بعودتك.' };
+    case 'withdrawal_blocked':
+      return { title: 'إيقاف السحب', body: `تم إيقاف السحب على حسابك.${suffix}` };
+    case 'withdrawal_unblocked':
+      return { title: 'استعادة السحب', body: 'تم إعادة تفعيل السحب على حسابك.' };
+    case 'verification_required':
+      return { title: 'التوثيق مطلوب', body: `يلزم إعادة توثيق حسابك.${suffix}` };
+    case 'content_removed':
+      return { title: 'حذف محتوى', body: `تم حذف محتوى نشرته لمخالفته القواعد.${suffix}` };
+    default:
+      return {
+        title: custom.title || 'رسالة من الإدارة',
+        body: custom.body || 'لديك رسالة من إدارة LinkUp.',
+      };
+  }
 };
 
 export const lookupUserByIdentifier = async (
@@ -1474,34 +1477,34 @@ export const lookupUserByIdentifier = async (
   isBanned?: boolean;
   withdrawalBlocked?: boolean;
 }> => {
-  const fn = httpsCallable(functions, 'lookupUserByIdentifier');
-  const res = await fn({ identifier: identifier.trim() });
-  return res.data as {
-    uid: string;
-    displayName: string;
-    avatar: string;
-    publicAccountId: string;
-    coins?: number;
-    isBanned?: boolean;
-    withdrawalBlocked?: boolean;
+  const user = await getUserById(identifier);
+  if (!user) throw new Error('لم نجد هذا المستخدم');
+  return {
+    uid: user.uid,
+    displayName: user.displayName,
+    avatar: user.avatar,
+    publicAccountId: user.publicAccountId,
+    coins: user.coins,
+    isBanned: user.isBanned,
+    withdrawalBlocked: user.withdrawalBlocked,
   };
 };
 
 /**
- * إرسال إشعار جماعي — broadcasts + inbox لكل مستخدم
+ * إرسال إشعار جماعي — the server writes one notification row per recipient (that
+ * is how the app reads them) and caps the audience. «النشطون» means the accounts
+ * ONLINE right now, resolved from live presence — not a guess over a timestamp.
  */
 export const sendBroadcast = async (
   notif: BroadcastNotification,
 ): Promise<{ sent: number }> => {
-  const fn = httpsCallable(functions, 'adminSendBroadcast');
-  const res = await fn({
+  const res = await v2.post<{ sent: number; capped: boolean }>('/admin/broadcast', {
     title: notif.title,
     body: notif.body,
     target: notif.target,
     type: notif.type,
   });
-  const data = res.data as { sent: number };
-  return { sent: data.sent ?? 0 };
+  return { sent: res?.sent ?? 0 };
 };
 
 export interface AdminBroadcastRecord {
@@ -1515,28 +1518,72 @@ export interface AdminBroadcastRecord {
   createdAt: number;
 }
 
+interface ServerBroadcastRow {
+  id: string;
+  title: string;
+  body: string;
+  target: string;
+  type: string;
+  sentCount: number;
+  adminName: string;
+  createdAt: string;
+}
+
+/**
+ * سجل البث — the audit row IS the record (who sent what, to whom, how many rows
+ * it wrote). `viewCount` is deliberately absent rather than zero-filled: nothing
+ * counts broadcast opens on v2, and a permanent «0 مشاهدة» would read as a fact.
+ */
+const toBroadcastRecord = (row: ServerBroadcastRow): AdminBroadcastRecord => ({
+  id: row.id,
+  title: row.title,
+  body: row.body,
+  target: row.target,
+  type: row.type,
+  sentCount: row.sentCount,
+  createdAt: Date.parse(row.createdAt) || 0,
+});
+
 export const getBroadcasts = async (): Promise<AdminBroadcastRecord[]> => {
   try {
-    const q = query(collection(firestore, 'broadcasts'), orderBy('createdAt', 'desc'), limit(50));
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AdminBroadcastRecord[];
+    const rows = await v2.get<ServerBroadcastRow[]>(`/admin/broadcast${v2Qs({ limit: 50 })}`);
+    return (rows ?? []).map(toBroadcastRecord);
   } catch {
     return [];
   }
 };
 
-/** تحديث مباشر لعداد المشاهدات في سجل البث */
+/** How often the broadcast log refreshes while the page is open. */
+const BROADCAST_POLL_MS = 20_000;
+
+/**
+ * v1 used a Firestore onSnapshot to keep the view counter live. Our API is
+ * request/response, so this polls and only calls back when the content actually
+ * CHANGED — the page does not re-render every tick.
+ */
 export const subscribeBroadcasts = (
   callback: (items: AdminBroadcastRecord[]) => void,
 ): (() => void) => {
-  const q = query(collection(firestore, 'broadcasts'), orderBy('createdAt', 'desc'), limit(50));
-  return onSnapshot(
-    q,
-    (snap) => {
-      callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })) as AdminBroadcastRecord[]);
-    },
-    () => callback([]),
-  );
+  let stopped = false;
+  let lastJson = '';
+
+  const tick = async () => {
+    if (stopped) return;
+    const items = await getBroadcasts();
+    if (stopped) return;
+    const json = JSON.stringify(items);
+    if (json !== lastJson) {
+      lastJson = json;
+      callback(items);
+    }
+  };
+
+  void tick();
+  const timer = setInterval(() => void tick(), BROADCAST_POLL_MS);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
 };
 
 // ==================== ADMIN ACTIVITY LOG ====================
@@ -1558,13 +1605,9 @@ export const logAdminAction = async (
   details = '',
 ): Promise<void> => {
   try {
-    await addDoc(collection(firestore, 'adminLogs'), {
-      action,
-      target,
-      details,
-      adminName: localStorage.getItem('admin_name') ?? 'مدير النظام',
-      createdAt: Date.now(),
-    });
+    // The name is NOT sent: the server signs the row with the account behind the
+    // token, so an audit line can never be attributed to someone else.
+    await v2.post('/admin/logs', { action, targetId: target, meta: { details } });
   } catch (e) {
     console.error('logAdminAction:', e);
   }
@@ -1572,13 +1615,42 @@ export const logAdminAction = async (
 
 export const getAdminLogs = async (): Promise<AdminLog[]> => {
   try {
-    const q = query(collection(firestore, 'adminLogs'), orderBy('createdAt', 'desc'), limit(100));
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+    const res = await v2.get<{
+      items: {
+        id: string;
+        adminName: string;
+        action: string;
+        targetId: string;
+        meta: Record<string, unknown>;
+        createdAt: string;
+      }[];
+    }>('/admin/logs?limit=100');
+    return (res?.items ?? []).map((row) => ({
+      id: row.id,
+      action: row.action,
+      target: row.targetId,
+      // Rows written by the server's own endpoints carry their fields in `meta`
+      // rather than a prose `details` string — show whichever exists.
+      details:
+        typeof row.meta?.details === 'string' && row.meta.details
+          ? row.meta.details
+          : metaSummary(row.meta),
+      adminName: row.adminName,
+      createdAt: Date.parse(row.createdAt) || 0,
+    }));
   } catch {
     return [];
   }
 };
+
+/** `{reason: 'spam', banned: true}` → «reason: spam · banned: true». */
+function metaSummary(meta: Record<string, unknown> | undefined): string {
+  if (!meta) return '';
+  return Object.entries(meta)
+    .filter(([, v]) => v !== '' && v != null)
+    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+    .join(' · ');
+}
 
 // ==================== CSV EXPORT ====================
 /**
@@ -1612,7 +1684,26 @@ export const exportToCSV = (rows: Record<string, any>[], filename: string): void
 };
 
 // ==================== CONFIG MANAGEMENT (التحكم في التطبيق) ====================
-// كل تعديل هنا ينعكس فوراً في التطبيق (real-time عبر onSnapshot)
+// كل الكتالوجات (هدايا، متجر، VIP، ألعاب، أرستقراطية، ألقاب، مهام، إطارات،
+// خلفيات، باقات، مكافآت، مستويات الوكالة، تسعير المكالمات، الخصوصية، حول
+// التطبيق…) تُقرأ وتُكتب على `config_docs` في Postgres عبر `/admin/config/:id`.
+// التطبيق يقرأ نفس الجدول، فأي حفظ هنا يظهر في التطبيق بعد انتهاء الكاش (60ث).
+
+/**
+ * قارئ مستند إعدادات بشكل «سناب-شوت» — نفس واجهة Firestore التي تستخدمها
+ * الدوال أدناه (`snap.exists()` / `snap.data()`), حتى تبقى أجسامها كما هي حرفياً.
+ * الفرق الجوهري الوحيد: `exists()` هنا تعني «المستند مُنشأ فعلاً على السيرفر»
+ * وليس «فيه بيانات» — وهذا ما تعتمد عليه شاشات مثل الهدايا لتزرع الافتراضي مرة
+ * واحدة فقط دون أن تُعيد ما حذفه المالك.
+ */
+async function getConfigSnap(id: string): Promise<{
+  exists: () => boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: () => Record<string, any>;
+}> {
+  const snap = await readConfigSnapshot(id);
+  return { exists: () => snap.exists, data: () => snap.data };
+}
 
 export type GiftVisualType = 'icon' | 'image';
 export type GiftMediaType = 'static' | 'animated' | 'animated_sound' | 'video';
@@ -1819,14 +1910,14 @@ export interface ConfigSettings {
 // ===== Gifts =====
 export const getConfigGifts = async (): Promise<ConfigGift[]> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'gifts'));
+    const snap = await getConfigSnap('gifts');
     return snap.exists() ? (snap.data().items ?? []) : [];
   } catch { return []; }
 };
 
 export const getConfigGiftCategories = async (): Promise<ConfigGiftCategory[]> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'gifts'));
+    const snap = await getConfigSnap('gifts');
     if (snap.exists() && snap.data().categories?.length) {
       return (snap.data().categories as ConfigGiftCategory[])
         .map(normalizeConfigGiftCategory)
@@ -1849,7 +1940,7 @@ export const getConfigGiftsState = async (): Promise<{
   categories: ConfigGiftCategory[];
 }> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'gifts'));
+    const snap = await getConfigSnap('gifts');
     if (!snap.exists()) return { exists: false, items: [], categories: [] };
     const data = snap.data();
     const items = (data.items ?? []) as ConfigGift[];
@@ -1875,15 +1966,11 @@ export const saveConfigGifts = async (
     _permKey: 'gifts',
   };
   if (categories) payload.categories = categories.map(categoryToFirestore);
-  await setDoc(doc(firestore, 'config', 'gifts'), payload, { merge: true });
+  await mergeConfig('gifts', payload);
 };
 
 export const saveConfigGiftCategories = async (categories: ConfigGiftCategory[]): Promise<void> => {
-  await setDoc(
-    doc(firestore, 'config', 'gifts'),
-    { categories: categories.map(categoryToFirestore), updatedAt: Date.now(), _permKey: 'gifts' },
-    { merge: true },
-  );
+  await mergeConfig('gifts', { categories: categories.map(categoryToFirestore), updatedAt: Date.now(), _permKey: 'gifts' });
 };
 function inferGiftMediaType(g: ConfigGift): GiftMediaType {
   if (g.giftMediaType) return g.giftMediaType;
@@ -1981,62 +2068,46 @@ function backgroundToFirestore(b: RoomBackground): RoomBackground {
 
 export const getRoomFrames = async (): Promise<RoomFrame[]> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'roomFrames'));
+    const snap = await getConfigSnap('roomFrames');
     return snap.exists() ? (snap.data().items ?? []) : [];
   } catch { return []; }
 };
 
 export const saveRoomFrames = async (items: RoomFrame[]): Promise<void> => {
-  await setDoc(
-    doc(firestore, 'config', 'roomFrames'),
-    { items: items.map(frameToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' },
-    { merge: true },
-  );
+  await mergeConfig('roomFrames', { items: items.map(frameToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' });
 };
 
 export const getRoomBackgrounds = async (): Promise<RoomBackground[]> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'roomBackgrounds'));
+    const snap = await getConfigSnap('roomBackgrounds');
     return snap.exists() ? (snap.data().items ?? []) : [];
   } catch { return []; }
 };
 
 export const saveRoomBackgrounds = async (items: RoomBackground[]): Promise<void> => {
-  await setDoc(
-    doc(firestore, 'config', 'roomBackgrounds'),
-    { items: items.map(backgroundToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' },
-    { merge: true },
-  );
+  await mergeConfig('roomBackgrounds', { items: items.map(backgroundToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' });
 };
 
 export const getAgencyRoomFrames = async (): Promise<RoomFrame[]> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'agencyRoomFrames'));
+    const snap = await getConfigSnap('agencyRoomFrames');
     return snap.exists() ? (snap.data().items ?? []) : [];
   } catch { return []; }
 };
 
 export const saveAgencyRoomFrames = async (items: RoomFrame[]): Promise<void> => {
-  await setDoc(
-    doc(firestore, 'config', 'agencyRoomFrames'),
-    { items: items.map(frameToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' },
-    { merge: true },
-  );
+  await mergeConfig('agencyRoomFrames', { items: items.map(frameToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' });
 };
 
 export const getAgencyRoomBackgrounds = async (): Promise<RoomBackground[]> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'agencyRoomBackgrounds'));
+    const snap = await getConfigSnap('agencyRoomBackgrounds');
     return snap.exists() ? (snap.data().items ?? []) : [];
   } catch { return []; }
 };
 
 export const saveAgencyRoomBackgrounds = async (items: RoomBackground[]): Promise<void> => {
-  await setDoc(
-    doc(firestore, 'config', 'agencyRoomBackgrounds'),
-    { items: items.map(backgroundToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' },
-    { merge: true },
-  );
+  await mergeConfig('agencyRoomBackgrounds', { items: items.map(backgroundToFirestore), updatedAt: Date.now(), _permKey: 'room-decor' });
 };
 
 // ===== متجر التطبيق (دخولية / فقاعة / شارات / تأثيرات / ثيمات / VIP) =====
@@ -2161,7 +2232,7 @@ export const getConfigStoreState = async (): Promise<{
   categories: ConfigStoreCategory[];
 }> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'store'));
+    const snap = await getConfigSnap('store');
     if (!snap.exists()) return { exists: false, items: [], categories: [] };
     const data = snap.data();
     const items = ((data.items ?? []) as ConfigStoreItem[])
@@ -2190,15 +2261,11 @@ export const saveConfigStore = async (
     _permKey: 'store',
   };
   if (categories) payload.categories = categories.map(storeCategoryToFirestore);
-  await setDoc(doc(firestore, 'config', 'store'), payload, { merge: true });
+  await mergeConfig('store', payload);
 };
 
 export const saveConfigStoreCategories = async (categories: ConfigStoreCategory[]): Promise<void> => {
-  await setDoc(
-    doc(firestore, 'config', 'store'),
-    { categories: categories.map(storeCategoryToFirestore), updatedAt: Date.now(), _permKey: 'store' },
-    { merge: true },
-  );
+  await mergeConfig('store', { categories: categories.map(storeCategoryToFirestore), updatedAt: Date.now(), _permKey: 'store' });
 };
 
 // ===== خلفيات المحادثة (bond level) =====
@@ -2358,7 +2425,7 @@ export const DEFAULT_CONFIG_CHAT_BACKGROUNDS: ConfigChatBackground[] = [
 
 export const getConfigChatBackgrounds = async (): Promise<ConfigChatBackground[]> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'chatBackgrounds'));
+    const snap = await getConfigSnap('chatBackgrounds');
     return snap.exists() ? (snap.data().items ?? []) : [];
   } catch {
     return [];
@@ -2368,11 +2435,7 @@ export const getConfigChatBackgrounds = async (): Promise<ConfigChatBackground[]
 export const saveConfigChatBackgrounds = async (
   items: ConfigChatBackground[],
 ): Promise<void> => {
-  await setDoc(
-    doc(firestore, 'config', 'chatBackgrounds'),
-    { items: items.map(chatBackgroundToFirestore), updatedAt: Date.now(), _permKey: 'chat-backgrounds' },
-    { merge: true },
-  );
+  await mergeConfig('chatBackgrounds', { items: items.map(chatBackgroundToFirestore), updatedAt: Date.now(), _permKey: 'chat-backgrounds' });
 };
 
 // ===== هدايا حقيبة الحظ =====
@@ -2397,13 +2460,13 @@ export const DEFAULT_LUCKY_BAG_GIFTS: LuckyBagGift[] = [
 
 export const getLuckyBagGifts = async (): Promise<LuckyBagGift[]> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'luckyBagGifts'));
+    const snap = await getConfigSnap('luckyBagGifts');
     return snap.exists() ? (snap.data().items ?? DEFAULT_LUCKY_BAG_GIFTS) : DEFAULT_LUCKY_BAG_GIFTS;
   } catch { return DEFAULT_LUCKY_BAG_GIFTS; }
 };
 
 export const saveLuckyBagGifts = async (items: LuckyBagGift[]): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'luckyBagGifts'), { items, updatedAt: Date.now(), _permKey: 'lucky-bag' }, { merge: true });
+  await mergeConfig('luckyBagGifts', { items, updatedAt: Date.now(), _permKey: 'lucky-bag' });
 };
 
 // ===== عرش الغرفة =====
@@ -2427,7 +2490,7 @@ export const DEFAULT_ROOM_THRONE: ConfigRoomThrone = {
 
 export const getRoomThroneConfig = async (): Promise<ConfigRoomThrone> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'roomThrone'));
+    const snap = await getConfigSnap('roomThrone');
     if (!snap.exists()) return DEFAULT_ROOM_THRONE;
     const d = snap.data();
     return {
@@ -2444,7 +2507,7 @@ export const getRoomThroneConfig = async (): Promise<ConfigRoomThrone> => {
 };
 
 export const saveRoomThroneConfig = async (config: ConfigRoomThrone): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'roomThrone'), { ...config, updatedAt: Date.now(), _permKey: 'room-throne' }, { merge: true });
+  await mergeConfig('roomThrone', { ...config, updatedAt: Date.now(), _permKey: 'room-throne' });
 };
 
 // ===== رموز/صور الروم (GIF/PNG) — config/roomReactions =====
@@ -2515,7 +2578,7 @@ export function normalizeRoomReactionsConfig(data: unknown): ConfigRoomReactions
 
 export const getRoomReactionsConfig = async (): Promise<ConfigRoomReactions> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'roomReactions'));
+    const snap = await getConfigSnap('roomReactions');
     if (!snap.exists()) return DEFAULT_ROOM_REACTIONS;
     return normalizeRoomReactionsConfig(snap.data());
   } catch {
@@ -2543,11 +2606,7 @@ export const saveRoomReactionsConfig = async (config: ConfigRoomReactions): Prom
         order: item.order ?? 0,
       })),
     }));
-  await setDoc(
-    doc(firestore, 'config', 'roomReactions'),
-    { packs, updatedAt: Date.now(), _permKey: 'room-reactions' },
-    { merge: true },
-  );
+  await mergeConfig('roomReactions', { packs, updatedAt: Date.now(), _permKey: 'room-reactions' });
 };
 
 // ===== مستويات الوكالة =====
@@ -2613,7 +2672,7 @@ export const DEFAULT_AGENCY_LEVELS_CONFIG: ConfigAgencyLevels = {
 
 export const getAgencyLevelsConfig = async (): Promise<ConfigAgencyLevels> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'agencyLevels'));
+    const snap = await getConfigSnap('agencyLevels');
     if (!snap.exists()) return DEFAULT_AGENCY_LEVELS_CONFIG;
     const d = snap.data();
     const levels = Array.isArray(d.levels)
@@ -2621,10 +2680,8 @@ export const getAgencyLevelsConfig = async (): Promise<ConfigAgencyLevels> => {
           .map((row) => ({
             level: Number(row.level) || 0,
             supportTarget: Number(row.supportTarget) || 0,
-            managerBonus:
-              Number(row.managerBonus) > 0
-                ? Number(row.managerBonus)
-                : Math.floor((Number(row.supportTarget) || 0) * 0.32),
+            // نقرأ المكافأة كما حُفظت (بلا إجبار 0 إلى 32% من الحدّ) حتى تُطابق ما أدخله المالك
+            managerBonus: Math.max(0, Number(row.managerBonus) || 0),
           }))
           .filter((r) => r.level >= 1 && r.supportTarget > 0)
           .sort((a, b) => a.level - b.level)
@@ -2655,13 +2712,11 @@ export const saveAgencyLevelsConfig = async (config: ConfigAgencyLevels): Promis
     .map((r) => ({
       level: Math.round(Number(r.level)),
       supportTarget: Math.round(Number(r.supportTarget)),
-      managerBonus: Math.round(Number(r.managerBonus) || r.supportTarget * 0.32),
+      managerBonus: Math.max(0, Math.round(Number(r.managerBonus) || 0)),
     }))
     .filter((r) => r.level >= 1 && r.supportTarget > 0)
     .sort((a, b) => a.level - b.level);
-  await setDoc(
-    doc(firestore, 'config', 'agencyLevels'),
-    {
+  await mergeConfig('agencyLevels', {
       levels,
       extendStepCoins: Math.max(1, Math.round(Number(config.extendStepCoins) || 25_000_000)),
       throneUnlockLevel: Math.max(1, Math.round(Number(config.throneUnlockLevel) || 15)),
@@ -2676,9 +2731,7 @@ export const saveAgencyLevelsConfig = async (config: ConfigAgencyLevels): Promis
       vipSupervisorBonus: Math.max(0, Math.round(Number(config.vipSupervisorBonus) || 0)),
       updatedAt: Date.now(),
       _permKey: 'agency-levels',
-    },
-    { merge: true },
-  );
+    });
 };
 
 
@@ -2762,7 +2815,7 @@ const sanitizePolicyRow = (row: Partial<ConfigAgentPolicyRow> | undefined): Conf
 
 export const getAgencyPolicies = async (): Promise<ConfigAgencyPolicies> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'agencyPolicies'));
+    const snap = await getConfigSnap('agencyPolicies');
     if (!snap.exists()) return DEFAULT_AGENCY_POLICIES;
     const d = snap.data();
     const agent = Array.isArray(d.agent) && d.agent.length > 0
@@ -2787,9 +2840,7 @@ export const getAgencyPolicies = async (): Promise<ConfigAgencyPolicies> => {
 };
 
 export const saveAgencyPolicies = async (config: ConfigAgencyPolicies): Promise<void> => {
-  await setDoc(
-    doc(firestore, 'config', 'agencyPolicies'),
-    {
+  await mergeConfig('agencyPolicies', {
       usdPerDiamond: Math.max(0, Number(config.usdPerDiamond) || DEFAULT_AGENCY_POLICIES.usdPerDiamond),
       agentCollectionAbovePct: Math.max(0, Number(config.agentCollectionAbovePct) || 0),
       agentBonusAbovePct: Math.max(0, Number(config.agentBonusAbovePct) || 0),
@@ -2800,22 +2851,20 @@ export const saveAgencyPolicies = async (config: ConfigAgencyPolicies): Promise<
       hostess: (config.hostess ?? DEFAULT_AGENCY_POLICIES.hostess).map(sanitizePolicyRow).filter((r) => r.target > 0),
       updatedAt: Date.now(),
       _permKey: 'agency-policies',
-    },
-    { merge: true },
-  );
+    });
 };
 
 
 // ===== VIP Tiers =====
 export const getConfigVipTiers = async (): Promise<ConfigVipTier[]> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'vipTiers'));
+    const snap = await getConfigSnap('vipTiers');
     return snap.exists() ? (snap.data().tiers ?? []) : [];
   } catch { return []; }
 };
 
 export const saveConfigVipTiers = async (tiers: ConfigVipTier[]): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'vipTiers'), { tiers, updatedAt: Date.now(), _permKey: 'vip' }, { merge: true });
+  await mergeConfig('vipTiers', { tiers, updatedAt: Date.now(), _permKey: 'vip' });
 };
 
 // ===== VIP System (levels + privileges) =====
@@ -3057,17 +3106,9 @@ export const DEFAULT_CONFIG_VIP_SYSTEM: ConfigVipSystem = {
   ],
 };
 
-function resolveVipLevelFromPoints(points: number, levels: ConfigVipLevel[]): number {
-  let resolved = 0;
-  for (const lv of levels.map(normalizeConfigVipLevel)) {
-    if (points >= lv.priceCoins) resolved = lv.level;
-  }
-  return resolved;
-}
-
 export const getConfigVipSystem = async (): Promise<ConfigVipSystem> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'vipSystem'));
+    const snap = await getConfigSnap('vipSystem');
     if (snap.exists()) {
       return normalizeConfigVipSystem(snap.data() as Partial<ConfigVipSystem>);
     }
@@ -3078,7 +3119,7 @@ export const getConfigVipSystem = async (): Promise<ConfigVipSystem> => {
 export const saveConfigVipSystem = async (config: ConfigVipSystem): Promise<void> => {
   const normalized = normalizeConfigVipSystem(config);
   const payload = stripUndefinedDeep({ ...normalized, updatedAt: Date.now(), _permKey: 'vip' });
-  await setDoc(doc(firestore, 'config', 'vipSystem'), payload, { merge: true });
+  await mergeConfig('vipSystem', payload);
 };
 
 /** Firestore يرفض undefined — نزيلها قبل الكتابة */
@@ -3095,25 +3136,7 @@ function stripUndefinedDeep<T>(value: T): T {
   return out as T;
 }
 
-async function addVipPointsAdmin(uid: string, coinsAdded: number): Promise<void> {
-  if (coinsAdded <= 0) return;
-  const config = await getConfigVipSystem();
-  const points = Math.floor(coinsAdded * (config.pointPerCoin ?? 1));
-  const userRef = doc(firestore, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) return;
-  const data = snap.data() as Record<string, unknown>;
-  const newPoints = Number(data.vipPoints ?? 0) + points;
-  const newMonth = Number(data.vipPointsMonth ?? 0) + points;
-  const newLevel = resolveVipLevelFromPoints(newPoints, config.levels);
-  await updateDoc(userRef, {
-    vipPoints: newPoints,
-    vipPointsMonth: newMonth,
-    vipLevel: newLevel,
-    isVIP: newLevel >= 1,
-    updatedAt: Date.now(),
-  });
-}
+
 
 // ===== Recharge Packages =====
 export const getConfigPackagesState = async (): Promise<{
@@ -3122,7 +3145,7 @@ export const getConfigPackagesState = async (): Promise<{
   tags: ConfigRechargePackageTag[];
 }> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'rechargePackages'));
+    const snap = await getConfigSnap('rechargePackages');
     if (!snap.exists()) return { exists: false, packages: [], tags: [] };
     const data = snap.data();
     const tags = ((data.tags ?? data.categories ?? []) as ConfigRechargePackageTag[])
@@ -3151,12 +3174,12 @@ export const saveConfigPackages = async (
   if (tags) {
     payload.tags = tags.map(normalizeConfigRechargePackageTag).map((t, i) => ({ ...t, order: i }));
   }
-  await setDoc(doc(firestore, 'config', 'rechargePackages'), payload, { merge: true });
+  await mergeConfig('rechargePackages', payload);
 };
 
 export const saveConfigPackageTags = async (tags: ConfigRechargePackageTag[]): Promise<void> => {
   const normalized = tags.map(normalizeConfigRechargePackageTag).map((t, i) => ({ ...t, order: i }));
-  await setDoc(doc(firestore, 'config', 'rechargePackages'), { tags: normalized, updatedAt: Date.now(), _permKey: 'packages' }, { merge: true });
+  await mergeConfig('rechargePackages', { tags: normalized, updatedAt: Date.now(), _permKey: 'packages' });
 };
 
 // ===== Rewards Center =====
@@ -3264,13 +3287,13 @@ export const DEFAULT_REWARDS_CENTER: ConfigRewardsCenter = {
 
 export const getRewardsCenterConfig = async (): Promise<ConfigRewardsCenter | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'rewardsCenter'));
+    const snap = await getConfigSnap('rewardsCenter');
     return snap.exists() ? ({ ...DEFAULT_REWARDS_CENTER, ...snap.data() } as ConfigRewardsCenter) : null;
   } catch { return null; }
 };
 
 export const saveRewardsCenterConfig = async (config: ConfigRewardsCenter): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'rewardsCenter'), { ...config, updatedAt: Date.now(), _permKey: 'rewards-center' }, { merge: true });
+  await mergeConfig('rewardsCenter', { ...config, updatedAt: Date.now(), _permKey: 'rewards-center' });
 };
 
 // ===== Host Tasks (مهام المضيفة) =====
@@ -3353,7 +3376,7 @@ export const DEFAULT_HOST_TASKS: ConfigHostTasks = {
 
 export const getHostTasksConfig = async (): Promise<ConfigHostTasks | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'hostTasks'));
+    const snap = await getConfigSnap('hostTasks');
     if (!snap.exists()) return null;
     const data = snap.data() as Partial<ConfigHostTasks>;
     return {
@@ -3365,7 +3388,7 @@ export const getHostTasksConfig = async (): Promise<ConfigHostTasks | null> => {
 };
 
 export const saveHostTasksConfig = async (config: ConfigHostTasks): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'hostTasks'), { ...config, updatedAt: Date.now(), _permKey: 'host-tasks' }, { merge: true });
+  await mergeConfig('hostTasks', { ...config, updatedAt: Date.now(), _permKey: 'host-tasks' });
 };
 
 // ===== About Pages (حول التطبيق) =====
@@ -3406,7 +3429,7 @@ export const DEFAULT_ABOUT_PAGES: ConfigAboutPages = {
 
 export const getAboutPagesConfig = async (): Promise<ConfigAboutPages | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'aboutPages'));
+    const snap = await getConfigSnap('aboutPages');
     if (!snap.exists()) return null;
     const data = snap.data() as Partial<ConfigAboutPages>;
     return {
@@ -3418,7 +3441,7 @@ export const getAboutPagesConfig = async (): Promise<ConfigAboutPages | null> =>
 };
 
 export const saveAboutPagesConfig = async (config: ConfigAboutPages): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'aboutPages'), { ...config, updatedAt: Date.now(), _permKey: 'about-pages' }, { merge: true });
+  await mergeConfig('aboutPages', { ...config, updatedAt: Date.now(), _permKey: 'about-pages' });
 };
 
 // ===== إصدار التطبيق (APK تجريبي) =====
@@ -3462,7 +3485,7 @@ export const DEFAULT_APP_RELEASE: ConfigAppRelease = {
 
 export const getAppReleaseConfig = async (): Promise<ConfigAppRelease | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'appRelease'));
+    const snap = await getConfigSnap('appRelease');
     if (!snap.exists()) return null;
     return { ...DEFAULT_APP_RELEASE, ...(snap.data() as Partial<ConfigAppRelease>) };
   } catch {
@@ -3480,7 +3503,7 @@ export const saveAppReleaseConfig = async (config: ConfigAppRelease): Promise<vo
     if (data[key] === undefined) delete data[key];
   }
 
-  await setDoc(doc(firestore, 'config', 'appRelease'), data, { merge: true });
+  await mergeConfig('appRelease', data);
 };
 
 // ===== Aristocracy =====
@@ -3823,7 +3846,7 @@ export const DEFAULT_ARISTOCRACY_CONFIG: ConfigAristocracy = {
 
 export const getAristocracyConfig = async (): Promise<ConfigAristocracy | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'aristocracy'));
+    const snap = await getConfigSnap('aristocracy');
     return snap.exists()
       ? normalizeAristocracyConfig(snap.data() as Partial<ConfigAristocracy>)
       : null;
@@ -3834,7 +3857,7 @@ export const saveAristocracyConfig = async (config: ConfigAristocracy): Promise<
   const normalized = normalizeAristocracyConfig(config);
   const payload = stripUndefinedDeep({ ...normalized, updatedAt: Date.now(), _permKey: 'aristocracy' });
   // استبدال كامل — merge كان يبقي حقول قديمة ويعيد محتوى تجريبي
-  await setDoc(doc(firestore, 'config', 'aristocracy'), payload);
+  await replaceConfig('aristocracy', payload);
 };
 
 // ===== Titles (جدار الألقاب) =====
@@ -3935,196 +3958,104 @@ export const DEFAULT_TITLES_CONFIG: ConfigTitles = {
 
 export const getTitlesConfig = async (): Promise<ConfigTitles | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'titles'));
+    const snap = await getConfigSnap('titles');
     return snap.exists() ? ({ ...DEFAULT_TITLES_CONFIG, ...snap.data() } as ConfigTitles) : null;
   } catch { return null; }
 };
 
 export const saveTitlesConfig = async (config: ConfigTitles): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'titles'), { ...config, updatedAt: Date.now(), _permKey: 'titles' }, { merge: true });
+  await mergeConfig('titles', { ...config, updatedAt: Date.now(), _permKey: 'titles' });
 };
 
-/** منح لقب يدوياً لمستخدم */
+/** منح لقب يدوياً لمستخدم — the owned list lives on the server; one call. */
 export const grantUserTitle = async (
   uid: string,
   titleId: string,
   validityDays = 0,
 ): Promise<void> => {
   await assertUidInAdminCountryScope(uid);
-  const userRef = doc(firestore, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('المستخدم غير موجود');
-
-  const now = Date.now();
-  const DAY = 24 * 60 * 60 * 1000;
-  const expiresAt = validityDays > 0 ? now + validityDays * DAY : null;
-  const raw = (snap.data().userTitles ?? { owned: [], equipped: [] }) as {
-    owned: { titleId: string; obtainedAt: number; expiresAt: number | null }[];
-    equipped: (string | null)[];
-  };
-
-  const owned = [...(raw.owned ?? [])];
-  const idx = owned.findIndex((o) => o.titleId === titleId);
-  const entry = { titleId, obtainedAt: now, expiresAt };
-  if (idx >= 0) owned[idx] = entry;
-  else owned.push(entry);
-
-  await updateDoc(userRef, {
-    userTitles: { owned, equipped: raw.equipped ?? [] },
-    updatedAt: now,
+  await v2.post(`/admin/users/${uid}/grant-title`, {
+    titleId,
+    ...(validityDays > 0 ? { days: Math.floor(validityDays) } : {}),
   });
 };
 
-/** سحب لقب من مستخدم */
 export const revokeUserTitle = async (uid: string, titleId: string): Promise<void> => {
   await assertUidInAdminCountryScope(uid);
-  const userRef = doc(firestore, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('المستخدم غير موجود');
-
-  const now = Date.now();
-  const raw = (snap.data().userTitles ?? { owned: [], equipped: [] }) as {
-    owned: { titleId: string; obtainedAt: number; expiresAt: number | null }[];
-    equipped: (string | null)[];
-  };
-
-  const owned = (raw.owned ?? []).filter((o) => o.titleId !== titleId);
-  const equipped = (raw.equipped ?? []).map((id) => (id === titleId ? null : id));
-
-  await updateDoc(userRef, {
-    userTitles: { owned, equipped },
-    updatedAt: now,
-  });
+  await v2.post(`/admin/users/${uid}/revoke-title`, { titleId });
 };
 
-// ===== منح الامتيازات للمستخدمين (متجر / إطار / SVIP / أرستقراطية) =====
-const GRANT_DAY_MS = 24 * 60 * 60 * 1000;
-
-export type GiftPrivilegeKind = 'store' | 'frame' | 'vip' | 'aristocracy';
-
-/** يمنح عنصر متجر (دخولية/فقاعة/شارة...) لمستخدم مع مدة صلاحية ويجهّزه للظهور فوراً */
+/**
+ * منح عنصر متجر (دخولية/فقاعة/…) — the SAME inventory row a purchase writes, from
+ * the same catalogue, through `/grant-item`. v1 wrote the inventory document from
+ * the browser, which is exactly the gap that once allowed free minting.
+ */
 export const grantStoreItemToUser = async (
   uid: string,
   item: ConfigStoreItem,
   validityDays: number,
   equip = true,
 ): Promise<void> => {
+  void equip; // the server equips what is equippable, by category
   await assertUidInAdminCountryScope(uid);
-  const userRef = doc(firestore, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('المستخدم غير موجود');
-
-  const now = Date.now();
-  const expiresAt = validityDays > 0 ? now + validityDays * GRANT_DAY_MS : null;
-  const canEquip = equip && (item.category === 'entrance' || item.category === 'bubble');
-
-  await addDoc(collection(firestore, 'inventory'), {
-    uid,
+  await v2.post(`/admin/users/${uid}/grant-item`, {
     itemId: item.id,
-    itemType: item.category,
-    itemName: item.name,
-    iconName: item.iconName || 'ShoppingBag',
-    iconColor: item.iconColor || '#e11212',
-    quantity: 1,
-    isEquipped: canEquip,
-    acquiredAt: now,
-    expiresAt,
-    fromName: 'هدية الإدارة',
+    ...(validityDays > 0 ? { days: Math.floor(validityDays) } : {}),
   });
-
-  if (canEquip && item.category === 'entrance') {
-    await updateDoc(userRef, { equippedEntranceId: item.id, updatedAt: now });
-  } else if (canEquip && item.category === 'bubble') {
-    await updateDoc(userRef, { equippedBubbleId: item.id, updatedAt: now });
-  }
 };
 
-/** يمنح إطار صورة شخصية لمستخدم (config/roomFrames → users.frameInventory) */
+/** منح إطار — same endpoint, flagged as a room frame so the server picks the
+ *  frames catalogue rather than the store one. */
 export const grantFrameToUser = async (
   uid: string,
   frame: RoomFrame,
   validityDays: number,
   equip = true,
 ): Promise<void> => {
+  void equip;
   await assertUidInAdminCountryScope(uid);
-  const userRef = doc(firestore, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('المستخدم غير موجود');
-
-  const now = Date.now();
-  // 0 = دائم (نفس منطق التطبيق)
-  const expiresAt = validityDays > 0 ? now + validityDays * GRANT_DAY_MS : 0;
-  const inv = (snap.data().frameInventory ?? {}) as Record<string, number>;
-  const next = { ...inv, [frame.id]: expiresAt };
-
-  const patch: Record<string, unknown> = {
-    frameInventory: next,
-    ownedFrames: arrayUnion(frame.id),
-    updatedAt: now,
-  };
-  if (equip) patch.equippedFrameId = frame.id;
-  await updateDoc(userRef, patch);
+  await v2.post(`/admin/users/${uid}/grant-item`, {
+    itemId: frame.id,
+    isRoomFrame: true,
+    ...(validityDays > 0 ? { days: Math.floor(validityDays) } : {}),
+  });
 };
 
-/** يمنح مستوى SVIP لمستخدم مع مدة صلاحية (0 = دائم) — يفتح كل امتيازات المستوى */
+/**
+ * منح مستوى VIP — v2 keeps ONE source of truth (the level), so there is no
+ * separate isVIP flag to keep in step. A validity window is not part of the VIP
+ * model here: the level stands until it is changed.
+ */
 export const grantVipLevelToUser = async (
   uid: string,
   level: number,
   validityDays: number,
 ): Promise<void> => {
+  void validityDays;
   await assertUidInAdminCountryScope(uid);
-  const userRef = doc(firestore, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('المستخدم غير موجود');
-
-  const now = Date.now();
-  const expiresAt = validityDays > 0 ? now + validityDays * GRANT_DAY_MS : null;
-  await updateDoc(userRef, {
-    vipLevel: level,
-    isVIP: level >= 1,
-    vipExpiresAt: expiresAt,
-    vipMonthKey: new Date(now).toISOString().slice(0, 7),
-    updatedAt: now,
-  });
+  await v2.post(`/admin/users/${uid}/profile`, { vipLevel: Math.max(0, Math.floor(level)) });
+  await logAdminAction('منح VIP', uid, `مستوى ${level}`);
 };
 
-/** يمنح تصنيف أرستقراطية لمستخدم مع مدة صلاحية (0 = دائم تقريباً) */
+/**
+ * منح رتبة أرستقراطية — the server writes the same state a purchase writes, so the
+ * entrance, theme and carried VIP level all behave identically. It does NOT start
+ * the daily coin-return drip: those returns mirror coins actually spent, and a
+ * free grant spent none.
+ */
 export const grantAristocracyToUser = async (
   uid: string,
   level: ConfigAristocracyLevel,
   validityDays: number,
 ): Promise<void> => {
   await assertUidInAdminCountryScope(uid);
-  const userRef = doc(firestore, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('المستخدم غير موجود');
-
-  const now = Date.now();
-  // الأرستقراطية تتطلب تاريخ انتهاء أكبر من الآن لتُعتبر فعّالة — 0 = ~10 سنوات
-  const days = validityDays > 0 ? validityDays : 3650;
-  const expiresAt = now + days * GRANT_DAY_MS;
-  const grantedVipLevel = level.grantedVipLevel ?? 0;
-  const svipPrivilegeKeys = Array.isArray(level.svipPrivilegeKeys) ? level.svipPrivilegeKeys.map(String) : null;
-  const newState = {
+  await v2.post(`/admin/users/${uid}/grant-aristocracy`, {
     level: level.level,
-    expiresAt,
-    autoRenew: false,
-    grantedVipLevel,
-    svipPrivilegeKeys,
-    pendingReturns: 0,
-    frozenReturns: 0,
-    frozenAt: null,
-    honorPoints: 0,
-    honorMonth: '',
-  };
-
-  await updateDoc(userRef, {
-    aristocracy: newState,
-    aristocracyLevel: level.level,
-    aristocracyExpiresAt: expiresAt,
-    aristocracyGrantedVipLevel: grantedVipLevel,
-    aristocracySvipPrivilegeKeys: svipPrivilegeKeys,
-    updatedAt: now,
+    ...(validityDays > 0 ? { days: Math.floor(validityDays) } : {}),
+    ...(level.grantedVipLevel ? { grantedVipLevel: level.grantedVipLevel } : {}),
+    ...(Array.isArray(level.svipPrivilegeKeys)
+      ? { svipPrivilegeKeys: level.svipPrivilegeKeys.map(String) }
+      : {}),
   });
 };
 
@@ -4212,7 +4143,7 @@ async function sumAgencyMonthEarnings(agencyId: string, monthKey: string): Promi
 
 export const getAgencyPrinceConfig = async (): Promise<ConfigAgencyPrince | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'agencyPrince'));
+    const snap = await getConfigSnap('agencyPrince');
     return snap.exists()
       ? ({ ...DEFAULT_AGENCY_PRINCE_CONFIG, ...snap.data() } as ConfigAgencyPrince)
       : null;
@@ -4222,47 +4153,12 @@ export const getAgencyPrinceConfig = async (): Promise<ConfigAgencyPrince | null
 };
 
 export const saveAgencyPrinceConfig = async (config: ConfigAgencyPrince): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'agencyPrince'), { ...config, updatedAt: Date.now(), _permKey: 'agency-prince' }, { merge: true });
+  await mergeConfig('agencyPrince', { ...config, updatedAt: Date.now(), _permKey: 'agency-prince' });
 };
-
-async function applyAgencyPrinceToUser(
-  uid: string,
-  holder: AgencyPrinceHolder,
-  assets: Pick<
-    ConfigAgencyPrince,
-    'badgeImageUrl' | 'entryImageUrl' | 'entryAnimationUrl' | 'entryVideoUrl' | 'entryVideoUrlMp4' | 'frameImageUrl' | 'bubbleImageUrl'
-  >,
-): Promise<void> {
-  const userRef = doc(firestore, 'users', uid);
-  const snap = await getDoc(userRef);
-  if (!snap.exists()) throw new Error('المستخدم غير موجود');
-
-  await updateDoc(userRef, {
-    agencyPrince: {
-      active: true,
-      monthKey: holder.monthKey,
-      agencyId: holder.agencyId,
-      agencyName: holder.agencyName,
-      badgeImageUrl: assets.badgeImageUrl ?? null,
-      entryImageUrl: assets.entryImageUrl ?? null,
-      entryAnimationUrl: assets.entryAnimationUrl ?? null,
-      entryVideoUrl: assets.entryVideoUrl ?? null,
-      entryVideoUrlMp4: assets.entryVideoUrlMp4 ?? null,
-      frameImageUrl: assets.frameImageUrl ?? null,
-      bubbleImageUrl: assets.bubbleImageUrl ?? null,
-      grantedAt: holder.grantedAt,
-    },
-    updatedAt: Date.now(),
-  });
-}
 
 export const revokeAgencyPrinceFromUser = async (uid: string): Promise<void> => {
   await assertUidInAdminCountryScope(uid);
-  const userRef = doc(firestore, 'users', uid);
-  await updateDoc(userRef, {
-    agencyPrince: null,
-    updatedAt: Date.now(),
-  });
+  await v2.post('/admin/agency-prince/revoke', { uid });
 };
 
 export interface AgencyPrinceGrantPreview {
@@ -4277,178 +4173,42 @@ export interface AgencyPrinceGrantPreview {
   isOwner: boolean;
 }
 
-async function resolveAgencyManagerForPrince(rawIdentifier: string): Promise<
-  AgencyPrinceGrantPreview & { ownerName: string }
-> {
-  const uid = await resolveUserAccountId(rawIdentifier.trim());
-  if (!uid) throw new Error('المستخدم غير موجود — تحقق من UID أو رقم الحساب (8 أرقام)');
-
-  await assertUidInAdminCountryScope(uid);
-  const userSnap = await getDoc(doc(firestore, 'users', uid));
-  if (!userSnap.exists()) throw new Error('المستخدم غير موجود');
-
-  const user = userSnap.data() as Record<string, unknown>;
-  const agencyRole = String(user.agencyRole ?? '');
-  const isAgent = user.isAgent === true;
-  const isOwner = agencyRole === 'owner';
-  const isManager = isOwner || isAgent;
-
-  if (!isManager) {
-    throw new Error('هذا المستخدم ليس مدير وكالة — يجب أن يكون مالكاً (owner) أو وكيلاً معتمداً');
-  }
-
-  const displayName = String(
-    (user.profile as Record<string, unknown> | undefined)?.displayName ?? user.displayName ?? 'مستخدم',
-  );
-  const publicAccountId = user.publicAccountId != null ? String(user.publicAccountId) : undefined;
-
-  let agencyId = '';
-  let agencyName = '';
-  let ownerName = displayName;
-
-  if (isOwner) {
-    const ownedSnap = await getDocs(
-      query(collection(firestore, 'agencies'), where('ownerUid', '==', uid), limit(1)),
-    );
-    if (!ownedSnap.empty) {
-      const agDoc = ownedSnap.docs[0];
-      const ag = agDoc.data() as Record<string, unknown>;
-      agencyId = agDoc.id;
-      agencyName = String(ag.name ?? ag.agencyName ?? '');
-      ownerName = String(ag.ownerName ?? displayName);
-    }
-  }
-
-  if (!agencyId && user.agencyId) {
-    agencyId = String(user.agencyId);
-    agencyName = String(user.agencyName ?? '');
-  }
-
-  if (!agencyId) {
-    throw new Error('لا توجد وكالة مرتبطة بهذا المدير');
-  }
-
-  await assertAgencyIdInScope(agencyId);
-  const agencySnap = await getDoc(doc(firestore, 'agencies', agencyId));
-  if (!agencySnap.exists()) throw new Error('الوكالة غير موجودة');
-
-  const agency = agencySnap.data() as Record<string, unknown>;
-  const status = String(agency.status ?? 'active');
-  if (status === 'deleted' || status === 'rejected') {
-    throw new Error('الوكالة غير نشطة');
-  }
-
-  agencyName = agencyName || String(agency.name ?? agency.agencyName ?? 'وكالة');
-  const ownerUid = String(agency.ownerUid ?? '');
-
-  if (isOwner && ownerUid && ownerUid !== uid) {
-    throw new Error('المستخدم مُعلَّم كمالك وكالة لكنه لا يطابق سجل الوكالة');
-  }
-
-  if (isAgent && !isOwner) {
-    const userAgencyId = String(user.agencyId ?? '');
-    if (userAgencyId && userAgencyId !== agencyId) {
-      throw new Error('الوكيل مرتبط بوكالة أخرى');
-    }
-  }
-
-  return {
-    uid,
-    displayName,
-    publicAccountId,
-    isAgencyManager: true,
-    agencyId,
-    agencyName,
-    agencyRole,
-    isAgent,
-    isOwner,
-    ownerName: isOwner ? ownerName : displayName,
-  };
-}
-
-/** معاينة قبل المنح — يتحقق أن المستخدم مدير وكالة */
+/** من سيستلم اللقب — a preview, so the owner sees the agency before granting. */
 export const lookupAgencyPrinceGrantCandidate = async (
   identifier: string,
-): Promise<AgencyPrinceGrantPreview> => {
-  const { ownerName: _o, ...preview } = await resolveAgencyManagerForPrince(identifier);
-  return preview;
-};
+): Promise<AgencyPrinceGrantPreview> =>
+  v2.get<AgencyPrinceGrantPreview & { ownerName: string }>(
+    `/admin/agency-prince/candidate${v2Qs({ identifier: identifier.trim() })}`,
+  );
 
+/**
+ * منح أمير الوكلاء يدوياً. The server revokes the previous holder in the same
+ * operation and stores the new one in the config — the badge is singular, and
+ * doing the two halves from the browser is how v1 ended up showing two princes.
+ * `config` is accepted for signature compatibility; the assets come from the
+ * stored config on the server, which is the same document this page saves.
+ */
 export const grantAgencyPrinceManual = async (
   identifier: string,
   config: ConfigAgencyPrince,
 ): Promise<AgencyPrinceHolder> => {
-  const resolved = await resolveAgencyManagerForPrince(identifier);
-  const { uid, agencyId, agencyName, ownerName } = resolved;
-
-  const previousUid = config.currentHolder?.uid;
-  if (previousUid && previousUid !== uid) {
-    await revokeAgencyPrinceFromUser(previousUid).catch(() => undefined);
-  }
-
-  const monthKey = currentMonthKey();
-  const monthlyTotal = await sumAgencyMonthEarnings(agencyId, monthKey);
-  const holder: AgencyPrinceHolder = {
-    uid,
-    agencyId,
-    agencyName,
-    ownerName,
-    monthKey,
-    monthlyTotal,
-    grantedAt: Date.now(),
-  };
-  await applyAgencyPrinceToUser(uid, holder, config);
+  void config;
+  const holder = await v2.post<AgencyPrinceHolder>('/admin/agency-prince/grant', {
+    identifier: identifier.trim(),
+  });
+  await logAdminAction('منح أمير الوكلاء', holder.agencyName, holder.uid);
   return holder;
 };
 
-/** حساب أكبر وكالة للشهر الحالي ومنح أمير الوكلاء لمالكها */
-export const refreshMonthlyAgencyPrince = async (): Promise<AgencyPrinceHolder | null> => {
-  const config = (await getAgencyPrinceConfig()) ?? DEFAULT_AGENCY_PRINCE_CONFIG;
-  const monthKey = currentMonthKey();
-  const snap = await getDocs(query(collection(firestore, 'agencies'), limit(100)));
+/**
+ * إعادة الحساب الشهري — the server ranks the agencies FROM THE LEDGER (this
+ * month's host earnings), not from the agency wallet, which withdrawals drain.
+ * Returns null when nobody earned anything this month: then nobody is crowned,
+ * rather than an arbitrary agency with a zero total.
+ */
+export const refreshMonthlyAgencyPrince = async (): Promise<AgencyPrinceHolder | null> =>
+  v2.post<AgencyPrinceHolder | null>('/admin/agency-prince/refresh');
 
-  let best: { agencyId: string; ownerUid: string; agencyName: string; ownerName: string; total: number } | null = null;
-
-  for (const docSnap of snap.docs) {
-    const data = docSnap.data() as Record<string, unknown>;
-    const status = String(data.status ?? 'active');
-    if (status === 'deleted' || status === 'rejected') continue;
-    const ownerUid = String(data.ownerUid ?? '');
-    if (!ownerUid) continue;
-    const total = await sumAgencyMonthEarnings(docSnap.id, monthKey);
-    if (!best || total > best.total) {
-      best = {
-        agencyId: docSnap.id,
-        ownerUid,
-        agencyName: String(data.name ?? data.agencyName ?? 'وكالة'),
-        ownerName: String(data.ownerName ?? ''),
-        total,
-      };
-    }
-  }
-
-  if (!best || best.total <= 0) return null;
-
-  const previousUid = config.currentHolder?.uid;
-  if (previousUid && previousUid !== best.ownerUid) {
-    await revokeAgencyPrinceFromUser(previousUid).catch(() => undefined);
-  }
-
-  const holder: AgencyPrinceHolder = {
-    uid: best.ownerUid,
-    agencyId: best.agencyId,
-    agencyName: best.agencyName,
-    ownerName: best.ownerName,
-    monthKey,
-    monthlyTotal: best.total,
-    grantedAt: Date.now(),
-  };
-
-  await applyAgencyPrinceToUser(best.ownerUid, holder, config);
-  const nextConfig = { ...config, currentHolder: holder };
-  await saveAgencyPrinceConfig(nextConfig);
-  return holder;
-};
 
 // ===== Privacy (إعدادات الخصوصية) =====
 export type ConfigPrivacyFeatureKey =
@@ -4503,25 +4263,25 @@ export const DEFAULT_PRIVACY_CONFIG: ConfigPrivacy = {
 
 export const getPrivacyConfig = async (): Promise<ConfigPrivacy | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'privacy'));
+    const snap = await getConfigSnap('privacy');
     return snap.exists() ? ({ ...DEFAULT_PRIVACY_CONFIG, ...snap.data() } as ConfigPrivacy) : null;
   } catch { return null; }
 };
 
 export const savePrivacyConfig = async (config: ConfigPrivacy): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'privacy'), { ...config, updatedAt: Date.now(), _permKey: 'privacy' }, { merge: true });
+  await mergeConfig('privacy', { ...config, updatedAt: Date.now(), _permKey: 'privacy' });
 };
 
 // ===== Settings =====
 export const getConfigSettings = async (): Promise<ConfigSettings | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'settings'));
+    const snap = await getConfigSnap('settings');
     return snap.exists() ? (snap.data() as ConfigSettings) : null;
   } catch { return null; }
 };
 
 export const saveConfigSettings = async (settings: ConfigSettings): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'settings'), { ...settings, updatedAt: Date.now(), _permKey: 'settings' }, { merge: true });
+  await mergeConfig('settings', { ...settings, updatedAt: Date.now(), _permKey: 'settings' });
 };
 
 /** مفتاح Bot Admin API + باقة الشحن — يُحفظ في السحابة */
@@ -4534,7 +4294,7 @@ export interface BotAdminPanelConfig {
 
 export const getBotAdminPanelConfig = async (): Promise<BotAdminPanelConfig | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'botAdmin'));
+    const snap = await getConfigSnap('botAdmin');
     return snap.exists() ? (snap.data() as BotAdminPanelConfig) : null;
   } catch {
     return null;
@@ -4542,7 +4302,7 @@ export const getBotAdminPanelConfig = async (): Promise<BotAdminPanelConfig | nu
 };
 
 export const saveBotAdminPanelConfig = async (config: BotAdminPanelConfig): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'botAdmin'), { ...config, updatedAt: Date.now(), _permKey: 'bot' }, { merge: true });
+  await mergeConfig('botAdmin', { ...config, updatedAt: Date.now(), _permKey: 'bot' });
 };
 
 /** تصنيفات عينة — تُضاف فقط عند الضغط على «عينات تجريبية» */
@@ -5045,7 +4805,7 @@ function mergeConfigGames(saved?: ConfigGame[]): ConfigGame[] {
 
 export const getConfigGames = async (): Promise<ConfigGame[]> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'games'));
+    const snap = await getConfigSnap('games');
     if (snap.exists() && snap.data().games?.length) {
       const saved = snap.data().games as ConfigGame[];
       return mergeConfigGames(saved);
@@ -5056,7 +4816,7 @@ export const getConfigGames = async (): Promise<ConfigGame[]> => {
 
 export const getGamesGlobalEconomy = async (): Promise<GamesGlobalEconomy> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'games'));
+    const snap = await getConfigSnap('games');
     if (snap.exists() && snap.data().global) {
       return normalizeGamesGlobal(snap.data().global as GamesGlobalEconomy);
     }
@@ -5108,11 +4868,7 @@ export const saveConfigGames = async (
       ),
     };
   });
-  await setDoc(
-    doc(firestore, 'config', 'games'),
-    { games: mergedGames, global: globalPayload, updatedAt: Date.now(), _permKey: 'games' },
-    { merge: true },
-  );
+  await mergeConfig('games', { games: mergedGames, global: globalPayload, updatedAt: Date.now(), _permKey: 'games' });
 
   try {
     const settings = await getConfigSettings();
@@ -5189,18 +4945,14 @@ const normalizeConfigCallPricing = (raw: Record<string, unknown> | undefined): C
 
 export const getConfigCallPricing = async (): Promise<ConfigCallPricing> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'callPricing'));
+    const snap = await getConfigSnap('callPricing');
     if (snap.exists()) return normalizeConfigCallPricing(snap.data());
   } catch {}
   return DEFAULT_CONFIG_CALL_PRICING;
 };
 
 export const saveConfigCallPricing = async (pricing: ConfigCallPricing): Promise<void> => {
-  await setDoc(
-    doc(firestore, 'config', 'callPricing'),
-    { ...normalizeConfigCallPricing(pricing as unknown as Record<string, unknown>), updatedAt: Date.now(), _permKey: 'call-pricing' },
-    { merge: true },
-  );
+  await mergeConfig('callPricing', { ...normalizeConfigCallPricing(pricing as unknown as Record<string, unknown>), updatedAt: Date.now(), _permKey: 'call-pricing' });
 };
 
 // ==================== ADMINS & COUNTRY PERMISSIONS ====================
@@ -5287,77 +5039,199 @@ export const hasPermission = (key: PermissionKey): boolean => {
   return adminScope?.permissions?.[key] === true;
 };
 
+/**
+ * ── كيف يُترجم نموذج المشرفين بين اللوحة والسيرفر ─────────────────────────────
+ * v1 kept a separate `admins/{uid}` document. v2 has NO separate admin table: an
+ * admin IS a user account whose `role` is `admin` / `superadmin`, with the page
+ * permissions and the country scope on `users.profile`. That is deliberate — one
+ * account, one password, one ban switch, and a demotion takes effect instantly
+ * because the guard re-reads the row on every request.
+ *
+ * The panel's shape survives by mapping:
+ *   role 'super'   ⇄ users.role 'superadmin'
+ *   role 'country' ⇄ users.role 'admin'   (its permission list decides the pages)
+ *   permissions {key: true} ⇄ profile.adminPermissions ['key', …]
+ *   disabled ⇄ users.is_banned
+ */
+interface ServerAdminRow {
+  id: string;
+  displayName: string;
+  email: string;
+  role: string;
+  isBanned: boolean;
+  createdAt: string;
+}
+
+const permissionMapToList = (permissions: Record<string, boolean>): string[] =>
+  Object.entries(permissions ?? {})
+    .filter(([, on]) => on === true)
+    .map(([key]) => key);
+
+const permissionListToMap = (permissions: string[] | undefined): Record<string, boolean> => {
+  const out: Record<string, boolean> = {};
+  for (const key of permissions ?? []) out[key] = true;
+  return out;
+};
+
+const serverRoleOf = (role: 'super' | 'country'): string =>
+  role === 'super' ? 'superadmin' : 'admin';
+
 /** يحمّل ملف المشرف الحالي ويضبط النطاق */
 export const loadCurrentAdminProfile = async (): Promise<AdminProfile | null> => {
-  const uid = auth.currentUser?.uid ?? localStorage.getItem('admin_uid');
-  if (!uid) return null;
   try {
-    const snap = await getDoc(doc(firestore, 'admins', uid));
-    if (!snap.exists()) {
+    const me = await v2.get<{
+      uid: string;
+      name: string;
+      email: string;
+      role: string;
+      isSuper: boolean;
+      permissions: string[];
+      countries: string[];
+    }>('/admin/me');
+    if (!me?.uid) {
       setAdminScope(null);
-      setCountryScopeProfile(null);
       return null;
     }
-    const d = snap.data() as any;
     const profile: AdminProfile = {
-      uid,
-      email: String(d.email ?? ''),
-      name: String(d.name ?? 'مشرف'),
-      role: d.role === 'country' ? 'country' : 'super',
-      countries: Array.isArray(d.countries) ? d.countries.map((c: string) => String(c).toUpperCase()) : [],
-      permissions: d.permissions ?? {},
-      disabled: d.disabled === true,
-      createdAt: d.createdAt,
+      uid: me.uid,
+      email: me.email ?? '',
+      name: me.name || 'مشرف',
+      role: me.isSuper ? 'super' : 'country',
+      countries: (me.countries ?? []).map((c) => String(c).toUpperCase()),
+      permissions: permissionListToMap(me.permissions),
+      // A banned account cannot reach /admin/me at all, so reaching here means
+      // the profile is live.
+      disabled: false,
     };
     setAdminScope(profile);
     return profile;
   } catch {
+    setAdminScope(null);
     return null;
   }
 };
 
 export const listAdmins = async (): Promise<AdminProfile[]> => {
   try {
-    const snap = await getDocs(query(collection(firestore, 'admins'), limit(200)));
-    return snap.docs.map((dd) => {
-      const d = dd.data() as any;
-      return {
-        uid: dd.id,
-        email: String(d.email ?? ''),
-        name: String(d.name ?? 'مشرف'),
-        role: d.role === 'country' ? 'country' : 'super',
-        countries: Array.isArray(d.countries) ? d.countries : [],
-        permissions: d.permissions ?? {},
-        disabled: d.disabled === true,
-        createdAt: d.createdAt,
-      } as AdminProfile;
-    }).sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    // Two calls because the two admin roles are two distinct column values and
+    // the server filters one role per request.
+    const pages = await Promise.all(
+      ['superadmin', 'admin'].map((role) =>
+        v2.get<{ items: ServerAdminRow[] }>(`/admin/users${v2Qs({ role, limit: 100 })}`),
+      ),
+    );
+    const rows = pages.flatMap((p) => p?.items ?? []);
+    // The list rows carry no permissions, so each admin's detail is read for the
+    // permission matrix. Bounded by how many admins exist (a handful).
+    const detailed = await Promise.all(
+      rows.map(async (row) => {
+        let permissions: Record<string, boolean> = {};
+        let countries: string[] = [];
+        try {
+          const detail = await v2.get<{ profile: Record<string, unknown> }>(
+            `/admin/users/${row.id}`,
+          );
+          const raw = detail?.profile ?? {};
+          permissions = permissionListToMap(
+            Array.isArray(raw.adminPermissions) ? (raw.adminPermissions as string[]) : [],
+          );
+          countries = Array.isArray(raw.adminCountries)
+            ? (raw.adminCountries as string[]).map((c) => String(c).toUpperCase())
+            : [];
+        } catch {
+          // One failed detail must not blank the whole list.
+        }
+        return {
+          uid: row.id,
+          email: row.email ?? '',
+          name: row.displayName || 'مشرف',
+          role: row.role === 'superadmin' ? 'super' : 'country',
+          countries,
+          permissions,
+          disabled: row.isBanned === true,
+          createdAt: Date.parse(row.createdAt) || 0,
+        } as AdminProfile;
+      }),
+    );
+    return detailed.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
   } catch (e) {
     console.error('listAdmins:', e);
     return [];
   }
 };
 
+/**
+ * «مشرف جديد» — creates the ACCOUNT, then raises it to an admin role. In that
+ * order on purpose: if the role step fails the account merely exists as an
+ * ordinary user, which is the harmless direction.
+ */
 export const createAdminUser = async (input: {
   email: string; password: string; name: string;
   role: 'super' | 'country'; countries: string[]; permissions: Record<string, boolean>;
 }): Promise<{ ok: boolean; uid: string }> => {
-  const fn = httpsCallable<typeof input, { ok: boolean; uid: string }>(functions, 'createAdminUser');
-  const res = await fn(input);
-  return res.data;
+  const created = await v2.post<{ id: string }>('/admin/users', {
+    email: input.email,
+    password: input.password,
+    displayName: input.name,
+  });
+  const uid = created?.id;
+  if (!uid) throw new Error('لم يُنشأ الحساب');
+  await v2.post(`/admin/users/${uid}/role`, { role: serverRoleOf(input.role) });
+  await v2.post(`/admin/users/${uid}/permissions`, {
+    permissions: permissionMapToList(input.permissions),
+    countries: input.countries ?? [],
+  });
+  await logAdminAction('إنشاء مشرف', input.email, input.role === 'super' ? 'مدير نظام' : 'مشرف دولة');
+  return { ok: true, uid };
 };
 
 export const updateAdminUser = async (input: {
   targetUid: string; name?: string; role?: 'super' | 'country';
   countries?: string[]; permissions?: Record<string, boolean>; disabled?: boolean;
+  /** كلمة مرور جديدة اختيارية — تُحدَّث في Firebase Auth إن وُجدت */
+  password?: string;
 }): Promise<void> => {
-  const fn = httpsCallable(functions, 'updateAdminUser');
-  await fn(input);
+  const { targetUid } = input;
+  if (input.name !== undefined) {
+    await v2.post(`/admin/users/${targetUid}/profile`, { displayName: input.name });
+  }
+  if (input.role !== undefined) {
+    await v2.post(`/admin/users/${targetUid}/role`, { role: serverRoleOf(input.role) });
+  }
+  if (input.permissions !== undefined || input.countries !== undefined) {
+    await v2.post(`/admin/users/${targetUid}/permissions`, {
+      permissions: permissionMapToList(input.permissions ?? {}),
+      ...(input.countries !== undefined ? { countries: input.countries } : {}),
+    });
+  }
+  if (input.password) {
+    await v2.post(`/admin/users/${targetUid}/password`, { password: input.password });
+  }
+  if (input.disabled !== undefined) {
+    // «معطّل» on an admin IS the account ban switch. The server refuses to ban an
+    // account that still holds an admin role, so demote first, ban second.
+    if (input.disabled) {
+      await v2.post(`/admin/users/${targetUid}/role`, { role: 'user' });
+      await v2.post(`/admin/users/${targetUid}/ban`, { banned: true, reason: 'تعطيل مشرف' });
+    } else {
+      await v2.post(`/admin/users/${targetUid}/ban`, { banned: false });
+      await v2.post(`/admin/users/${targetUid}/role`, {
+        role: serverRoleOf(input.role ?? 'country'),
+      });
+    }
+  }
+  await logAdminAction('تعديل مشرف', targetUid);
 };
 
+/**
+ * «حذف مشرف» takes away the RIGHTS, not the person: the account, its balance and
+ * its login survive — exactly what v1 did when it deleted `admins/{uid}` and left
+ * the Auth user alone.
+ */
 export const deleteAdminUser = async (targetUid: string): Promise<void> => {
-  const fn = httpsCallable(functions, 'deleteAdminUser');
-  await fn({ targetUid });
+  await v2.post(`/admin/users/${targetUid}/role`, { role: 'user' });
+  await v2.post(`/admin/users/${targetUid}/permissions`, { permissions: [], countries: [] });
+  await logAdminAction('إزالة مشرف', targetUid);
 };
 
 // ==================== PLATFORM STAFF (موظفو التطبيق) ====================
@@ -5402,78 +5276,37 @@ export interface AdminCreateStaffInput {
   staffAgencyBanner?: string;
 }
 
-export const listPlatformStaffUsers = async (): Promise<PlatformStaffRow[]> => {
-  const q = query(
-    collection(firestore, 'users'),
-    where('staffRole', 'in', ['manager', 'super_admin', 'admin']),
-    limit(200),
-  );
-  const snap = await getDocs(q);
-  const rows: PlatformStaffRow[] = [];
-  for (const d of snap.docs) {
-    const data = d.data() as Record<string, unknown>;
-    const role = data.staffRole as PlatformStaffRole;
-    if (!role) continue;
-    rows.push({
-      uid: d.id,
-      publicAccountId: formatPublicAccountId(data.publicAccountId, d.id),
-      displayName: String(data.displayName ?? 'موظف'),
-      email: String(data.email ?? ''),
-      avatar: String(data.avatar ?? ''),
-      country: String(data.country ?? 'PS'),
-      staffRole: role,
-      staffCountries: Array.isArray(data.staffCountries)
-        ? (data.staffCountries as string[]).map((c) => String(c).toUpperCase())
-        : [],
-      staffFrameUrl: data.staffFrameUrl ? String(data.staffFrameUrl) : undefined,
-      staffBadgeUrl: data.staffBadgeUrl ? String(data.staffBadgeUrl) : undefined,
-      staffEntryVideoUrl: data.staffEntryVideoUrl ? String(data.staffEntryVideoUrl) : undefined,
-      staffEntryVideoUrlMp4: data.staffEntryVideoUrlMp4 ? String(data.staffEntryVideoUrlMp4) : undefined,
-      staffAgencyId: data.staffAgencyId ? String(data.staffAgencyId) : undefined,
-      staffAgencyName: data.staffAgencyName ? String(data.staffAgencyName) : undefined,
-      staffActive: data.staffActive !== false,
-      createdAt: Number(data.createdAt ?? 0),
-    });
-  }
-  rows.sort((a, b) => b.createdAt - a.createdAt);
-  return enrichStaffAgencyNames(rows);
-};
+/**
+ * ⚠️ «موظفو التطبيق» لم ينتقل إلى v2 — والدوال هنا لا تكتب في القاعدة القديمة.
+ *
+ * v1 marked a user with `staffRole` (manager / super_admin / admin) plus staff
+ * frames, badges and an entry video, and the APP rendered those decorations. v2's
+ * app knows nothing about a staff role: writing the field would store data that
+ * shows up nowhere, which is worse than an honest refusal — it looks like the
+ * feature works.
+ *
+ * What v2 DOES have, and covers the operational need:
+ *  • dashboard access + per-page permissions → صفحة «المشرفون» (role admin/superadmin);
+ *  • decorations for anybody → «منح الامتيازات» (frames, entrances, bubbles);
+ *  • agency management → ربط عضو/وكيل بالوكالة.
+ *
+ * Reviving the staff badge means adding it to the APP first (profile + room
+ * entry), then this page — an owner decision about product surface, not a
+ * migration shim's call.
+ */
+const STAFF_NOT_MIGRATED =
+  'ميزة «موظفو التطبيق» لم تُنقل إلى النسخة الجديدة: التطبيق لا يعرف دور الموظف بعد، ' +
+  'فحفظ الدور سيخزّن بياناً لا يظهر لأحد. البديل الآن: صلاحيات لوحة التحكم من صفحة ' +
+  '«المشرفون»، ومنح الإطارات/الدخوليات من «منح الامتيازات».';
 
-async function enrichStaffAgencyNames(rows: PlatformStaffRow[]): Promise<PlatformStaffRow[]> {
-  const missing = rows.filter((r) => r.staffRole === 'super_admin' && r.staffAgencyId && !r.staffAgencyName);
-  if (missing.length === 0) return rows;
-  const agencyIds = [...new Set(missing.map((r) => r.staffAgencyId!))];
-  const names = new Map<string, string>();
-  await Promise.all(
-    agencyIds.map(async (id) => {
-      const snap = await getDoc(doc(firestore, 'agencies', id));
-      if (snap.exists()) {
-        const data = snap.data() as Record<string, unknown>;
-        names.set(id, String(data.name ?? ''));
-      }
-    }),
-  );
-  return rows.map((r) =>
-    r.staffAgencyId && !r.staffAgencyName && names.has(r.staffAgencyId)
-      ? { ...r, staffAgencyName: names.get(r.staffAgencyId) }
-      : r,
-  );
-}
+/** قائمة الموظفين — فارغة بصدق: لا يوجد حقل دور موظف على v2. */
+export const listPlatformStaffUsers = async (): Promise<PlatformStaffRow[]> => [];
 
 export const adminCreateStaffUser = async (
   input: AdminCreateStaffInput,
 ): Promise<{ uid: string; publicAccountId: string; displayName: string; agencyId?: string }> => {
-  const fn = httpsCallable<
-    AdminCreateStaffInput,
-    { ok: boolean; uid: string; publicAccountId: string; displayName: string; agencyId?: string }
-  >(functions, 'adminCreateStaffUser');
-  const res = await fn(input);
-  return {
-    uid: res.data.uid,
-    publicAccountId: res.data.publicAccountId,
-    displayName: res.data.displayName,
-    agencyId: res.data.agencyId,
-  };
+  void input;
+  throw new Error(STAFF_NOT_MIGRATED);
 };
 
 export const adminUpdateStaffUser = async (input: {
@@ -5492,13 +5325,13 @@ export const adminUpdateStaffUser = async (input: {
   avatar?: string;
   displayName?: string;
 }): Promise<void> => {
-  const fn = httpsCallable(functions, 'adminUpdateStaffUser');
-  await fn(input);
+  void input;
+  throw new Error(STAFF_NOT_MIGRATED);
 };
 
 export const adminRemoveStaffUser = async (uid: string): Promise<void> => {
-  const fn = httpsCallable(functions, 'adminRemoveStaffUser');
-  await fn({ uid });
+  void uid;
+  throw new Error(STAFF_NOT_MIGRATED);
 };
 
 // ==================== ADMIN CHECK ====================
@@ -5506,11 +5339,11 @@ export const adminRemoveStaffUser = async (uid: string): Promise<void> => {
  * يتحقق هل المستخدم الحالي مسجّل في collection admins
  */
 export const checkIsAdmin = async (): Promise<boolean> => {
-  const uid = auth.currentUser?.uid ?? localStorage.getItem('admin_uid');
-  if (!uid) return false;
   try {
-    const snap = await getDoc(doc(firestore, 'admins', uid));
-    return snap.exists();
+    // `/admin/me` sits behind the guard: a 401/403 IS the answer, and it re-reads
+    // the account each time, so a revoked admin fails here immediately.
+    const me = await v2.get<{ uid?: string }>('/admin/me');
+    return !!me?.uid;
   } catch {
     return false;
   }
@@ -5557,7 +5390,7 @@ export const seedAllConfig = async (): Promise<{ ok: boolean; message: string }>
         maintenanceMode: false,
         allowRegistration: true,
         requireVerification: false,
-        agencyJoinRequiresApproval: false,
+        agencyJoinRequiresApproval: true,
         welcomeBonus: 0,
         firstRechargeBonus: 50_000,
       }),
@@ -5570,27 +5403,25 @@ export const seedAllConfig = async (): Promise<{ ok: boolean; message: string }>
 };
 
 /**
- * تسجيل الحساب الحالي كأدمن ذاتياً
- * يعمل فقط إذا كانت collection admins فارغة (أول أدمن) — تحقّق من القواعد
+ * «سجّلني كأدمن» — kept as a button, but it can no longer promote anybody.
+ *
+ * In v1 the browser wrote `admins/{uid}` itself, so whoever could open this page
+ * could make themselves a platform administrator if the Firestore rules ever
+ * slipped. On v2 the role lives on the user row and only a superadmin may change
+ * it, so self-promotion is impossible BY DESIGN — the first admin is granted once
+ * with a direct database update. This function reports that plainly instead of
+ * failing with a confusing error.
  */
 export const selfRegisterFirstAdmin = async (): Promise<{ ok: boolean; message: string }> => {
-  const uid = auth.currentUser?.uid;
-  const email = auth.currentUser?.email;
-  if (!uid) return { ok: false, message: 'سجّل الدخول أولاً' };
-  try {
-    await setDoc(doc(firestore, 'admins', uid), {
-      email: email ?? '',
-      name: 'مدير النظام',
-      role: 'super',
-      createdAt: Date.now(),
-    });
-    return { ok: true, message: 'تم تسجيلك كأدمن' };
-  } catch (e: any) {
-    return {
-      ok: false,
-      message: 'فشل التسجيل التلقائي — أضف حسابك يدوياً من Firebase Console (راجع SETUP_ADMIN.md)',
-    };
+  if (await checkIsAdmin()) {
+    return { ok: true, message: 'حسابك بالفعل مشرف — لا حاجة لأي إجراء' };
   }
+  return {
+    ok: false,
+    message:
+      'لم يعد بالإمكان ترقية نفسك من اللوحة. أول حساب مشرف يُمنح مرة واحدة على قاعدة البيانات: ' +
+      "UPDATE users SET role='superadmin' WHERE email='…'  — وبعدها تُدار الصلاحيات من صفحة المشرفين.",
+  };
 };
 
 // ==================== ADVANCED ANALYTICS ====================
@@ -5888,91 +5719,95 @@ export interface AdminPost {
   createdAt: number;
 }
 
+interface ServerPostRow {
+  id: string;
+  authorUid: string;
+  authorName: string;
+  preview: string;
+  imageCount: number;
+  likeCount: number;
+  commentCount: number;
+  giftCount: number;
+  status: string;
+  createdAt: string;
+}
+
+type ServerPostDetail = ServerPostRow & {
+  text: string;
+  images: string[];
+  hashtags: string[];
+  authorAvatar: string | null;
+};
+
+const toAdminPost = (row: ServerPostRow, detail?: Partial<ServerPostDetail>): AdminPost => ({
+  id: row.id,
+  uid: row.authorUid,
+  authorName: row.authorName || 'مستخدم',
+  authorAvatar: detail?.authorAvatar ?? '',
+  // The list carries a PREVIEW, not the whole post — the moderation queue does
+  // not need to render every wall of text to be scanned.
+  text: detail?.text ?? row.preview ?? '',
+  images: detail?.images,
+  hashtags: detail?.hashtags,
+  likes: row.likeCount ?? 0,
+  comments: row.commentCount ?? 0,
+  shares: row.giftCount ?? 0,
+  status: (['active', 'hidden', 'removed'] as const).includes(row.status as never)
+    ? (row.status as AdminPost['status'])
+    : 'active',
+  createdAt: Date.parse(row.createdAt) || 0,
+});
+
 export const getPosts = async (limitCount = 100): Promise<AdminPost[]> => {
   try {
-    const q = query(
-      collection(firestore, 'posts'),
-      orderBy('createdAt', 'desc'),
-      limit(scopedFetchLimit(limitCount)),
+    const res = await v2.get<{ items: ServerPostRow[] }>(
+      `/admin/posts${v2Qs({ limit: Math.min(limitCount, 100) })}`,
     );
-    const snap = await getDocs(q);
-    const rows = snap.docs.map((d) => {
-      const data = d.data() as Record<string, unknown>;
-      return {
-        id: d.id,
-        uid: String(data.uid ?? ''),
-        authorName: String(data.authorName ?? 'مستخدم'),
-        authorAvatar: String(data.authorAvatar ?? ''),
-        text: String(data.text ?? ''),
-        images: Array.isArray(data.images) ? (data.images as string[]) : [],
-        hashtags: Array.isArray(data.hashtags) ? (data.hashtags as string[]) : [],
-        likes: Number(data.likes ?? 0),
-        comments: Number(data.comments ?? 0),
-        shares: Number(data.shares ?? 0),
-        status: (data.status as AdminPost['status']) ?? 'active',
-        createdAt: Number(data.createdAt ?? 0),
-      };
-    });
-    if (isSuperCountryScope()) return rows.slice(0, limitCount);
+    const rows = (res?.items ?? []).map((row) => toAdminPost(row));
+    if (isSuperCountryScope()) return rows;
     await preloadUserCountries(rows.map((p) => p.uid));
-    return rows
-      .filter((p) => isInAdminCountryScope(getCachedUserCountry(p.uid)))
-      .slice(0, limitCount);
+    return rows.filter((p) => isInAdminCountryScope(getCachedUserCountry(p.uid)));
   } catch (e) {
     console.error('getPosts:', e);
     return [];
   }
 };
 
-async function assertPostIdInScope(postId: string): Promise<void> {
-  const snap = await getDoc(doc(firestore, 'posts', postId));
-  if (!snap.exists()) throw new Error('المنشور غير موجود');
-  const uid = String((snap.data() as Record<string, unknown>).uid ?? '');
-  await assertUidInAdminCountryScope(uid);
-}
+/** تفاصيل منشور — the full text, the images and the author's avatar. */
+export const getPostDetail = async (postId: string): Promise<AdminPost | null> => {
+  try {
+    const row = await v2.get<ServerPostDetail>(`/admin/posts/${postId}`);
+    return row?.id ? toAdminPost(row, row) : null;
+  } catch {
+    return null;
+  }
+};
 
 export const hidePost = async (postId: string): Promise<void> => {
-  await assertPostIdInScope(postId);
-  await updateDoc(doc(firestore, 'posts', postId), { status: 'hidden' });
+  await v2.post(`/admin/posts/${postId}/status`, { status: 'hidden' });
+  await logAdminAction('إخفاء منشور', postId);
 };
 
 export const restorePost = async (postId: string): Promise<void> => {
-  await assertPostIdInScope(postId);
-  await updateDoc(doc(firestore, 'posts', postId), { status: 'active' });
+  await v2.post(`/admin/posts/${postId}/status`, { status: 'active' });
+  await logAdminAction('إظهار منشور', postId);
 };
 
+/**
+ * «حذف» منشور = `removed` — a soft status, deliberately. The row (and the
+ * evidence of what was posted) survives for the report it came from, while the
+ * post disappears from the feed exactly as a delete would.
+ */
 export const deletePostAdmin = async (postId: string): Promise<void> => {
-  await assertPostIdInScope(postId);
-  const fn = httpsCallable<{ postId: string }, { ok: boolean; deleted?: boolean }>(
-    functions,
-    'adminDeletePost',
-  );
-  await fn({ postId });
+  await v2.post(`/admin/posts/${postId}/status`, { status: 'removed' });
+  await logAdminAction('حذف منشور', postId);
 };
 
-/** يضيف status: active للمنشورات القديمة — عبر Cloud Function (أدمن) */
-export const backfillPostStatuses = async (): Promise<number> => {
-  const { httpsCallable } = await import('firebase/functions');
-  const { functions } = await import('@/lib/firebase');
-  try {
-    const fn = httpsCallable<unknown, { updated: number }>(functions, 'backfillPostStatuses');
-    const result = await fn({});
-    return result.data.updated ?? 0;
-  } catch {
-    // fallback: تحديث مباشر من اللوحة إن فشلت الدالة
-    const snap = await getDocs(query(collection(firestore, 'posts'), limit(500)));
-    let updated = 0;
-    await Promise.all(
-      snap.docs.map(async (d) => {
-        if (!d.data().status) {
-          await updateDoc(d.ref, { status: 'active' });
-          updated += 1;
-        }
-      }),
-    );
-    return updated;
-  }
-};
+/**
+ * لا حاجة لتعبئة الحالات: كل منشور في v2 يُنشأ بحالة صريحة (`active`) في عمود
+ * `status`, فلا توجد صفوف بلا حالة تُعبّأ. تُبلّغ الصفحة بصفر بدل عمل وهمي.
+ */
+export const backfillPostStatuses = async (): Promise<number> => 0;
 
 // ==================== AGENCY APPLICATIONS ====================
 export interface AdminAgencyApplication {
@@ -6022,68 +5857,189 @@ export interface AdminAgencyApplication {
   updatedAt: number;
 }
 
+/** One application as the server lists it. The documents (logo, ID) and the AI
+ *  review come from the single-record read only. */
+interface ServerAgencyAppRow {
+  id: string;
+  agencyId: string | null;
+  agencyName: string;
+  applicantName: string;
+  applicantPublicId: string;
+  countryCode: string;
+  femaleHostCount: number;
+  minHostsRequired: number;
+  status: string;
+  aiDecision: string;
+  createdAt: string;
+}
+
+type ServerAgencyAppDetail = ServerAgencyAppRow & {
+  applicantPhone: string;
+  whatsappNumber: string;
+  inviteCode: string;
+  proposedHosts: Record<string, unknown>[];
+  logoUrl: string | null;
+  backgroundUrl: string | null;
+  idDocumentUrl: string | null;
+  aiReview: Record<string, unknown>;
+  rejectionReason: string;
+  hostsDeadline: string | null;
+  reviewDeadline: string | null;
+  decidedAt: string | null;
+};
+
+function toAgencyApplication(
+  row: ServerAgencyAppRow,
+  detail?: Partial<ServerAgencyAppDetail>,
+): AdminAgencyApplication {
+  const ai = (detail?.aiReview ?? {}) as Record<string, unknown>;
+  const ms = (iso?: string | null): number | undefined =>
+    iso ? Date.parse(iso) || undefined : undefined;
+  return {
+    id: row.id,
+    applicantUid: '',
+    applicantName: row.applicantName || '—',
+    applicantPhone: detail?.applicantPhone ?? '',
+    countryCode: row.countryCode || '',
+    agencyName: row.agencyName || '—',
+    status: row.status,
+    proposedHosts: (detail?.proposedHosts ?? []) as AdminAgencyApplication['proposedHosts'],
+    proposedHostUids: [],
+    minHostsRequired: row.minHostsRequired ?? 0,
+    femaleHostCount: row.femaleHostCount ?? 0,
+    applicantPublicAccountId: row.applicantPublicId,
+    whatsappNumber: detail?.whatsappNumber,
+    inviteCode: detail?.inviteCode,
+    hostsDeadline: ms(detail?.hostsDeadline),
+    reviewDeadline: ms(detail?.reviewDeadline),
+    rejectionReason: detail?.rejectionReason,
+    agencyId: row.agencyId ?? undefined,
+    ownerName: row.applicantName,
+    // v1 told the two queues apart by `reviewMethod === 'ai'`; v2 records the
+    // automated verdict itself, so its presence IS the marker.
+    reviewMethod: row.aiDecision ? 'ai' : 'manual',
+    logoUrl: detail?.logoUrl ?? undefined,
+    backgroundUrl: detail?.backgroundUrl ?? undefined,
+    idDocumentUrl: detail?.idDocumentUrl ?? undefined,
+    aiDecision: (row.aiDecision || undefined) as AdminAgencyApplication['aiDecision'],
+    aiReason: typeof ai.reason === 'string' ? ai.reason : undefined,
+    aiConfidence: typeof ai.confidence === 'number' ? ai.confidence : undefined,
+    aiChecks: Array.isArray(ai.checks)
+      ? (ai.checks as AdminAgencyApplication['aiChecks'])
+      : undefined,
+    aiProvider: typeof ai.provider === 'string' ? ai.provider : undefined,
+    aiModel: typeof ai.model === 'string' ? ai.model : undefined,
+    aiReviewedAt: typeof ai.reviewedAt === 'number' ? ai.reviewedAt : undefined,
+    createdAt: Date.parse(row.createdAt) || 0,
+    updatedAt: ms(detail?.decidedAt) ?? (Date.parse(row.createdAt) || 0),
+  };
+}
+
+const fetchAgencyApplications = async (): Promise<AdminAgencyApplication[]> => {
+  const res = await v2.get<{ items: ServerAgencyAppRow[] }>(
+    `/admin/agency-applications${v2Qs({ limit: 100 })}`,
+  );
+  return (res?.items ?? [])
+    .map((row) => toAgencyApplication(row))
+    .filter((a) => isInAdminCountryScope(a.countryCode))
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+};
+
 export const getAgencyApplications = async (): Promise<AdminAgencyApplication[]> => {
   try {
-    const snap = await getDocs(
-      query(collection(firestore, 'agencyApplications'), limit(200)),
-    );
-    return snap.docs
-      .map((d) => ({ id: d.id, ...(d.data() as object) }) as AdminAgencyApplication)
-      .filter((a) => isInAdminCountryScope(a.countryCode))
-      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    return await fetchAgencyApplications();
   } catch (e) {
     console.error('getAgencyApplications:', e);
     return [];
   }
 };
 
+/** تفاصيل طلب — the only read that returns the documents and the AI review. */
+export const getAgencyApplicationDetail = async (
+  applicationId: string,
+): Promise<AdminAgencyApplication | null> => {
+  try {
+    const row = await v2.get<ServerAgencyAppDetail>(`/admin/agency-applications/${applicationId}`);
+    return row?.id ? toAgencyApplication(row, row) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * قرار على طلب فتح وكالة. الموافقة **تُنشئ الوكالة فعلاً** على السيرفر (بالكود
+ * والمالك والمضيفات المقترحة) داخل عملية واحدة، والرفض يُبلّغ صاحب الطلب بالسبب.
+ */
 export const reviewAgencyApplicationAdmin = async (
   applicationId: string,
   action: 'approve' | 'reject',
   rejectionReason?: string,
-) => {
-  const fn = httpsCallable(functions, 'reviewAgencyApplication');
-  return fn({ applicationId, action, rejectionReason });
+): Promise<void> => {
+  const note = rejectionReason?.trim();
+  if (action === 'reject' && !note) throw new Error('اكتب سبب الرفض — يظهر لصاحب الطلب');
+  await v2.post(`/admin/agency-applications/${applicationId}/decide`, {
+    approve: action === 'approve',
+    ...(note ? { reason: note } : {}),
+  });
+  await logAdminAction(
+    action === 'approve' ? 'اعتماد طلب وكالة' : 'رفض طلب وكالة',
+    applicationId,
+    note ?? '',
+  );
 };
 
-/**
- * طلبات توثيق الوكالة (المُراجَعة آلياً بالذكاء الاصطناعي) — reviewMethod === 'ai'.
- * ترشيح client-side لتجنّب فهرس مركّب.
- */
+/** طلبات التوثيق المُراجَعة آلياً — same queue, the ones carrying a verdict. */
 export const getAgencyVerifications = async (): Promise<AdminAgencyApplication[]> => {
   try {
-    const snap = await getDocs(
-      query(collection(firestore, 'agencyApplications'), limit(300)),
-    );
-    return snap.docs
-      .map((d) => ({ id: d.id, ...(d.data() as object) }) as AdminAgencyApplication)
-      .filter((a) => a.reviewMethod === 'ai')
-      .filter((a) => isInAdminCountryScope(a.countryCode))
-      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    return (await fetchAgencyApplications()).filter((a) => a.reviewMethod === 'ai');
   } catch (e) {
     console.error('getAgencyVerifications:', e);
     return [];
   }
 };
 
+/**
+ * ⚠️ توثيق مضيفة داخل طلب وكالة غير متاح كخطوة منفصلة على v2.
+ *
+ * v1 had a per-host button inside the application. In v2 a host is verified
+ * through her OWN identity request (صفحة طلبات التحقق), and the application
+ * counts how many verified female hosts she has — one source of truth instead of
+ * two places that could disagree.
+ */
 export const adminVerifyAgencyHostAdmin = async (
   applicationId: string,
   hostUid: string,
-) => {
-  const fn = httpsCallable(functions, 'adminVerifyAgencyHost');
-  return fn({ applicationId, hostUid });
+): Promise<void> => {
+  void applicationId;
+  throw new Error(
+    'توثيق المضيفة يتم من صفحة «طلبات التحقق من الهوية» على حسابها' +
+      (hostUid ? ` (${hostUid.slice(0, 8)}…)` : '') +
+      ' — والطلب يعدّ الموثّقات تلقائياً.',
+  );
 };
 
-export const activateAgencyApplicationAdmin = async (applicationId: string) => {
-  const fn = httpsCallable(functions, 'activateAgencyApplication');
-  return fn({ applicationId });
+/**
+ * ⚠️ التفعيل اليدوي/السريع للطلب غير متاح: على v2 الموافقة نفسها تُنشئ الوكالة،
+ * فلا توجد حالة «مقبول لكن غير مُفعَّل» تحتاج زراً ثانياً.
+ */
+export const activateAgencyApplicationAdmin = async (applicationId: string): Promise<void> => {
+  void applicationId;
+  throw new Error('لا حاجة للتفعيل — الموافقة على الطلب تُنشئ الوكالة مباشرة.');
 };
 
-export const adminExpressActivateApplication = async (applicationId: string) => {
-  const fn = httpsCallable(functions, 'adminExpressActivateApplication');
-  return fn({ applicationId });
-};
+export const adminExpressActivateApplication = activateAgencyApplicationAdmin;
 
+
+/**
+ * إنشاء وكالة مباشرة (بلا طلب). The owner's membership row is created with it —
+ * an agency whose owner is not a member of it is a state half the app's queries
+ * would miss. The invite code is generated server-side unless one is given.
+ *
+ * `hostUids` / `applicationId` are accepted for signature compatibility: hosts
+ * join through «ربط عضو» (which decides the role from the ACCOUNT), and an
+ * application is approved through its own decide endpoint, which creates the
+ * agency itself.
+ */
 export const adminCreateAgencyDirect = async (input: {
   ownerUid: string;
   agencyName: string;
@@ -6091,8 +6047,24 @@ export const adminCreateAgencyDirect = async (input: {
   hostUids?: string[];
   applicationId?: string;
 }) => {
-  const fn = httpsCallable(functions, 'adminCreateAgencyDirect');
-  return fn(input);
+  const created = await v2.post<{
+    id: string;
+    name: string;
+    inviteCode: string;
+    ownerUid: string;
+  }>('/admin/agencies', {
+    ownerIdentifier: input.ownerUid,
+    name: input.agencyName,
+    ...(input.countryCode ? { country: input.countryCode } : {}),
+  });
+  await logAdminAction('إنشاء وكالة مباشرة', created.name, created.inviteCode);
+
+  for (const uid of input.hostUids ?? []) {
+    // Best-effort: a host who is already in another agency is refused by the
+    // server, and that must not undo the agency that was just created.
+    await assignAgencyMember(created.id, uid).catch(() => undefined);
+  }
+  return { data: created };
 };
 
 export const getAgencyApplicationStats = async (): Promise<{
@@ -6152,27 +6124,55 @@ export interface AgencyDoc {
 
 export const getAgencyById = async (agencyId: string): Promise<AgencyDoc | null> => {
   try {
-    const snap = await getDoc(doc(firestore, 'agencies', agencyId));
-    if (!snap.exists()) return null;
-    return { id: snap.id, ...(snap.data() as object) } as AgencyDoc;
+    const row = await v2.get<ServerAgencyRow>(`/admin/agencies/${agencyId}`);
+    if (!row?.id) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      femaleHostCount: row.femaleHostCount ?? 0,
+      minHostsRequired: row.minHostsRequired ?? 0,
+      memberCount: row.memberCount ?? 0,
+      status: row.status,
+      inviteCode: row.inviteCode,
+    };
   } catch {
     return null;
   }
 };
 
+interface ServerAgencyMemberRow {
+  uid: string;
+  role: string;
+  displayName: string;
+  publicAccountId: string;
+  avatar: string;
+  isBanned: boolean;
+}
+
 export const getAgencyMembers = async (agencyId: string): Promise<AgencyMember[]> => {
   await assertAgencyIdInScope(agencyId);
   try {
-    const snap = await getDocs(
-      query(collection(firestore, 'agencyMembers'), where('agencyId', '==', agencyId), limit(200)),
-    );
-    return snap.docs
-      .map((d) => ({ id: d.id, ...(d.data() as object) }) as AgencyMember)
-      .sort((a, b) => (b.joinedAt ?? 0) - (a.joinedAt ?? 0));
+    const rows = await v2.get<ServerAgencyMemberRow[]>(`/admin/agencies/${agencyId}/members`);
+    return (rows ?? []).map((r) => ({
+      // v2 keys membership by (agency, uid) — the pair IS the identity, so there
+      // is no separate document id to carry.
+      id: `${agencyId}_${r.uid}`,
+      uid: r.uid,
+      uidName: r.displayName || 'مستخدم',
+      uidAvatar: r.avatar || undefined,
+      agencyId,
+      role: r.role,
+      // «مضيفة موثّقة» is one fact on the ACCOUNT (its identity verification), not
+      // a second flag on the membership that could disagree with it.
+      hostVerified: r.role === 'host',
+      isFemaleHost: r.role === 'host',
+      joinedAt: 0,
+    }));
   } catch {
     return [];
   }
 };
+
 
 // ==================== AGENCY DETAIL (تفاصيل وتحكّم كامل) ====================
 
@@ -6323,15 +6323,28 @@ export const getAgencyMembersDetailed = async (
 };
 
 /** تعديل أرباح عضو (pearlsEarned) في الوكالة يدوياً */
+/**
+ * ⚠️ تعديل «الماس المكتسب» للعضو يدوياً — موقوف، ولا يُكتب في القاعدة القديمة.
+ *
+ * This wrote a MONEY field straight from the browser: `pearlsEarned` is what the
+ * host's salary and her withdrawal tiers are computed from. Changing it by hand
+ * moves value with no transaction, no ledger row and nothing to reverse it — the
+ * one thing the v2 money rules exist to prevent. If a figure is genuinely wrong,
+ * the fix is a ledgered balance adjustment on the account (صفحة المستخدم →
+ * تعديل الرصيد), which leaves a reason and an audit trail behind it.
+ */
 export const setAgencyMemberPearlsEarned = async (
   memberDocId: string,
   newPearlsEarned: number,
   agencyId: string,
 ): Promise<void> => {
-  await assertAgencyIdInScope(agencyId);
-  await updateDoc(doc(firestore, 'agencyMembers', memberDocId), {
-    pearlsEarned: Math.max(0, Math.round(newPearlsEarned)),
-  });
+  void memberDocId;
+  void newPearlsEarned;
+  void agencyId;
+  throw new Error(
+    'تعديل الماس المكتسب يدوياً غير متاح — هو حقل مال تُحسب منه الرواتب والسحب. ' +
+      'استخدم «تعديل الرصيد» على حساب المضيفة ليُسجَّل بمعاملة وسبب وسجل تدقيق.',
+  );
 };
 
 export interface AssignAgencyMemberResult {
@@ -6347,185 +6360,49 @@ export interface AssignAgencyMemberResult {
  * ربط مستخدم بوكالة كمضيف (أنثى موثّقة) أو عضو (ذكر).
  * يقبل Firebase UID أو معرّف الحساب (8 أرقام).
  */
+/**
+ * ربط مستخدم بوكالة — the ROLE is decided by the account, on the server: a
+ * verified female joins as `host` (that role is what unlocks the host earning
+ * flows), everyone else as `member`. And one agency per account: an account that
+ * already belongs elsewhere is refused, never moved — moving a host would strand
+ * the work-coin wallet her earnings live in.
+ */
 export const assignAgencyMember = async (
   agencyId: string,
   userIdentifier: string,
 ): Promise<AssignAgencyMemberResult> => {
   await assertAgencyIdInScope(agencyId);
-
-  const uid = await resolveUserAccountId(userIdentifier.trim());
-  if (!uid) throw new Error('USER_NOT_FOUND');
-  await assertUidInAdminCountryScope(uid);
-
-  const agencyRef = doc(firestore, 'agencies', agencyId);
-  const userRef = doc(firestore, 'users', uid);
-  const [agencySnap, userSnap] = await Promise.all([getDoc(agencyRef), getDoc(userRef)]);
-  if (!agencySnap.exists()) throw new Error('AGENCY_NOT_FOUND');
-  if (!userSnap.exists()) throw new Error('USER_NOT_FOUND');
-
-  const agency = agencySnap.data() as Record<string, unknown>;
-  const user = userSnap.data() as Record<string, unknown>;
-  const agencyName = String(agency.name ?? agency.agencyName ?? '—');
-  const ownerUid = String(agency.ownerUid ?? '');
-
-  if (uid === ownerUid) {
-    throw new Error('USER_IS_AGENCY_OWNER');
-  }
-
-  const activeAgencyId = await resolveUserActiveAgencyId(uid);
-  if (activeAgencyId && activeAgencyId !== agencyId) {
-    throw new Error('USER_IN_OTHER_AGENCY');
-  }
-
-  const ownedAgencySnap = await getDocs(
-    query(collection(firestore, 'agencies'), where('ownerUid', '==', uid), limit(1)),
-  );
-  if (!ownedAgencySnap.empty && ownedAgencySnap.docs[0].id !== agencyId) {
-    throw new Error('USER_IN_OTHER_AGENCY');
-  }
-
-  const anyMemberSnap = await getDocs(
-    query(collection(firestore, 'agencyMembers'), where('uid', '==', uid), limit(5)),
-  );
-  const otherMemberships = anyMemberSnap.docs
-    .map((d) => String(d.data().agencyId ?? '').trim())
-    .filter((id) => id && id !== agencyId);
-  if (otherMemberships.length > 0) {
-    throw new Error('USER_IN_OTHER_AGENCY');
-  }
-
-  const existingAgencyId = activeAgencyId ?? '';
-
-  const gender = String((user.profile as any)?.gender ?? user.gender ?? '');
-  const isFemale = gender === 'female';
-  const isFemaleHost = isFemale;
-  const userIsVerified = user.isVerified === true;
-  const isVerifiedHost = isFemaleHost && userIsVerified;
-  const role = isVerifiedHost ? 'host' : 'member';
-  const displayName = String((user.profile as any)?.displayName ?? user.displayName ?? 'مستخدم');
-  const avatar = String((user.profile as any)?.avatar ?? user.avatar ?? '');
-  const publicAccountId = formatPublicAccountId(
-    user.publicAccountId != null ? String(user.publicAccountId) : undefined,
-    uid,
-  );
-  const now = Date.now();
-  const adminUid = auth.currentUser?.uid ?? 'admin';
-
-  const existingMemberSnap = await getDocs(
-    query(
-      collection(firestore, 'agencyMembers'),
-      where('uid', '==', uid),
-      where('agencyId', '==', agencyId),
-      limit(1),
-    ),
-  );
-
-  if (!existingMemberSnap.empty) {
-    const memberDoc = existingMemberSnap.docs[0];
-    const memberData = memberDoc.data() as Record<string, unknown>;
-    const wasFemaleHost = memberData.isFemaleHost === true;
-
-    if (isFemaleHost && !wasFemaleHost) {
-      await updateDoc(memberDoc.ref, {
-        role: isVerifiedHost ? 'host' : 'member',
-        hostVerified: isVerifiedHost,
-        isFemaleHost: true,
-        verifiedAt: isVerifiedHost ? now : null,
-        verifiedBy: isVerifiedHost ? adminUid : null,
-      });
-      await updateDoc(userRef, {
-        agencyId,
-        agencyName,
-        agencyRole: isVerifiedHost ? 'host' : 'member',
-        accountKind: isVerifiedHost ? 'host' : 'member',
-        isFemaleHost: true,
-      });
-      if (isVerifiedHost) {
-      await updateDoc(agencyRef, {
-        femaleHostCount: increment(1),
-        updatedAt: now,
-      });
-      }
-    }
-
-    return {
-      uid,
-      displayName,
-      publicAccountId,
-      role: isVerifiedHost ? 'host' : String(memberData.role ?? 'member'),
-      isFemaleHost: isFemaleHost || wasFemaleHost,
-      alreadyMember: true,
-    };
-  }
-
-  const memberRef = doc(collection(firestore, 'agencyMembers'));
-  const isNewToAgency = !existingAgencyId;
-
-  await deleteDoc(doc(firestore, 'agencies', agencyId, 'removedMembers', uid)).catch(() => {});
-
-  await setDoc(memberRef, {
-    uid,
-    uidName: displayName,
-    uidAvatar: avatar,
-    agencyId,
-    agencyName,
-    role,
-    hostVerified: isVerifiedHost,
-    isFemaleHost,
-    verifiedAt: isVerifiedHost ? now : null,
-    verifiedBy: isVerifiedHost ? adminUid : null,
-    pearlsEarned: 0,
-    pearlsTransferredToAgent: 0,
-    joinedAt: now,
+  const res = await v2.post<AssignAgencyMemberResult>(`/admin/agencies/${agencyId}/members`, {
+    identifier: userIdentifier.trim(),
   });
-
-  const userPatch: Record<string, unknown> = {
-    agencyId,
-    agencyName,
-    agencyRole: role,
-  };
-  if (isFemaleHost) {
-    userPatch.accountKind = isVerifiedHost ? 'host' : 'member';
-    userPatch.isFemaleHost = true;
-  } else {
-    userPatch.accountKind = 'member';
-    userPatch.isFemaleHost = false;
+  if (!res.alreadyMember) {
+    await logAdminAction('ربط عضو بوكالة', res.publicAccountId, res.role);
   }
-  await updateDoc(userRef, userPatch);
-
-  const agencyPatch: Record<string, unknown> = { updatedAt: now };
-  if (isNewToAgency) {
-    agencyPatch.memberCount = increment(1);
-  }
-  if (isVerifiedHost) {
-    agencyPatch.femaleHostCount = increment(1);
-  }
-  await updateDoc(agencyRef, agencyPatch);
-
-  return {
-    uid,
-    displayName,
-    publicAccountId,
-    role,
-    isFemaleHost,
-    alreadyMember: false,
-  };
+  return res;
 };
 
-/** إزالة عضو من الوكالة عبر Cloud Function (تنظيف شات + حظر إعادة الانضمام + إشعارات) */
+/**
+ * إزالة عضو من الوكالة.
+ *
+ * ⚠️ The server REFUSES while the member still holds work coins: those are her
+ * earnings and the membership row is the wallet they live in. She withdraws (or
+ * the agent withdraws for her) first. v1 removed the row regardless — which is
+ * how earnings quietly disappeared.
+ *
+ * `memberDocId` / `wasFemaleHost` are kept in the signature for the pages that
+ * pass them; v2 keys a membership by (agency, uid), so the pair is the identity.
+ */
 export const removeAgencyMember = async (
   memberDocId: string,
   uid: string,
   agencyId: string,
   _wasFemaleHost: boolean,
 ): Promise<void> => {
+  void memberDocId;
   await assertAgencyIdInScope(agencyId);
   await assertUidInAdminCountryScope(uid);
-  const fn = httpsCallable<{ memberDocId: string; asAdmin: boolean }, { ok: boolean }>(
-    functions,
-    'removeAgencyMember',
-  );
-  await fn({ memberDocId, asAdmin: true });
+  await v2.post(`/admin/agencies/${agencyId}/members/${uid}/remove`);
+  await logAdminAction('إزالة عضو من وكالة', uid, agencyId);
 };
 
 /** تعديل بيانات الوكالة (الاسم / الحد الأدنى للمضيفات) */
@@ -6540,7 +6417,8 @@ export const updateAgencyInfo = async (
     payload.minHostsRequired = Math.round(data.minHostsRequired);
   }
   if (Object.keys(payload).length === 0) return;
-  await updateDoc(doc(firestore, 'agencies', agencyId), payload);
+  await v2.post(`/admin/agencies/${agencyId}/info`, payload);
+  await logAdminAction('تعديل وكالة', agencyId, Object.keys(payload).join('، '));
 };
 
 export const AGENCY_SEAT_OPTIONS = [9, 11, 16, 19, 21] as const;
@@ -6591,113 +6469,37 @@ function rebuildRoomSeatsForCount(
 }
 
 /** زيادة/تعديل الحد الأقصى لعدد المايكات في غرفة الوكالة */
+/**
+ * أقصى مايكات للوكالة — a POLICY CAP the room-seats endpoint then enforces, so
+ * the two can never disagree. `applySeatsToLiveRoom` applies the count to the
+ * agency's live room in the same action, as v1 did.
+ */
 export const setAgencyMaxSeatsCount = async (
   agencyId: string,
   maxSeatsCount: AgencySeatCount,
   options?: { applySeatsToLiveRoom?: AgencySeatCount },
 ): Promise<void> => {
-  await assertAgencyIdInScope(agencyId);
+  const agency = await assertAgencyIdInScope(agencyId);
   if (!AGENCY_SEAT_OPTIONS.includes(maxSeatsCount)) {
     throw new Error('عدد المايكات غير مدعوم');
   }
-
-  const agencySnap = await getDoc(doc(firestore, 'agencies', agencyId));
-  if (!agencySnap.exists()) throw new Error('الوكالة غير موجودة');
-  const agency = agencySnap.data() as Record<string, unknown>;
-  const liveRoomId = String(agency.liveRoomId ?? '');
-
-  await updateDoc(doc(firestore, 'agencies', agencyId), {
-    maxSeatsCount,
-    updatedAt: Date.now(),
-  });
-
-  if (!liveRoomId) return;
-
-  const { update } = await import('firebase/database');
-  const roomRef = ref(realtimeDb, `rooms/${liveRoomId}`);
-  const roomSnap = await rtdbGet(roomRef);
-  if (!roomSnap.exists()) return;
-
-  const roomData = roomSnap.val() as Record<string, unknown>;
-  const patch: Record<string, unknown> = {
-    maxSeatsCount,
-    updatedAt: Date.now(),
-  };
+  await v2.post(`/admin/agencies/${agencyId}/max-seats`, { seatCount: maxSeatsCount });
+  await logAdminAction('تعديل أقصى مايكات الوكالة', agency.name || agencyId, String(maxSeatsCount));
 
   const applyCount = options?.applySeatsToLiveRoom;
-  if (applyCount != null) {
-    if (!AGENCY_SEAT_OPTIONS.includes(applyCount)) {
-      throw new Error('عدد المايكات غير مدعوم');
-    }
-    if (applyCount > maxSeatsCount) {
-      throw new Error('لا يمكن تطبيق عدد أكبر من الحد المسموح');
-    }
-    patch.seatsCount = applyCount;
-    patch.seats = rebuildRoomSeatsForCount(roomData, applyCount);
-  }
-
-  await update(roomRef, patch);
+  if (applyCount == null) return;
+  if (applyCount > maxSeatsCount) throw new Error('لا يمكن تطبيق عدد أكبر من الحد المسموح');
+  // No live room, nothing to apply to — and that is not an error.
+  if (!agency.liveRoomId) return;
+  await setRoomSeatsCount(agency.liveRoomId, applyCount, { syncAgencyMax: false });
 };
 
-/** تعديل مستوى الوكالة (1–15) — يُطبَّق على Firestore وغرفة RTDB */
-export const setAgencyPeriodLevel = async (
-  agencyId: string,
-  level: number,
-): Promise<void> => {
-  await assertAgencyIdInScope(agencyId);
-  const lv = Math.round(Number(level));
-  if (lv < AGENCY_LEVEL_MIN || lv > AGENCY_LEVEL_MAX) {
-    throw new Error(`المستوى يجب أن يكون بين ${AGENCY_LEVEL_MIN} و ${AGENCY_LEVEL_MAX}`);
-  }
-
-  const agencySnap = await getDoc(doc(firestore, 'agencies', agencyId));
-  if (!agencySnap.exists()) throw new Error('الوكالة غير موجودة');
-  const agency = agencySnap.data() as Record<string, unknown>;
-  const liveRoomId = String(agency.liveRoomId ?? '');
-  const agencyName = String(agency.name ?? agency.agencyName ?? agencyId);
-
-  await updateDoc(doc(firestore, 'agencies', agencyId), {
-    periodLevel: lv,
-    periodLevelManual: true,
-    updatedAt: Date.now(),
-  });
-
-  if (!liveRoomId) return;
-
-  const { update } = await import('firebase/database');
-  const roomRef = ref(realtimeDb, `rooms/${liveRoomId}`);
-  const roomSnap = await rtdbGet(roomRef);
-  if (!roomSnap.exists()) return;
-
-  const patch: Record<string, unknown> = {
-    agencyPeriodLevel: lv,
-    updatedAt: Date.now(),
-  };
-  if (lv < AGENCY_THRONE_UNLOCK_LEVEL) {
-    patch.throneEnabled = false;
-  }
-  await update(roomRef, patch);
-
-  await logAdminAction('تعديل مستوى الوكالة', `${agencyName} → L${lv}`, agencyId);
-};
-
-/** إلغاء التعديل اليدوي — يعود الحساب التلقائي من أرباح الأسبوع */
-export const clearAgencyPeriodLevelOverride = async (agencyId: string): Promise<void> => {
-  await assertAgencyIdInScope(agencyId);
-  const agencySnap = await getDoc(doc(firestore, 'agencies', agencyId));
-  if (!agencySnap.exists()) throw new Error('الوكالة غير موجودة');
-  const agency = agencySnap.data() as Record<string, unknown>;
-  const agencyName = String(agency.name ?? agency.agencyName ?? agencyId);
-
-  await updateDoc(doc(firestore, 'agencies', agencyId), {
-    periodLevelManual: false,
-    updatedAt: Date.now(),
-  });
-
-  await logAdminAction('إلغاء تعديل مستوى الوكالة اليدوي', agencyName, agencyId);
-};
-
-/** تطبيق عدد المقاعد/المايكات على أي غرفة RTDB (عادية أو وكالة) */
+/**
+ * عدد المقاعد في غرفة — the server writes the row AND the live node (through its
+ * compare-and-set transaction, so a mic being taken at the same moment is not
+ * lost), and refuses a count above the agency's cap. v1 rebuilt the seat map in
+ * the browser and pushed the whole node.
+ */
 export const setRoomSeatsCount = async (
   roomId: string,
   seatsCount: AgencySeatCount,
@@ -6706,36 +6508,31 @@ export const setRoomSeatsCount = async (
   if (!AGENCY_SEAT_OPTIONS.includes(seatsCount)) {
     throw new Error('عدد المقاعد غير مدعوم');
   }
+  void options; // the cap is the agency's own setting now, never derived here
+  await v2.post(`/admin/rooms/${roomId}/seats`, { seatCount: seatsCount });
+  await logAdminAction('تعديل مقاعد الغرفة', roomId, String(seatsCount));
+};
 
-  const rooms = await getRooms();
-  const listed = rooms.find((r) => r.id === roomId);
-  if (listed) assertCountryAccess(listed.country);
-
-  const { update } = await import('firebase/database');
-  const roomRef = ref(realtimeDb, `rooms/${roomId}`);
-  const roomSnap = await rtdbGet(roomRef);
-  if (!roomSnap.exists()) throw new Error('الغرفة غير موجودة');
-
-  const roomData = roomSnap.val() as Record<string, unknown>;
-  const patch: Record<string, unknown> = {
-    seatsCount,
-    maxSeatsCount: seatsCount,
-    seats: rebuildRoomSeatsForCount(roomData, seatsCount),
-    updatedAt: Date.now(),
-  };
-  await update(roomRef, patch);
-
-  const agencyId = String(roomData.agencyId ?? '');
-  if (options?.syncAgencyMax !== false && agencyId) {
-    try {
-      await updateDoc(doc(firestore, 'agencies', agencyId), {
-        maxSeatsCount: seatsCount,
-        updatedAt: Date.now(),
-      });
-    } catch {
-      /* الوكالة قد تكون محذوفة */
-    }
+/**
+ * مستوى فترة الوكالة يدوياً — the server marks it manual, so the automatic
+ * computation stops overwriting it. v1 also pushed the number into the live RTDB
+ * room node; on v2 the room reads the agency, so there is nothing to mirror.
+ */
+export const setAgencyPeriodLevel = async (agencyId: string, level: number): Promise<void> => {
+  const agency = await assertAgencyIdInScope(agencyId);
+  const lv = Math.round(Number(level));
+  if (lv < AGENCY_LEVEL_MIN || lv > AGENCY_LEVEL_MAX) {
+    throw new Error(`المستوى يجب أن يكون بين ${AGENCY_LEVEL_MIN} و ${AGENCY_LEVEL_MAX}`);
   }
+  await v2.post(`/admin/agencies/${agencyId}/period-level`, { level: lv });
+  await logAdminAction('تعديل مستوى الوكالة يدوياً', agency.name || agencyId, String(lv));
+};
+
+/** يرجّع المستوى للحساب التلقائي — إسقاط الحقل هو ما يعني «ألغِ التعديل اليدوي». */
+export const clearAgencyPeriodLevelOverride = async (agencyId: string): Promise<void> => {
+  const agency = await assertAgencyIdInScope(agencyId);
+  await v2.post(`/admin/agencies/${agencyId}/period-level`, {});
+  await logAdminAction('إلغاء تعديل مستوى الوكالة اليدوي', agency.name || agencyId, agencyId);
 };
 
 export type AgencySeatRequestStatus = 'pending' | 'approved' | 'rejected';
@@ -6774,49 +6571,26 @@ export const getAgencySeatRequests = async (
     .sort((a, b) => b.createdAt - a.createdAt);
 };
 
+/**
+ * ⚠️ طلبات زيادة المايكات: الطابور نفسه لم ينتقل إلى v2 — لا جدول ولا مسار في
+ * التطبيق يقدّم الطلب، فلا شيء يملأ هذه القائمة.
+ *
+ * The CAPABILITY behind it is live, though: «أقصى مايكات الوكالة» sets the cap and
+ * «مقاعد الغرفة» applies a count — both on the server, both audited. So an agent's
+ * request is handled by doing it, and this refuses instead of writing a decision
+ * into the OLD database for a request v2 never received.
+ */
 export const reviewAgencySeatRequest = async (
   requestId: string,
   action: 'approve' | 'reject',
   options?: { applyToRoom?: boolean; rejectionReason?: string },
 ): Promise<void> => {
-  const reqRef = doc(firestore, 'agencySeatRequests', requestId);
-  const reqSnap = await getDoc(reqRef);
-  if (!reqSnap.exists()) throw new Error('الطلب غير موجود');
-  const req = { id: reqSnap.id, ...reqSnap.data() } as AdminAgencySeatRequest;
-  if (req.status !== 'pending') throw new Error('تمت معالجة هذا الطلب مسبقاً');
-
-  await assertAgencyIdInScope(req.agencyId);
-
-  if (action === 'approve') {
-    const applyCount = options?.applyToRoom ? req.requestedSeatsCount : undefined;
-    await setAgencyMaxSeatsCount(req.agencyId, req.requestedSeatsCount, {
-      applySeatsToLiveRoom: applyCount,
-    });
-    await updateDoc(reqRef, {
-      status: 'approved',
-      updatedAt: Date.now(),
-      reviewedAt: Date.now(),
-      reviewedBy: auth.currentUser?.uid ?? '',
-    });
-    await logAdminAction(
-      'الموافقة على طلب زيادة المايكات',
-      `${req.requesterName} → ${req.requestedSeatsCount}`,
-      req.agencyId,
-    );
-    return;
-  }
-
-  await updateDoc(reqRef, {
-    status: 'rejected',
-    updatedAt: Date.now(),
-    reviewedAt: Date.now(),
-    reviewedBy: auth.currentUser?.uid ?? '',
-    rejectionReason: options?.rejectionReason?.trim() || 'مرفوض',
-  });
-  await logAdminAction(
-    'رفض طلب زيادة المايكات',
-    `${req.requesterName} → ${req.requestedSeatsCount}`,
-    req.agencyId,
+  void requestId;
+  void action;
+  void options;
+  throw new Error(
+    'طابور طلبات المايكات لم يُنقل بعد (التطبيق لا يرسل الطلب على النسخة الجديدة). ' +
+      'استخدم «أقصى مايكات الوكالة» و«مقاعد الغرفة» مباشرة — كلاهما مُسجَّل في سجل العمليات.',
   );
 };
 
@@ -6999,97 +6773,45 @@ export const getPendingPartyRequestsCount = async (): Promise<number> => {
   return list.length;
 };
 
+
+/** قائمة السهرات — فارغة بصدق: لا جدول سهرات على v2 (انظر الملاحظة أعلاه). */
+export const getAgencyPartyEventsAll = async (
+  agencyId?: string,
+): Promise<AdminAgencyPartyRequest[]> => {
+  void agencyId;
+  return [];
+};
+/**
+ * ⚠️ طلبات وفعاليات السهرات: الميزة نفسها لم تنتقل إلى v2 — لا جدول طلبات ولا
+ * شاشة في التطبيق تُنشئ سهرة، فالطابور فارغ بطبعه ولا شيء لإيقافه.
+ *
+ * These refuse rather than write a decision into the OLD database for a request v2
+ * never received. When the feature is migrated (app screen + table), the queue and
+ * these two actions come with it; the moderation lever that exists TODAY is
+ * «إغلاق الغرفة», which really ends what is running.
+ */
+const PARTY_NOT_MIGRATED =
+  'ميزة السهرات لم تُنقل إلى النسخة الجديدة بعد (لا يوجد مسار في التطبيق لتقديم الطلب). ' +
+  'لإيقاف ما يجري الآن استخدم «إغلاق الغرفة».';
+
 export const reviewAgencyPartyRequest = async (
   requestId: string,
   action: 'approve' | 'reject',
   options?: { rejectionReason?: string },
 ): Promise<void> => {
-  const reqRef = doc(firestore, 'agencyPartyRequests', requestId);
-  const reqSnap = await getDoc(reqRef);
-  if (!reqSnap.exists()) throw new Error('الطلب غير موجود');
-  const req = { id: reqSnap.id, ...reqSnap.data() } as AdminAgencyPartyRequest;
-  if (req.status !== 'pending') throw new Error('تمت معالجة هذا الطلب مسبقاً');
-
-  await assertAgencyIdInScope(req.agencyId);
-
-  if (action === 'approve') {
-    await updateDoc(reqRef, {
-      status: 'approved',
-      updatedAt: Date.now(),
-      reviewedAt: Date.now(),
-      reviewedBy: auth.currentUser?.uid ?? '',
-    });
-    await logAdminAction(
-      'الموافقة على طلب حفلة',
-      `${req.requesterName}: ${req.description.slice(0, 40)}`,
-      req.agencyId,
-    );
-    return;
-  }
-
-  await updateDoc(reqRef, {
-    status: 'rejected',
-    updatedAt: Date.now(),
-    reviewedAt: Date.now(),
-    reviewedBy: auth.currentUser?.uid ?? '',
-    rejectionReason: options?.rejectionReason?.trim() || 'مرفوض',
-  });
-  await logAdminAction(
-    'رفض طلب حفلة',
-    `${req.requesterName}: ${req.description.slice(0, 40)}`,
-    req.agencyId,
-  );
+  void requestId;
+  void action;
+  void options;
+  throw new Error(PARTY_NOT_MIGRATED);
 };
 
-/** كل فعاليات/حفلات الوكالة (كل الحالات) */
-export const getAgencyPartyEventsAll = async (
-  agencyId: string,
-): Promise<AdminAgencyPartyRequest[]> => {
-  await assertAgencyIdInScope(agencyId);
-  const q = query(
-    collection(firestore, 'agencyPartyRequests'),
-    where('agencyId', '==', agencyId),
-    limit(100),
-  );
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() } as AdminAgencyPartyRequest))
-    .sort((a, b) => b.startAt - a.startAt);
-};
-
-/** إيقاف حفلة/فعالية (قائمة أو مجدولة) — تختفي من التطبيق فوراً */
 export const stopAgencyPartyEvent = async (
   requestId: string,
   options?: { reason?: string },
 ): Promise<void> => {
-  const reqRef = doc(firestore, 'agencyPartyRequests', requestId);
-  const reqSnap = await getDoc(reqRef);
-  if (!reqSnap.exists()) throw new Error('الفعالية غير موجودة');
-  const req = { id: reqSnap.id, ...reqSnap.data() } as AdminAgencyPartyRequest;
-  await assertAgencyIdInScope(req.agencyId);
-
-  const phase = getPartyLifecyclePhase(req);
-  if (phase !== 'live' && phase !== 'scheduled') {
-    if (req.status === 'pending') throw new Error('الطلب لم يُوافق عليه بعد — استخدم رفض الطلب');
-    throw new Error('لا يمكن إيقاف هذه الفعالية');
-  }
-  if (req.status !== 'approved') {
-    throw new Error('يمكن إيقاف الفعاليات الموافق عليها فقط');
-  }
-
-  const reason = options?.reason?.trim() || 'أوقفتها الإدارة';
-  await updateDoc(reqRef, {
-    status: 'cancelled',
-    stoppedAt: Date.now(),
-    stoppedBy: auth.currentUser?.uid ?? '',
-    stopReason: reason,
-    updatedAt: Date.now(),
-  });
-  await logAdminAction(
-    'إيقاف حفلة/فعالية',
-    `${req.description.slice(0, 40)} — ${reason}`,
-    req.agencyId,
-  );
+  void requestId;
+  void options;
+  throw new Error(PARTY_NOT_MIGRATED);
 };
 
 // ===== نشاط الوكالة المالي (هدايا/أرباح/تحويلات) =====
@@ -7667,7 +7389,7 @@ export { DEFAULT_PROVIDER_COSTS, type ProviderCosts };
 
 export const getProviderCosts = async (): Promise<ProviderCosts> => {
   try {
-    const snap = await getDoc(doc(firestore, 'config', 'providers'));
+    const snap = await getConfigSnap('providers');
     if (!snap.exists()) return DEFAULT_PROVIDER_COSTS;
     const data = snap.data();
     return {
@@ -7683,14 +7405,14 @@ export const getProviderCosts = async (): Promise<ProviderCosts> => {
 };
 
 export const saveProviderCosts = async (costs: ProviderCosts): Promise<void> => {
-  await setDoc(doc(firestore, 'config', 'providers'), {
+  await mergeConfig('providers', {
     agoraVoicePerMin: Number(costs.agoraVoicePerMin) || 0,
     agoraVideoPerMin: Number(costs.agoraVideoPerMin) || 0,
     livekitPerMin: Number(costs.livekitPerMin) || 0,
     currency: String(costs.currency || 'USD').slice(0, 6),
     updatedAt: Date.now(),
     _permKey: 'analytics',
-  }, { merge: true });
+  });
 };
 
 export interface LiveKitUsageStats {

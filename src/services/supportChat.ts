@@ -1,20 +1,7 @@
 /**
- * محادثات الدعم — حساب linkup_support عبر Firestore
+ * محادثات الدعم — لم تنتقل بعد إلى v2؛ لا Firebase ولا كتابة في القاعدة القديمة.
+ * التفاصيل في تعليق الدوال أدناه.
  */
-import {
-  collection,
-  query,
-  where,
-  orderBy,
-  limit,
-  getDocs,
-  doc,
-  updateDoc,
-  addDoc,
-  onSnapshot,
-  increment,
-} from 'firebase/firestore';
-import { firestore } from '@/lib/firebase';
 import {
   isSuperCountryScope,
   preloadUserCountries,
@@ -89,64 +76,42 @@ async function filterSupportConversations(
   return list.filter((c) => isInAdminCountryScope(getCachedUserCountry(c.userUid)));
 }
 
+/**
+ * ⚠️ مركز الدعم لم ينتقل بعد إلى v2 — وهذه الدوال لا تكتب في قاعدة v1.
+ *
+ * v1's support inbox was «conversations where one participant is `linkup_support`»
+ * in Firestore, replied to straight from the browser. v2 has conversations and
+ * messages in Postgres, but no support IDENTITY and no admin path into private
+ * chats — and adding one means deciding how far a moderator may read into
+ * people's conversations. That is the owner's call, so nothing here guesses.
+ *
+ * Until that slice is built the page shows an empty inbox, and a reply attempt
+ * says why instead of silently writing into the OLD database (which is
+ * reference-only and must never be written to).
+ */
+
+const SUPPORT_NOT_READY =
+  'مركز الدعم لم يُنقل بعد إلى قاعدة البيانات الجديدة — الرد من اللوحة معطّل مؤقتاً ' +
+  'حتى تُبنى نقطة الدعم على السيرفر (تحتاج قرار المالك في حدود قراءة المحادثات).';
+
 export async function getSupportConversations(): Promise<SupportConversation[]> {
-  const q = query(
-    collection(firestore, 'conversations'),
-    where('participants', 'array-contains', SUPPORT_UID),
-    orderBy('lastMessageAt', 'desc'),
-    limit(150),
-  );
-  const snap = await getDocs(q);
-  const list: SupportConversation[] = [];
-  for (const d of snap.docs) {
-    const mapped = mapConversation(d.id, d.data() as Record<string, unknown>);
-    if (mapped) list.push(mapped);
-  }
-  return filterSupportConversations(list);
+  return [];
 }
 
 export function subscribeSupportConversations(
   callback: (convs: SupportConversation[]) => void,
 ): () => void {
-  const q = query(
-    collection(firestore, 'conversations'),
-    where('participants', 'array-contains', SUPPORT_UID),
-    orderBy('lastMessageAt', 'desc'),
-    limit(150),
-  );
-  return onSnapshot(
-    q,
-    (snap) => {
-      const list: SupportConversation[] = [];
-      for (const d of snap.docs) {
-        const mapped = mapConversation(d.id, d.data() as Record<string, unknown>);
-        if (mapped) list.push(mapped);
-      }
-      void filterSupportConversations(list).then(callback);
-    },
-    (err) => {
-      console.error('subscribeSupportConversations:', err);
-      callback([]);
-    },
-  );
+  callback([]);
+  return () => undefined;
 }
 
 export function subscribeSupportMessages(
   conversationId: string,
   callback: (messages: SupportMessage[]) => void,
 ): () => void {
-  const q = query(
-    collection(firestore, 'messages'),
-    where('conversationId', '==', conversationId),
-    limit(300),
-  );
-  return onSnapshot(q, (snap) => {
-    const msgs = snap.docs.map(
-      (d) => ({ id: d.id, ...d.data() }) as SupportMessage,
-    );
-    msgs.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-    callback(msgs);
-  });
+  void conversationId;
+  callback([]);
+  return () => undefined;
 }
 
 export async function sendSupportReply(
@@ -154,36 +119,14 @@ export async function sendSupportReply(
   userUid: string,
   text: string,
 ): Promise<void> {
-  const trimmed = text.trim();
-  if (!trimmed) return;
-
-  await addDoc(collection(firestore, 'messages'), {
-    conversationId,
-    fromUid: SUPPORT_UID,
-    toUid: userUid,
-    text: trimmed,
-    type: 'text',
-    createdAt: Date.now(),
-    isRead: false,
-    isOfficial: true,
-  });
-
-  await updateDoc(doc(firestore, 'conversations', conversationId), {
-    lastMessage: trimmed.length > 80 ? `${trimmed.slice(0, 80)}…` : trimmed,
-    lastMessageAt: Date.now(),
-    [`unreadBy.${userUid}`]: increment(1),
-    [`unreadBy.${SUPPORT_UID}`]: 0,
-  });
+  void conversationId;
+  void userUid;
+  void text;
+  throw new Error(SUPPORT_NOT_READY);
 }
 
 export async function markSupportConversationRead(conversationId: string): Promise<void> {
-  try {
-    await updateDoc(doc(firestore, 'conversations', conversationId), {
-      [`unreadBy.${SUPPORT_UID}`]: 0,
-    });
-  } catch {
-    // ignore
-  }
+  void conversationId;
 }
 
 export function countUnreadSupport(conversations: SupportConversation[]): number {

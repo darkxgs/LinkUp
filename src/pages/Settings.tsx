@@ -38,7 +38,8 @@ const DEFAULTS: ConfigSettings = {
   maintenanceMode: false,
   allowRegistration: true,
   requireVerification: false,
-  agencyJoinRequiresApproval: false,
+  // الافتراضي «يتطلب موافقة الوكيل» ليطابق الباك-إند — كان false يُكتب صراحةً فيعطّل الموافقة
+  agencyJoinRequiresApproval: true,
   welcomeBonus: 0,
   firstRechargeBonus: 50_000,
   inAppRechargeEnabled: false,

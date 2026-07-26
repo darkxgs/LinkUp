@@ -447,8 +447,12 @@ export async function uploadDecorAsset(
   file: File,
   kind: 'frames' | 'backgrounds',
   id: string,
+  onProgress?: CompressProgress,
 ): Promise<string> {
   if (!id.trim()) throw new Error('معرّف العنصر غير صالح');
+  // كان مسار الإطارات/الخلفيات الوحيد الذي يتخطى الضغط — رُفعت أصول خام حتى
+  // 5-7MB لكل إطار (~72MB لتبويب الإطارات كله) فتأخر تحميل المتجر على الأجهزة
+  file = await compressMedia(file, onProgress);
   if (file.size > MAX_DECOR_BYTES) {
     throw new Error(`حجم الملف أكبر من ${mbLabel(MAX_DECOR_BYTES)}`);
   }

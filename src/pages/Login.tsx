@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
 import { Lock, Mail, LogIn } from 'lucide-react';
 import { BrandLogo } from '@/components/BrandLogo';
-import { auth, firestore } from '@/lib/firebase';
+import { adminLogin } from '@/services/v2AdminAuth';
 import { ADMIN_BASE } from '@/lib/adminPaths';
+import { recordAdminLoginSession } from '@/services/adminSession';
+import { logAdminAction } from '@/services/admin';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -13,6 +13,19 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [kickNote, setKickNote] = useState('');
+
+  useEffect(() => {
+    try {
+      const msg = sessionStorage.getItem('admin_kick_msg');
+      if (msg) {
+        setKickNote(msg);
+        sessionStorage.removeItem('admin_kick_msg');
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,31 +33,41 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // 1) تسجيل دخول حقيقي عبر Firebase Auth
-      const cred = await signInWithEmailAndPassword(auth, email, password);
+      // 1) تسجيل الدخول على سيرفرنا — هو الذي يتحقق من كلمة المرور
+      //    ومن أن الحساب إداري فعلاً (AdminGuard على /admin/me).
+      //    لا مفاتيح قاعدة بيانات في المتصفح بعد الآن.
+      const admin = await adminLogin(email, password);
 
-      // 2) ⚠️ حرج: التحقق أن هذا المستخدم أدمن فعلاً
-      // (يقرأ من admins/{uid} — يجب أن تكون الوثيقة موجودة)
-      const adminDoc = await getDoc(doc(firestore, 'admins', cred.user.uid));
-      if (!adminDoc.exists()) {
-        // ليس أدمن — اخرجه واعرض خطأ
-        await signOut(auth);
-        setError('هذا الحساب لا يملك صلاحية الوصول للوحة التحكم');
-        setLoading(false);
-        return;
+      // 2) مفاتيح الجلسة التي تقرأها صفحات اللوحة كما هي — بلا تغيير في الصفحات.
+      localStorage.setItem('admin_auth', 'true');
+      localStorage.setItem('admin_uid', admin.uid);
+      localStorage.setItem('admin_email', email.trim());
+      localStorage.setItem('admin_name', admin.name || email.trim());
+
+      // 3) تسجيل الجلسة على السيرفر (IP + موقع + جهاز)
+      try {
+        const session = await recordAdminLoginSession();
+        await logAdminAction(
+          'تسجيل دخول لوحة التحكم',
+          admin.name || email,
+          `${session.ip || 'IP؟'} · ${[session.location?.city, session.location?.country].filter(Boolean).join('، ') || 'موقع غير معروف'}`,
+        );
+      } catch (sessionErr) {
+        console.warn('recordAdminLoginSession failed:', sessionErr);
       }
 
-      // 3) حفظ معلومات الجلسة
-      localStorage.setItem('admin_auth', 'true');
-      localStorage.setItem('admin_uid', cred.user.uid);
-      localStorage.setItem('admin_email', cred.user.email ?? '');
       navigate(ADMIN_BASE);
     } catch (err: any) {
-      const code = err?.code ?? '';
-      if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) {
+      // 401 = كلمة مرور/حساب خاطئ. 403 = حساب حقيقي لكنه ليس إدارياً — رسالتان
+      // مختلفتان لأن السببين مختلفان تماماً.
+      const status: number = err?.status ?? 0;
+      const code: string = err?.code ?? '';
+      if (status === 401) {
         setError('البريد الإلكتروني أو كلمة المرور غير صحيحة');
-      } else if (code.includes('too-many-requests')) {
-        setError('محاولات كثيرة، حاول لاحقاً');
+      } else if (status === 403 || code === 'not-admin') {
+        setError('هذا الحساب لا يملك صلاحية الوصول للوحة التحكم');
+      } else if (code === 'network') {
+        setError('تعذّر الاتصال بالخادم — تأكد أن الرابط صحيح وأن السيرفر يعمل');
       } else {
         setError('فشل تسجيل الدخول: ' + (err?.message ?? code));
       }
@@ -60,6 +83,12 @@ export default function Login() {
         </div>
         <h1>LinkUp Admin</h1>
         <p>سجّل الدخول للوصول إلى لوحة التحكم</p>
+
+        {kickNote && (
+          <div style={{ background: 'rgba(245,158,11,0.12)', color: '#B45309', padding: '10px 14px', borderRadius: 'var(--r-md)', fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
+            {kickNote}
+          </div>
+        )}
 
         <form onSubmit={handleLogin}>
           <div className="form-group">
@@ -111,8 +140,8 @@ export default function Login() {
         </form>
 
         <p style={{ marginTop: 20, fontSize: 12, lineHeight: 1.6 }}>
-          استخدم حساب مسؤول مُنشأ في Firebase Authentication.<br />
-          راجع ملف SETUP_ADMIN.md لإنشاء حساب الأدمن.
+          استخدم حساب LinkUp الخاص بك — يجب أن يكون دوره <b>admin</b> أو <b>superadmin</b>.<br />
+          الدخول يتم على سيرفر التطبيق نفسه، بنفس كلمة مرور الحساب.
         </p>
       </div>
     </div>

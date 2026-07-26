@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Check, X, Clock, CheckCircle2, XCircle, Eye, ShieldCheck, Sparkles, User, FileText,
-  ShieldOff, RotateCcw, ExternalLink,
+  ShieldOff, RotateCcw, ExternalLink, Lock,
 } from 'lucide-react';
 import { Loading, Empty, Badge } from '@/components/Common';
 import {
@@ -25,7 +25,91 @@ import { adminPath } from '@/lib/adminPaths';
 type FilterStatus = 'all' | 'pending' | 'approved' | 'rejected';
 type FilterMethod = 'all' | 'manual' | 'ai';
 
+/** كلمة مرور القسم — مطلوبة حتى من الأدمن لفتح صفحة طلبات التحقق */
+const KYC_SECTION_PASSWORD = '789789789';
+const KYC_UNLOCK_KEY = 'kyc_section_unlocked';
+
+function KycSectionGate({ children }: { children: React.ReactNode }) {
+  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem(KYC_UNLOCK_KEY) === '1');
+  const [input, setInput] = useState('');
+  const [error, setError] = useState('');
+
+  const handleUnlock = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (input.trim() === KYC_SECTION_PASSWORD) {
+      sessionStorage.setItem(KYC_UNLOCK_KEY, '1');
+      setUnlocked(true);
+      setError('');
+    } else {
+      setError('كلمة المرور غير صحيحة');
+      setInput('');
+    }
+  };
+
+  if (unlocked) return <>{children}</>;
+
+  return (
+    <div className="page-container">
+      <div
+        className="card"
+        style={{
+          maxWidth: 420,
+          margin: '60px auto',
+          textAlign: 'center',
+          padding: '36px 28px',
+        }}
+      >
+        <div
+          style={{
+            width: 64,
+            height: 64,
+            borderRadius: 16,
+            background: 'rgba(225,18,18,0.1)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 16,
+          }}
+        >
+          <Lock size={30} color="#e11212" />
+        </div>
+        <h2 style={{ margin: '0 0 8px', fontSize: 20 }}>قسم محمي</h2>
+        <p style={{ color: 'var(--text-muted)', fontSize: 14, margin: '0 0 22px', lineHeight: 1.6 }}>
+          طلبات التحقق من الهوية محمية بكلمة مرور إضافية.
+          <br />
+          أدخل كلمة مرور القسم للمتابعة.
+        </p>
+        <form onSubmit={handleUnlock}>
+          <input
+            className="admin-input"
+            type="password"
+            value={input}
+            onChange={(e) => { setInput(e.target.value); setError(''); }}
+            placeholder="كلمة مرور القسم"
+            autoFocus
+            style={{ width: '100%', textAlign: 'center', marginBottom: 10, fontSize: 16, letterSpacing: 2 }}
+          />
+          {error && (
+            <p style={{ color: '#DC2626', fontSize: 13, margin: '0 0 10px' }}>{error}</p>
+          )}
+          <button type="submit" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
+            فتح القسم
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function KycRequestsPage() {
+  return (
+    <KycSectionGate>
+      <KycRequestsContent />
+    </KycSectionGate>
+  );
+}
+
+function KycRequestsContent() {
   const { isSuper, profile, can } = useAdminProfile();
   const [items, setItems] = useState<AdminKycRequest[]>([]);
   const [loading, setLoading] = useState(true);

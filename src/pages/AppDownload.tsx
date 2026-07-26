@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
 import { Download, Sparkles } from 'lucide-react';
-import { firestore } from '@/lib/firebase';
+import { v2 } from '@/lib/v2Api';
 import { BrandLogo } from '@/components/BrandLogo';
 import { DEFAULT_APP_RELEASE, type ConfigAppRelease } from '@/services/admin';
 
@@ -27,18 +26,21 @@ export default function LandingPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const ref = doc(firestore, 'config', 'appRelease');
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        if (snap.exists()) {
-          setRelease({ ...DEFAULT_APP_RELEASE, ...(snap.data() as Partial<ConfigAppRelease>) });
-        }
-        setLoading(false);
-      },
-      () => setLoading(false),
-    );
-    return unsub;
+    let alive = true;
+    // A PUBLIC endpoint: this page is open to visitors, so it must not need the
+    // admin token. `/app/release` serves the allow-listed release fields only.
+    v2.get<Partial<ConfigAppRelease>>('/app/release')
+      .then((data) => {
+        if (!alive) return;
+        if (data) setRelease({ ...DEFAULT_APP_RELEASE, ...data });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const downloadUrl = release.downloadUrl?.trim() ?? '';

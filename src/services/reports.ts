@@ -1,19 +1,8 @@
 /**
  * بلاغات المستخدمين — قراءة وتحديث الحالة (أدمن)
  */
-import {
-  collection,
-  query,
-  orderBy,
-  limit,
-  getDocs,
-  where,
-  doc,
-  updateDoc,
-  getDoc,
-  onSnapshot,
-} from 'firebase/firestore';
-import { firestore } from '@/lib/firebase';
+import { v2, v2Qs } from '@/lib/v2Api';
+import { getUserById } from '@/services/admin';
 import {
   isInAdminCountryScope,
   isSuperCountryScope,
@@ -98,88 +87,164 @@ export const TARGET_TYPE_LABELS: Record<string, string> = {
   general: 'عام',
 };
 
-function mapReport(id: string, data: Record<string, unknown>): UserReport {
+/** One report as the server lists it — no screenshots, no captured evidence.
+ *  Those come from the single-record read only, so scanning the queue does not
+ *  put every attachment on screen. */
+interface ServerReportRow {
+  id: string;
+  reporterUid: string | null;
+  reporterName: string;
+  targetUid: string | null;
+  targetName: string;
+  targetType: string;
+  source: string;
+  reason: string;
+  status: string;
+  createdAt: string;
+}
+
+type ServerReportDetail = ServerReportRow & {
+  targetAvatar: string | null;
+  details: string;
+  photoUrls: string[];
+  evidence: Record<string, unknown>;
+  adminNote: string;
+  updatedAt: string;
+};
+
+/** v2 status vocabulary → v1's. `actioned` and `dismissed` both mean "closed",
+ *  and the panel already draws those two differently. */
+function reportStatusOf(status: string): ReportStatus {
+  switch (status) {
+    case 'reviewed':
+      return 'reviewing';
+    case 'actioned':
+      return 'resolved';
+    case 'dismissed':
+      return 'dismissed';
+    default:
+      return 'pending';
+  }
+}
+
+/** …and back, because the decide endpoint speaks v2's vocabulary. */
+function serverStatusOf(status: ReportStatus): string {
+  switch (status) {
+    case 'reviewing':
+      return 'reviewed';
+    case 'resolved':
+      return 'actioned';
+    case 'dismissed':
+      return 'dismissed';
+    default:
+      return 'pending';
+  }
+}
+
+function toUserReport(row: ServerReportRow, detail?: Partial<ServerReportDetail>): UserReport {
+  const evidence = (detail?.evidence ?? {}) as Record<string, unknown>;
+  const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
   return {
-    id,
-    reporterUid: (data.reporterUid as string) ?? '',
-    reporterDisplayName: (data.reporterDisplayName as string) || undefined,
-    reason: (data.reason as ReportReason) ?? 'other',
-    details: (data.details as string) ?? '',
-    photoUrls: (data.photoUrls as string[]) ?? [],
-    targetUid: (data.targetUid as string | null) ?? null,
-    targetDisplayName: (data.targetDisplayName as string | null) ?? null,
-    targetAvatar: (data.targetAvatar as string | null) ?? null,
-    targetType: (data.targetType as string) ?? 'general',
-    source: (data.source as string) ?? 'app',
-    postId: (data.postId as string | null) ?? null,
-    postText: (data.postText as string | null) ?? null,
-    postImageUrl: (data.postImageUrl as string | null) ?? null,
-    messageId: (data.messageId as string | null) ?? null,
-    conversationId: (data.conversationId as string | null) ?? null,
-    messageText: (data.messageText as string | null) ?? null,
-    messageType: (data.messageType as string | null) ?? null,
-    messageVoiceUrl: (data.messageVoiceUrl as string | null) ?? null,
-    messageImageUrl: (data.messageImageUrl as string | null) ?? null,
-    messageVideoUrl: (data.messageVideoUrl as string | null) ?? null,
-    messageVoiceDuration: (data.messageVoiceDuration as number | null) ?? null,
-    status: (data.status as ReportStatus) ?? 'pending',
-    createdAt: (data.createdAt as number) ?? 0,
-    updatedAt: data.updatedAt as number | undefined,
-    adminNote: data.adminNote as string | undefined,
+    id: row.id,
+    reporterUid: row.reporterUid ?? '',
+    reporterDisplayName: row.reporterName || undefined,
+    reason: (row.reason as ReportReason) ?? 'other',
+    details: detail?.details ?? '',
+    photoUrls: detail?.photoUrls ?? [],
+    targetUid: row.targetUid,
+    targetDisplayName: row.targetName || null,
+    targetAvatar: detail?.targetAvatar ?? null,
+    targetType: row.targetType || 'general',
+    source: row.source || 'app',
+    // The captured evidence the reporter's client attached — kept as one jsonb on
+    // the server rather than a dozen columns, unpacked here for the same UI.
+    postId: str(evidence.postId),
+    postText: str(evidence.postText),
+    postImageUrl: str(evidence.postImageUrl),
+    messageId: str(evidence.messageId),
+    conversationId: str(evidence.conversationId),
+    messageText: str(evidence.messageText),
+    messageType: str(evidence.messageType),
+    messageVoiceUrl: str(evidence.messageVoiceUrl),
+    messageImageUrl: str(evidence.messageImageUrl),
+    messageVideoUrl: str(evidence.messageVideoUrl),
+    messageVoiceDuration:
+      typeof evidence.messageVoiceDuration === 'number' ? evidence.messageVoiceDuration : null,
+    status: reportStatusOf(row.status),
+    createdAt: Date.parse(row.createdAt) || 0,
+    updatedAt: detail?.updatedAt ? Date.parse(detail.updatedAt) || undefined : undefined,
+    adminNote: detail?.adminNote || undefined,
   };
 }
 
 export async function getPendingReportsCount(): Promise<number> {
-  const q = query(
-    collection(firestore, 'reports'),
-    where('status', '==', 'pending'),
-    limit(500),
-  );
-  const snap = await getDocs(q);
-  if (isSuperCountryScope()) return snap.size;
-  const rows = snap.docs.map((d) => mapReport(d.id, d.data() as Record<string, unknown>));
-  await preloadUserCountries(rows.map((r) => r.reporterUid));
-  return rows.filter((r) => isInAdminCountryScope(getCachedUserCountry(r.reporterUid))).length;
+  try {
+    // `total` from a 1-row page = the count, without fetching the rows.
+    const res = await v2.get<{ total: number }>(
+      `/admin/reports${v2Qs({ status: 'pending', limit: 1 })}`,
+    );
+    return res?.total ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
 export async function getReports(limitCount = 200): Promise<UserReport[]> {
-  const q = query(
-    collection(firestore, 'reports'),
-    orderBy('createdAt', 'desc'),
-    limit(limitCount),
-  );
-  const snap = await getDocs(q);
-  const rows = snap.docs.map((d) => mapReport(d.id, d.data() as Record<string, unknown>));
-  if (isSuperCountryScope()) return rows;
-  await preloadUserCountries(rows.map((r) => r.reporterUid));
-  return rows.filter((r) => isInAdminCountryScope(getCachedUserCountry(r.reporterUid)));
+  try {
+    const res = await v2.get<{ items: ServerReportRow[] }>(
+      `/admin/reports${v2Qs({ limit: Math.min(limitCount, 100) })}`,
+    );
+    const rows = (res?.items ?? []).map((row) => toUserReport(row));
+    if (isSuperCountryScope()) return rows;
+    await preloadUserCountries(rows.map((r) => r.reporterUid));
+    return rows.filter((r) => isInAdminCountryScope(getCachedUserCountry(r.reporterUid)));
+  } catch (e) {
+    console.error('getReports:', e);
+    return [];
+  }
 }
 
+/** تفاصيل بلاغ — the only read that returns the attachments and the evidence. */
+export async function getReportDetail(reportId: string): Promise<UserReport | null> {
+  try {
+    const row = await v2.get<ServerReportDetail>(`/admin/reports/${reportId}`);
+    return row?.id ? toUserReport(row, row) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** How often the reports page refreshes while it is open. */
+const REPORTS_POLL_MS = 15_000;
+
+/**
+ * v1 kept a Firestore listener open. Our API is request/response, so this polls
+ * and only calls back when the list actually CHANGED — no re-render per tick.
+ */
 export function subscribeReports(
   callback: (reports: UserReport[]) => void,
   limitCount = 200,
 ): () => void {
-  const q = query(
-    collection(firestore, 'reports'),
-    orderBy('createdAt', 'desc'),
-    limit(limitCount),
-  );
-  return onSnapshot(
-    q,
-    async (snap) => {
-      const rows = snap.docs.map((d) => mapReport(d.id, d.data() as Record<string, unknown>));
-      if (isSuperCountryScope()) {
-        callback(rows);
-        return;
-      }
-      await preloadUserCountries(rows.map((r) => r.reporterUid));
-      callback(rows.filter((r) => isInAdminCountryScope(getCachedUserCountry(r.reporterUid))));
-    },
-    (err) => {
-      console.error('subscribeReports:', err);
-      callback([]);
-    },
-  );
+  let stopped = false;
+  let lastJson = '';
+
+  const tick = async () => {
+    if (stopped) return;
+    const rows = await getReports(limitCount);
+    if (stopped) return;
+    const json = JSON.stringify(rows);
+    if (json !== lastJson) {
+      lastJson = json;
+      callback(rows);
+    }
+  };
+
+  void tick();
+  const timer = setInterval(() => void tick(), REPORTS_POLL_MS);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
 }
 
 export async function updateReportStatus(
@@ -187,49 +252,35 @@ export async function updateReportStatus(
   status: ReportStatus,
   adminNote?: string,
 ): Promise<void> {
-  const payload: Record<string, unknown> = {
-    status,
-    updatedAt: Date.now(),
-  };
-  if (adminNote !== undefined) {
-    payload.adminNote = adminNote.trim();
-  }
-  await updateDoc(doc(firestore, 'reports', reportId), payload);
+  await v2.post(`/admin/reports/${reportId}/decide`, {
+    status: serverStatusOf(status),
+    ...(adminNote !== undefined ? { note: adminNote.trim() } : {}),
+  });
 }
 
+/**
+ * ⚠️ استخراج وسائط رسالة مُبلَّغ عنها غير متاح على v2 — بعد.
+ *
+ * v1 read the reported message straight out of the `messages` collection. In v2
+ * private messages are per-conversation rows with no admin read path, and adding
+ * one means deciding how far a moderator may read into people's chats — an owner
+ * decision, not a migration one. What the reporter's client ATTACHED to the report
+ * is already returned by the report detail above.
+ */
 export async function fetchReportMessageMedia(messageId: string): Promise<{
-  messageVoiceUrl?: string | null;
-  messageImageUrl?: string | null;
-  messageVideoUrl?: string | null;
-  messageVoiceDuration?: number | null;
-  messageType?: string | null;
+  messageText: string | null;
+  messageVoiceUrl: string | null;
+  messageImageUrl: string | null;
+  messageVideoUrl: string | null;
+  messageVoiceDuration: number | null;
+  messageType: string | null;
 } | null> {
-  if (!messageId?.trim()) return null;
-  try {
-    const snap = await getDoc(doc(firestore, 'messages', messageId.trim()));
-    if (!snap.exists()) return null;
-    const d = snap.data() as Record<string, unknown>;
-    return {
-      messageVoiceUrl: (d.voiceUrl as string) ?? null,
-      messageImageUrl: (d.imageUrl as string) ?? null,
-      messageVideoUrl: (d.videoUrl as string) ?? null,
-      messageVoiceDuration:
-        typeof d.voiceDuration === 'number' ? d.voiceDuration : null,
-      messageType: (d.type as string) ?? null,
-    };
-  } catch {
-    return null;
-  }
+  void messageId;
+  return null;
 }
 
 export async function fetchReporterDisplayName(uid: string): Promise<string> {
-  if (!uid) return '—';
-  try {
-    const snap = await getDoc(doc(firestore, 'users', uid));
-    if (!snap.exists()) return uid.slice(0, 12) + '…';
-    const d = snap.data();
-    return (d.displayName as string) || (d.name as string) || uid.slice(0, 12) + '…';
-  } catch {
-    return uid.slice(0, 12) + '…';
-  }
+  if (!uid) return '';
+  const user = await getUserById(uid);
+  return user?.displayName ?? '';
 }

@@ -143,40 +143,7 @@ export default function PostsPage() {
         >
           إصلاح الصلاحيات (status)
         </button>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={async () => {
-            if (!confirm('إضافة منشورات تجريبية إذا كانت القائمة فارغة؟')) return;
-            const { collection, query, limit, getDocs, addDoc } = await import('firebase/firestore');
-            const { firestore } = await import('@/lib/firebase');
-            const snap = await getDocs(query(collection(firestore, 'posts'), limit(1)));
-            if (!snap.empty) {
-              alert('توجد منشورات بالفعل');
-              return;
-            }
-            const demos = [
-              { uid: 'demo_1', authorName: 'مريم', text: 'يوم جميل 💜 #LinkUp', likes: 50, comments: 5, shares: 1 },
-              { uid: 'demo_2', authorName: 'محمد', text: 'مساء الخير للجميع 🌙', likes: 30, comments: 2, shares: 0 },
-            ];
-            for (const d of demos) {
-              await addDoc(collection(firestore, 'posts'), {
-                ...d,
-                authorAvatar: '',
-                authorCountry: 'SA',
-                authorLevel: 10,
-                images: [],
-                hashtags: ['LinkUp'],
-                status: 'active',
-                createdAt: Date.now(),
-              });
-            }
-            load();
-            alert('تمت إضافة منشورات تجريبية');
-          }}
-        >
-          بذور تجريبية
-        </button>
+
         <span style={{ marginRight: 'auto', color: 'var(--text-muted)', fontWeight: 600 }}>
           {filtered.length} منشور
         </span>

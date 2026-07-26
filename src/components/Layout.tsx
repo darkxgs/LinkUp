@@ -1,12 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import { signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 import { Menu, Search } from 'lucide-react';
 import Sidebar from './Sidebar';
 import AdminAlertsBell from './AdminAlertsBell';
 import { AdminProfileProvider, useAdminProfile } from '@/contexts/AdminProfileContext';
 import { AdminAlertsProvider } from '@/contexts/AdminAlertsContext';
+import {
+  clearAdminSessionLocal,
+  endAdminLoginSession,
+  heartbeatAdminSession,
+  watchCurrentAdminSession,
+} from '@/services/adminSession';
 
 interface TopbarProps {
   onMenuClick: () => void;
@@ -40,14 +44,59 @@ function LayoutInner() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const { loading } = useAdminProfile();
+  const kickedRef = useRef(false);
+
+  const forceLocalLogout = (message?: string) => {
+    if (kickedRef.current) return;
+    kickedRef.current = true;
+    clearAdminSessionLocal();
+    if (message) {
+      try {
+        sessionStorage.setItem('admin_kick_msg', message);
+      } catch {
+        // ignore
+      }
+    }
+    navigate('/login', { replace: true });
+  };
 
   const handleLogout = () => {
-    void signOut(auth);
-    localStorage.removeItem('admin_auth');
-    localStorage.removeItem('admin_uid');
-    localStorage.removeItem('admin_email');
-    navigate('/login');
+    void endAdminLoginSession().finally(() => {
+      clearAdminSessionLocal();
+      navigate('/login');
+    });
   };
+
+  // مراقبة الجلسة + نبضة حياة — لإخراج الحساب عند إجبار الخروج من لوحة التتبع
+  useEffect(() => {
+    if (loading) return;
+
+    const unsub = watchCurrentAdminSession((reason) => {
+      const msg =
+        reason === 'disabled'
+          ? 'تم تعطيل حسابك'
+          : reason === 'session_version' || reason === 'forced_all' || reason === 'forced_by_super'
+            ? 'تم تسجيل خروجك من لوحة التحكم بواسطة مدير النظام'
+            : 'تم إنهاء جلستك — سجّل الدخول مجدداً';
+      forceLocalLogout(msg);
+    });
+
+    const tick = () => {
+      void heartbeatAdminSession().then((res) => {
+        if (res.revoked) {
+          forceLocalLogout('تم إنهاء جلستك — سجّل الدخول مجدداً');
+        }
+      });
+    };
+    tick();
+    const interval = window.setInterval(tick, 45_000);
+
+    return () => {
+      unsub();
+      window.clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   if (loading) {
     return (

@@ -292,11 +292,10 @@ export default function AgencyLevelsPage() {
                       min={1}
                       value={row.supportTarget}
                       onChange={(e) => {
+                        // لا نلمس مكافأة المدير عند تعديل حدّ الدعم — كان يعيد كتابتها
+                        // إلى 32% من الحدّ مع كل ضغطة فيمسح القيمة المخصّصة التي كتبها المالك.
                         const supportTarget = Math.max(1, Number(e.target.value) || 1);
-                        updateRow(idx, {
-                          supportTarget,
-                          managerBonus: Math.floor(supportTarget * 0.32),
-                        });
+                        updateRow(idx, { supportTarget });
                       }}
                     />
                   </td>
