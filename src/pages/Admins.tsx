@@ -309,8 +309,13 @@ function AdminFormModal({ admin, onClose, onSaved }: {
           admin!.email,
         );
       } else {
-        await createAdminUser({ email: email.trim(), password, name: name || email.trim(), role, countries, permissions: perms });
+        const res = await createAdminUser({ email: email.trim(), password, name: name || email.trim(), role, countries, permissions: perms });
         await logAdminAction('إنشاء مشرف', name || email, role === 'super' ? 'مدير نظام' : countries.join('،'));
+        // البريد كان لحساب موجود ⇒ رُقّي بدل إنشاء حساب ثانٍ. نقولها صريحة لأن
+        // كلمة المرور المكتوبة هنا لم تُطبَّق على حسابٍ يملكه شخص آخر أصلاً.
+        if (res.promoted) {
+          alert('هذا البريد كان لحساب موجود — رُقّي إلى مشرف. كلمة مروره لم تُغيَّر؛ استخدم «تغيير كلمة المرور» على صفّه إن أردت.');
+        }
       }
       onSaved();
     } catch (e: any) { alert('فشل: ' + (e?.message ?? 'خطأ')); }

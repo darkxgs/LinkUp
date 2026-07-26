@@ -5116,7 +5116,7 @@ export const listAdmins = async (): Promise<AdminProfile[]> => {
 export const createAdminUser = async (input: {
   email: string; password: string; name: string;
   role: 'super' | 'country'; countries: string[]; permissions: Record<string, boolean>;
-}): Promise<{ ok: boolean; uid: string }> => {
+}): Promise<{ ok: boolean; uid: string; promoted: boolean }> => {
   // نفحص القواعد نفسها قبل الإرسال، فيصل السبب بالعربية فوراً بدل رسالة تحقّق
   // إنجليزية من الـDTO أو رحلة ذهاب وعودة لا لزوم لها.
   const email = input.email.trim().toLowerCase();
@@ -5124,20 +5124,52 @@ export const createAdminUser = async (input: {
   if (input.password.length < 8) throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل');
   if (!input.name.trim()) throw new Error('الاسم مطلوب');
 
-  const created = await v2.post<{ id: string }>('/admin/users', {
-    email,
-    password: input.password,
-    displayName: input.name.trim(),
-  });
-  const uid = created?.id;
+  /**
+   * البريد مستخدم مسبقاً ⇒ **نرقّي ذلك الحساب** بدل التوقف.
+   *
+   * هذا ما كان يحبس الشاشة: الحساب يُنشأ أولاً ثم تُضبط الرتبة، فإن تعثّرت خطوة
+   * الرتبة (أو أُغلقت النافذة) يبقى الحساب مستخدماً عادياً — فلا يظهر في قائمة
+   * المشرفين، ومحاولة إنشائه من جديد تُرفض بـ«البريد مستخدم». المقصود من الشاشة
+   * هو «اجعل هذا البريد مشرفاً»، فنكمل من حيث توقّفنا.
+   *
+   * كلمة المرور لا تُلمَس لحسابٍ موجود: تغييرها انتزاعٌ لحساب شخصٍ آخر. إن أردت
+   * كلمة مرور جديدة استخدم «تغيير كلمة المرور» على صفّه بعد الترقية.
+   */
+  let uid = '';
+  let promoted = false;
+  try {
+    const created = await v2.post<{ id: string }>('/admin/users', {
+      email,
+      password: input.password,
+      displayName: input.name.trim(),
+    });
+    uid = created?.id ?? '';
+  } catch (e) {
+    const taken = e instanceof Error && /مستخدم بالفعل|email-taken/.test(e.message);
+    if (!taken) throw e;
+    const found = await v2.get<{ items: ServerUserRow[] }>(
+      `/admin/users${v2Qs({ search: email, limit: 5 })}`,
+    );
+    const match = (found?.items ?? []).find((u) => (u.email ?? '').toLowerCase() === email);
+    if (!match) {
+      throw new Error('هذا البريد مستخدم بحساب خارج نطاق دولك — لا يمكن ترقيته من هنا');
+    }
+    uid = match.id;
+    promoted = true;
+  }
   if (!uid) throw new Error('لم يُنشأ الحساب');
+
   await v2.post(`/admin/users/${uid}/role`, { role: serverRoleOf(input.role) });
   await v2.post(`/admin/users/${uid}/permissions`, {
     permissions: permissionMapToList(input.permissions),
     countries: input.countries ?? [],
   });
-  await logAdminAction('إنشاء مشرف', input.email, input.role === 'super' ? 'مدير نظام' : 'مشرف دولة');
-  return { ok: true, uid };
+  await logAdminAction(
+    promoted ? 'ترقية حساب موجود لمشرف' : 'إنشاء مشرف',
+    input.email,
+    input.role === 'super' ? 'مدير نظام' : 'مشرف دولة',
+  );
+  return { ok: true, uid, promoted };
 };
 
 export const updateAdminUser = async (input: {
