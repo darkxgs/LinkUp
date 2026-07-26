@@ -608,7 +608,7 @@ export default function BotAdminPage() {
           )}
         </div>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>
-          Bearer token من إعدادات البوت (<code>ADMIN_API_KEYS</code>). يُحفظ في Firebase ويُحمَّل تلقائياً عند فتح الصفحة — مرة واحدة تكفي.
+          Bearer token من إعدادات البوت (<code>ADMIN_API_KEYS</code>). يُحفظ في إعدادات سيرفرنا ويُحمَّل تلقائياً عند فتح الصفحة — مرة واحدة تكفي.
         </p>
         {keyLoading ? (
           <Loading />
