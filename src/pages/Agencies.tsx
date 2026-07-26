@@ -146,7 +146,7 @@ export default function AgenciesPage() {
             <Building2 size={22} color="#e11212" /> الوكالات
           </h2>
           <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
-            منظمات تضم وكلاء ومضيفات (Firestore) — اضغط على أي وكالة لعرض كل التفاصيل والتحكّم بها.
+            منظمات تضم وكلاء ومضيفات — اضغط على أي وكالة لعرض كل التفاصيل والتحكّم بها.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

@@ -143,12 +143,14 @@ export default function Dashboard() {
           fontSize: 14,
           lineHeight: 1.7,
         }}>
-          ⚠️ حسابك غير مُضاف لقائمة المسؤولين، لذلك قد لا تظهر البيانات أو تُرفض التعديلات.
+          ⚠️ حسابك ليس بدور <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 6px', borderRadius: 4 }}>admin</code> أو{' '}
+          <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 6px', borderRadius: 4 }}>superadmin</code>، لذلك سترفض معظم الصفحات طلباتك.
           <br />
-          أضف حسابك في collection <code style={{ background: 'rgba(0,0,0,0.06)', padding: '2px 6px', borderRadius: 4 }}>admins</code> في Firestore — راجع ملف <strong>SETUP_ADMIN.md</strong>.
+          الدور يُمنح من صفحة «المشرفون والصلاحيات» بحساب مالك — ولم يبقَ أي مسار يرقّي نفسه من
+          المتصفح، فذلك كان ثغرة في النسخة القديمة.
           <div style={{ marginTop: 12 }}>
             <button className="btn btn-primary btn-sm" onClick={handleSelfRegister} disabled={registering}>
-              {registering ? 'جارٍ...' : 'سجّلني كأدمن تلقائياً (إن سمحت القواعد)'}
+              {registering ? 'جارٍ...' : 'لماذا لا أستطيع ترقية نفسي؟'}
             </button>
           </div>
         </div>

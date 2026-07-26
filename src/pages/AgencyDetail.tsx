@@ -959,7 +959,7 @@ function AssignHostModal({
         </div>
         <div className="modal-body">
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 0, lineHeight: 1.6 }}>
-            أدخل <strong>معرّف الحساب (8 أرقام)</strong> أو <strong>Firebase UID</strong>.
+            أدخل <strong>معرّف الحساب (8 أرقام)</strong> أو <strong>البريد الإلكتروني</strong>.
             الإناث تُربط كمضيفات موثّقة؛ الذكور كأعضاء عاديين.
           </p>
 

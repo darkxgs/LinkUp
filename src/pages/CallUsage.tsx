@@ -41,7 +41,6 @@ const RANGES: { key: CallUsageRange; label: string }[] = [
   { key: 'all', label: 'الكل' },
 ];
 
-const LIVEKIT_WEBHOOK_URL = 'https://us-central1-linkup-dc45f.cloudfunctions.net/livekitWebhook';
 
 /** يحوّل عدد الدقائق إلى صيغة ساعات:دقائق للقراءة السريعة */
 function formatMinutes(min: number): string {
@@ -107,7 +106,7 @@ export default function CallUsagePage() {
     try {
       await saveProviderCosts(costs);
       await logAdminAction('تعديل أسعار تكلفة المزوّدين', 'providerCosts',
-        `Agora صوت ${costs.agoraVoicePerMin} | فيديو ${costs.agoraVideoPerMin} | LiveKit ${costs.livekitPerMin} ${costs.currency}`);
+        `Agora صوت ${costs.agoraVoicePerMin} | فيديو ${costs.agoraVideoPerMin} ${costs.currency}`);
       setSavedCosts(true);
       setTimeout(() => setSavedCosts(false), 2000);
     } finally {
@@ -134,7 +133,7 @@ export default function CallUsagePage() {
             استهلاك وتكلفة المزوّدين
           </h1>
           <p>
-            دقائق الاستهلاك الفعلية لكل مزوّد بث (Agora للمكالمات والمطابقة، LiveKit للغرف) مع تكلفة تقديرية.
+            دقائق الاستهلاك الفعلية على Agora (المكالمات والمطابقة والغرف) مع تكلفة تقديرية.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -188,7 +187,6 @@ export default function CallUsagePage() {
             </div>
             <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
               <CostChip label="Agora" value={formatCost(agoraCost, costs.currency)} color="#f2a0a0" />
-              <CostChip label="LiveKit" value={formatCost(livekitCost, costs.currency)} color="#F0ABFC" />
             </div>
           </div>
 
@@ -213,41 +211,21 @@ export default function CallUsagePage() {
               note={`الدقائق الفعلية من مدّة المكالمة (durationSeconds). للمقارنة: المفوتر ${formatMinutes(stats.totalMinutes)}. ملاحظة: Agora يفوتر لكل مشارك — لمكالمة 1:1 اضرب التكلفة ×2.`}
               tracked
             />
-            {lk.hasData ? (
-              <ProviderCard
-                name="LiveKit"
-                role="الغرف الصوتية الجماعية (many-to-many)"
-                icon={<Radio size={20} />}
-                color="#d21e2a"
-                active
-                primaryValue={formatMinutes(lk.minutes)}
-                primaryLabel="دقيقة مشارِك فعلية"
-                meta={[
-                  { label: 'جلسات مشاركين', value: formatNumber(lk.sessions) },
-                  { label: 'غرف نشطة الآن', value: formatNumber(liveRoomsNow) },
-                  { label: 'مشاركون الآن', value: formatNumber(liveParticipantsNow) },
-                ]}
-                note="دقائق المشاركين الفعلية من أحداث LiveKit Webhook (دخول→خروج). هذه تطابق فاتورة LiveKit."
-                tracked
-              />
-            ) : (
-              <ProviderCard
-                name="LiveKit"
-                role="الغرف الصوتية الجماعية (many-to-many)"
-                icon={<Radio size={20} />}
-                color="#d21e2a"
-                active
-                primaryValue="بانتظار البيانات"
-                primaryLabel="لم تصل أحداث بعد"
-                meta={[
-                  { label: 'غرف نشطة الآن', value: formatNumber(liveRoomsNow) },
-                  { label: 'مشاركون الآن', value: formatNumber(liveParticipantsNow) },
-                  { label: 'إجمالي الغرف', value: formatNumber(rooms.length) },
-                ]}
-                note={`فعّل التتبّع: LiveKit Cloud ← Project Settings ← Webhooks ← أضِف الرابط:\n${LIVEKIT_WEBHOOK_URL}\nبعدها تظهر دقائق المشاركين الفعلية تلقائياً.`}
-                tracked={false}
-              />
-            )}
+            <ProviderCard
+              name="Agora — الغرف"
+              role="الغرف الصوتية الجماعية (many-to-many)"
+              icon={<Radio size={20} />}
+              color="#d21e2a"
+              active
+              primaryValue={formatNumber(liveRoomsNow)}
+              primaryLabel="غرفة نشطة الآن"
+              meta={[
+                { label: 'مشاركون الآن', value: formatNumber(liveParticipantsNow) },
+                { label: 'إجمالي الغرف', value: formatNumber(rooms.length) },
+              ]}
+              note="الغرف تعمل على Agora مثل المكالمات — LiveKit حُذف من المنتج نهائياً. دقائق الغرف لكل مشارك غير مسجّلة على السيرفر بعد، فلا نعرض رقماً لها."
+              tracked={false}
+            />
           </div>
 
           {/* أسعار التكلفة */}
@@ -259,7 +237,6 @@ export default function CallUsagePage() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-end' }}>
                 <CostInput label="Agora — صوت / دقيقة" value={costs.agoraVoicePerMin} onChange={(v) => setCosts({ ...costs, agoraVoicePerMin: v })} suffix={costs.currency} />
                 <CostInput label="Agora — فيديو / دقيقة" value={costs.agoraVideoPerMin} onChange={(v) => setCosts({ ...costs, agoraVideoPerMin: v })} suffix={costs.currency} />
-                <CostInput label="LiveKit — مشارك / دقيقة" value={costs.livekitPerMin} onChange={(v) => setCosts({ ...costs, livekitPerMin: v })} suffix={costs.currency} />
                 <div style={{ minWidth: 110 }}>
                   <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6, color: 'var(--text-muted, #6B7280)' }}>العملة</label>
                   <input
@@ -391,12 +368,11 @@ export default function CallUsagePage() {
               <li><strong>الدقائق الفعلية</strong> = مدّة المكالمة الحقيقية (durationSeconds) لكل جلسة — تشمل المجانية، وتطابق استهلاك Agora.</li>
               <li><strong>الدقائق المفوترة</strong> = ما خُصم عليه كوينز فقط (minutesCharged) — للمحاسبة الداخلية لا للتكلفة.</li>
               <li>Agora يفوتر لكل <em>مشارك</em>: مكالمة 1:1 لمدة دقيقة = دقيقتا مشارك. اضبط السعر أو اضرب التكلفة ×2 حسب الحاجة.</li>
-              <li>LiveKit يُحتسب لكل مشارك فعلياً عبر Webhook (دخول→خروج) — لا يحتاج مضاعفة.</li>
-              {!lk.hasData && (
-                <li style={{ color: '#B45309' }}>
-                  تتبّع LiveKit غير مفعّل بعد — أضِف رابط الـ Webhook في لوحة LiveKit Cloud لتبدأ الدقائق بالتجمّع.
-                </li>
-              )}
+              <li style={{ color: '#B45309' }}>
+                دقائق الغرف لكل مشارك غير مسجّلة على السيرفر بعد — الأرقام أعلاه للمكالمات
+                والمطابقة فقط.
+              </li>
+
               {(stats.reachedLimit || lk.reachedLimit) && (
                 <li style={{ color: 'var(--danger, #EF4444)' }}>
                   تم بلوغ حد القراءة — قلّل النطاق الزمني للحصول على أرقام دقيقة.

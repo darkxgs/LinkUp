@@ -1007,7 +1007,7 @@ function WebViewTestHub({ games, onTest }: { games: ConfigGame[]; onTest: (id: s
         <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6 }}>
           الألعاب هنا تعمل برصيد تجريبي داخل لوحة التحكم ولا تؤثر على محافظ المستخدمين.
           ألعاب التحدي 1v1 بنفس واجهة التطبيق في بيئة فحص محلية.
-          التطبيق يستخدم نفس روابط الاستضافة مع Firestore الحقيقي.
+          التطبيق يستخدم نفس روابط الاستضافة مع الإعدادات الحقيقية.
         </p>
       </div>
 
@@ -1247,7 +1247,7 @@ function GameSimulatorModal({ game, webGame, globalEconomy, onClose }: GameSimul
             <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               {isChallenge
                 ? 'تحدي 1v1 — بيئة فحص LinkUp (لا تؤثر على الأرصدة الحقيقية)'
-                : 'رصيد تجريبي — لا يؤثر على التطبيق أو Firestore'}
+                : 'رصيد تجريبي — لا يؤثر على أرصدة التطبيق الحقيقية'}
             </p>
           </div>
           <button className="action-icon" onClick={onClose} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>

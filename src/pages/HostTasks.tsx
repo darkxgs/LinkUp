@@ -64,7 +64,7 @@ export default function HostTasksPage() {
       <div className="filters-bar">
         <div className="config-sync-badge">
           <Cloud size={16} />
-          متصل بـ Firestore — config/hostTasks
+          مرتبط بالتطبيق — إعدادات hostTasks
         </div>
         <button className="btn btn-primary" style={{ marginRight: 'auto' }} onClick={handleSave} disabled={saving}>
           <Save size={16} />

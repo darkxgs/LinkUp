@@ -171,8 +171,8 @@ export default function WalletPage() {
       <div className="grant-card">
         <h3><Zap size={20} style={{ display: 'inline', verticalAlign: 'middle', marginLeft: 6 }} /> شحن سريع بالمعرّف</h3>
         <p>
-          أدخل معرّف الحساب (8 أرقام من التطبيق) أو Firebase UID. يُضاف الرصيد مباشرة في Firestore
-          ويظهر فوراً في تطبيق المستخدم.
+          أدخل معرّف الحساب (8 أرقام من التطبيق) أو بريده الإلكتروني. يُضاف الرصيد بعملية مسجَّلة في
+          دفتر سيرفرنا — تُرى في «المعاملات» وفي سجل الإدارة — ويظهر فوراً في تطبيق المستخدم.
         </p>
         <div className="grant-form">
           <div>

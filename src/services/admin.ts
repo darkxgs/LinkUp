@@ -947,17 +947,51 @@ export interface AdminRelationship {
   updatedAt: number;
 }
 
+/** صف علاقة كما يعيده السيرفر. */
+interface ServerRelationshipRow {
+  id: string;
+  userA: string;
+  userB: string;
+  userAName: string;
+  userAAvatar: string;
+  userBName: string;
+  userBAvatar: string;
+  points: number;
+  level: number;
+  updatedAt: string;
+}
+
 /**
- * ⚠️ صفحة «العلاقات» لا تُرجع بيانات على v2 — بعد.
+ * صفحة «العلاقات» — من `/admin/relationships`.
  *
- * v1 read a `relationships` collection (a pairing feature with intimacy points).
- * v2's social graph is follows + blocks; there is no relationships table, so
- * there is nothing to read. Returning an empty list is the honest answer — the
- * page shows its own empty state instead of numbers that do not exist.
+ * كنتُ قد أعدتُ فراغاً بحجة أن v2 لا يملك الميزة، وكان ذلك خطأً: جدول
+ * `relationships` موجود ويتجمّع فعلاً من الشات والمكالمات (نقاط الألفة والمستوى)،
+ * فالصفحة كانت تعرض أصفاراً فوق بيانات حقيقية. الآن تقرأ الأقوى أولاً.
+ *
+ * «الهدايا المتبادلة» لا يُخزَّن كعدّاد على العلاقة في v2، فيبقى صفراً بدل رقم مُلفّق.
  */
 export const getRelationships = async (limitCount = 100): Promise<AdminRelationship[]> => {
-  void limitCount;
-  return [];
+  try {
+    const rows = await v2.get<ServerRelationshipRow[]>(
+      `/admin/relationships${v2Qs({ limit: limitCount })}`,
+    );
+    return (rows ?? []).map((r) => ({
+      id: r.id,
+      user1Uid: r.userA,
+      user2Uid: r.userB,
+      user1Name: r.userAName || '—',
+      user1Avatar: r.userAAvatar || '',
+      user2Name: r.userBName || '—',
+      user2Avatar: r.userBAvatar || '',
+      level: r.level,
+      intimacyPoints: r.points,
+      giftsExchanged: 0,
+      updatedAt: new Date(r.updatedAt).getTime() || 0,
+    }));
+  } catch (e) {
+    console.error('getRelationships:', e);
+    return [];
+  }
 };
 
 // ==================== ROOMS ====================

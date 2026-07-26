@@ -272,7 +272,7 @@ export default function NotificationsPage() {
             <div className="card-body">
               <label className="form-label">معرّف المستخدم</label>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-                Firebase UID كامل أو المعرف العام (8 أرقام)
+                المعرّف العام (8 أرقام) أو البريد الإلكتروني
               </p>
               <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
                 <input

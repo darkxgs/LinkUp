@@ -87,7 +87,7 @@ export default function RoomsPage() {
           <Radio size={22} color="#d21e2a" /> الغرف الصوتية المباشرة
         </h2>
         <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
-          غرف بث صوتي لحظية (Realtime DB) — تختلف عن «الوكالات». يمكنك إغلاق أي غرفة بثّ أو حذفها.
+          غرف بث صوتي لحظية — تختلف عن «الوكالات». يمكنك إغلاق أي غرفة بثّ أو حذفها.
         </p>
       </div>
 
